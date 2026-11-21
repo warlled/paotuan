@@ -23,13 +23,75 @@ const guestTurnLimit = numOr(engine.config.guestTurnLimit, 60);
 const guestDailyCalls = numOr(engine.config.guestDailyCalls, 150);
 const maxConcurrentModels = numOr(engine.config.maxConcurrentModels, 2);
 
-/** 管理密钥：优先用 ADMIN_KEY，否则从 DeepSeek 密钥派生，避免公开仓库泄露。 */
-const ADMIN_KEY = (() => {
-  const explicit = String(engine.config.adminKey || process.env.ADMIN_KEY || "").trim();
+/** 管理密码：优先 ADMIN_PASSWORD，否则从 DeepSeek 密钥派生，避免公开仓库泄露。 */
+const ADMIN_PASSWORD = (() => {
+  const explicit = String(process.env.ADMIN_PASSWORD || engine.config.adminPassword || "").trim();
   if (explicit) return explicit;
-  const apiKey = String(process.env.DEEPSEEK_API_KEY || engine.config.apiKey || "");
-  return apiKey ? crypto.createHash("sha256").update(apiKey).digest("hex").slice(0, 16) : "";
+  const apiKey = String(process.env.SECRET_KEY || process.env.DEEPSEEK_API_KEY || engine.config.apiKey || "");
+  if (!apiKey) return "";
+  return crypto.createHash("sha256").update(apiKey + "|paotuan-admin|v1").digest("hex").slice(0, 24);
 })();
+
+const SESSION_SECRET = crypto.createHash("sha256").update("paotuan-session|" + ADMIN_PASSWORD).digest();
+const ADMIN_TTL_MS = 30 * 24 * 3600 * 1000;
+
+function signToken(exp) {
+  return crypto.createHmac("sha256", SESSION_SECRET).update(String(exp)).digest("hex");
+}
+
+function makeAdminToken() {
+  const exp = Date.now() + ADMIN_TTL_MS;
+  return exp + "." + signToken(exp);
+}
+
+function validAdminToken(value) {
+  const parts = String(value || "").split(".");
+  if (parts.length !== 2) return false;
+  const exp = Number(parts[0]);
+  if (!exp || Date.now() > exp) return false;
+  const expect = signToken(exp);
+  if (parts[1].length !== expect.length) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(parts[1]), Buffer.from(expect));
+  } catch {
+    return false;
+  }
+}
+
+function isAdminReq(req) {
+  return validAdminToken(parseCookies(req.headers.cookie).pt_admin);
+}
+
+function isOwnerReq(req) {
+  return validAdminToken(parseCookies(req.headers.cookie).pt_owner);
+}
+
+/* 登录失败限流：同一 IP 10 分钟内最多 8 次 */
+const loginFails = new Map();
+
+function loginBlocked(ip) {
+  const rec = loginFails.get(ip);
+  if (!rec) return false;
+  if (Date.now() > rec.reset) {
+    loginFails.delete(ip);
+    return false;
+  }
+  return rec.count >= 8;
+}
+
+function recordLoginFail(ip) {
+  const rec = loginFails.get(ip);
+  if (!rec || Date.now() > rec.reset) {
+    loginFails.set(ip, { count: 1, reset: Date.now() + 10 * 60 * 1000 });
+    return;
+  }
+  rec.count += 1;
+}
+
+function secureCookie(name, value, maxAge) {
+  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  return `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${secure}`;
+}
 
 function loadShareState() {
   try {
@@ -102,6 +164,14 @@ function readBody(req) {
         resolve({});
       }
     });
+  });
+}
+
+function readRaw(req) {
+  return new Promise((resolve) => {
+    let raw = "";
+    req.on("data", (c) => (raw += c));
+    req.on("end", () => resolve(raw));
   });
 }
 
@@ -196,6 +266,36 @@ function adminDeniedPage() {
 </div></body>`;
 }
 
+function loginPage(error, blocked) {
+  const msg = blocked
+    ? "尝试次数过多，请 10 分钟后再试。"
+    : error
+      ? "密码不正确。"
+      : "";
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>房主登录</title>
+<style>
+body{margin:0;min-height:100vh;background:#0d0f15;color:#e7e8ee;font:15px/1.7 'Microsoft YaHei',sans-serif;display:grid;place-items:center;padding:24px}
+form{width:min(380px,100%);background:#151823;border:1px solid #262b3a;border-radius:18px;padding:28px}
+h1{font-size:19px;margin:0 0 4px;letter-spacing:2px}
+.sub{color:#8b90a0;font-size:13px;margin-bottom:20px}
+input{width:100%;box-sizing:border-box;padding:11px 13px;border-radius:10px;border:1px solid #2d3344;background:#10131b;color:#e7e8ee;font:inherit;outline:none}
+input:focus{border-color:#c8a06a}
+button{margin-top:16px;width:100%;border:0;border-radius:10px;padding:11px;background:#c8a06a;color:#1a1408;font:inherit;font-weight:600;cursor:pointer}
+.err{margin-top:12px;color:#f0a3b4;font-size:13px;min-height:18px}
+.hint{margin-top:16px;color:#6f7486;font-size:12px;line-height:1.7}
+</style></head><body>
+<form method="post" action="/admin/login">
+  <h1>房主登录</h1>
+  <div class="sub">这里是私密后台，只有房主可以进入。</div>
+  <input type="password" name="password" placeholder="管理密码" autocomplete="current-password" autofocus>
+  <button type="submit">进入</button>
+  <div class="err">${msg}</div>
+  <div class="hint">登录后 30 天内免登录；可在后台退出或进入房主模式管理剧本。</div>
+</form></body></html>`;
+}
+
 function adminState() {
   const now = Date.now();
   return {
@@ -210,7 +310,7 @@ function adminState() {
   };
 }
 
-function adminPage(key) {
+function adminPage() {
   const html = [
     '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width,initial-scale=1">',
@@ -240,12 +340,16 @@ function adminPage(key) {
     "</div>",
     '<div class="note">每日调用上限：<b id="cap"></b> 次（今天已用 <b id="used"></b> 次）。<br>',
     "达到上限后会自动停止接待，次日恢复。上限在主机的 GUEST_DAILY_CALLS 环境变量里改。</div>",
+    '<div class="row" style="margin-top:18px">',
+    '<form method="post" action="/admin/owner"><button class="primary" type="submit">进入房主模式</button></form>',
+    '<form method="post" action="/admin/owner/off"><button type="submit">退出房主模式</button></form>',
+    '<form method="post" action="/admin/logout"><button type="submit">退出登录</button></form>',
+    "</div>",
     "</div><script>",
-    "const key = " + JSON.stringify(key) + ";",
     'const statusEl = document.getElementById("status");',
     'function fmt(m){ return m > 0 ? ("剩余约 " + m + " 分钟") : "未设自动关闭"; }',
     "async function refresh(){",
-    '  const r = await fetch("/api/admin/state?key=" + encodeURIComponent(key));',
+    '  const r = await fetch("/api/admin/state");',
     "  const s = await r.json();",
     '  statusEl.className = "status " + (s.open ? "on" : "off");',
     '  statusEl.innerHTML = (s.open ? "● 正在营业" : "● 已关闭") +',
@@ -254,9 +358,9 @@ function adminPage(key) {
     '  document.getElementById("used").textContent = s.callsToday;',
     "}",
     "async function setState(open, minutes){",
-    '  await fetch("/api/admin/state?key=" + encodeURIComponent(key), {',
+    '  await fetch("/api/admin/state", {',
     '    method: "POST", headers: {"content-type": "application/json"},',
-    "    body: JSON.stringify({key, open, minutes})",
+    "    body: JSON.stringify({open, minutes})",
     "  });",
     "  refresh();",
     "}",
@@ -276,6 +380,9 @@ function ctxFor(req, res) {
   }
   const url = new URL(req.url, "http://x");
   const cookies = parseCookies(req.headers.cookie);
+  if (isOwnerReq(req)) {
+    return { entry: getEntry("owner", true), local: false, ownerCookie: true };
+  }
   if (shareKey) {
     const provided = url.searchParams.get("k") || cookies.rk || "";
     if (provided !== shareKey) return { denied: true };
@@ -357,23 +464,66 @@ const server = http.createServer(async (req, res) => {
   if (ctx.denied) return send(res, 403, denyPage(), "text/html; charset=utf-8");
   const entry = ctx.entry;
 
-  const keyInQuery = url.searchParams.get("key") || req.headers["x-admin-key"] || "";
-  const adminOk = entry.owner || Boolean(ADMIN_KEY && keyInQuery === ADMIN_KEY);
+  const adminOk = entry.owner || isAdminReq(req);
+
+  res.setHeader("cache-control", "no-store");
+  res.setHeader("referrer-policy", "no-referrer");
+  res.setHeader("x-frame-options", "DENY");
+
+  if (p === "/admin/login" && req.method === "POST") {
+    const ip = req.socket.remoteAddress || "unknown";
+    if (loginBlocked(ip)) return send(res, 429, loginPage("", true), "text/html; charset=utf-8");
+    const raw = await readRaw(req);
+    const password = new URLSearchParams(raw).get("password") || "";
+    const ok =
+      ADMIN_PASSWORD.length > 0 &&
+      password.length === ADMIN_PASSWORD.length &&
+      crypto.timingSafeEqual(Buffer.from(password), Buffer.from(ADMIN_PASSWORD));
+    if (!ok) {
+      recordLoginFail(ip);
+      res.writeHead(302, { location: "/admin?e=1" });
+      res.end();
+      return;
+    }
+    res.setHeader("set-cookie", secureCookie("pt_admin", makeAdminToken(), 30 * 24 * 3600));
+    res.writeHead(302, { location: "/admin" });
+    res.end();
+    return;
+  }
+
+  if (p === "/admin/logout" && req.method === "POST") {
+    res.setHeader("set-cookie", [secureCookie("pt_admin", "", 0), secureCookie("pt_owner", "", 0)]);
+    res.writeHead(302, { location: "/admin" });
+    res.end();
+    return;
+  }
+
+  if (p === "/admin/owner" && req.method === "POST") {
+    if (!adminOk) return send(res, 403, adminDeniedPage(), "text/html; charset=utf-8");
+    res.setHeader("set-cookie", secureCookie("pt_owner", makeAdminToken(), 7 * 24 * 3600));
+    res.writeHead(302, { location: "/" });
+    res.end();
+    return;
+  }
+
+  if (p === "/admin/owner/off" && req.method === "POST") {
+    res.setHeader("set-cookie", secureCookie("pt_owner", "", 0));
+    res.writeHead(302, { location: "/admin" });
+    res.end();
+    return;
+  }
 
   if (p === "/admin") {
-    if (!adminOk) return send(res, 403, adminDeniedPage(), "text/html; charset=utf-8");
-    return send(res, 200, adminPage(keyInQuery), "text/html; charset=utf-8");
+    if (!adminOk) {
+      const err = url.searchParams.get("e");
+      return send(res, 200, loginPage(err ? "1" : "", false), "text/html; charset=utf-8");
+    }
+    return send(res, 200, adminPage(), "text/html; charset=utf-8");
   }
   if (p === "/api/admin/state") {
-    if (req.method === "GET") {
-      if (!adminOk) return send(res, 403, { error: "没有管理权限" });
-      return send(res, 200, adminState());
-    }
+    if (!adminOk) return send(res, 403, { error: "没有管理权限" });
+    if (req.method === "GET") return send(res, 200, adminState());
     const body = await readBody(req);
-    const supplied = body.key || keyInQuery;
-    if (!(entry.owner || (ADMIN_KEY && supplied === ADMIN_KEY))) {
-      return send(res, 403, { error: "没有管理权限" });
-    }
     const open = Boolean(body.open);
     const minutes = Math.max(0, Math.min(24 * 60, Number(body.minutes) || 0));
     saveShareState({

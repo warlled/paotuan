@@ -6,6 +6,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
+const crypto = require("node:crypto");
 const { spawn } = require("node:child_process");
 const https = require("node:https");
 const { linksToPromptBlock, MAX_LINKS } = require("./linkfetch");
@@ -1240,15 +1241,58 @@ function createSession({ character, scenarioId, difficulty, scenarioDir }) {
 
 const SAVE_FILE = path.join(WORK, "session.json");
 
+/** 存档加密：设置 DATA_KEY 时启用；云端默认从 DeepSeek 密钥派生。 */
+const DATA_KEY = (() => {
+  const explicit = String(process.env.DATA_KEY || "").trim();
+  if (explicit) return crypto.createHash("sha256").update(explicit).digest();
+  if (String(process.env.MODEL_PROVIDER || config.provider).toLowerCase() === "deepseek") {
+    const base = String(process.env.SECRET_KEY || process.env.DEEPSEEK_API_KEY || config.apiKey || "");
+    if (base) return crypto.createHash("sha256").update(base + "|paotuan-data|v1").digest();
+  }
+  return null;
+})();
+
+function encryptJson(obj) {
+  if (!DATA_KEY) return JSON.stringify(obj, null, 2);
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", DATA_KEY, iv);
+  const data = Buffer.concat([cipher.update(JSON.stringify(obj), "utf8"), cipher.final()]);
+  return JSON.stringify({
+    __enc: 1,
+    iv: iv.toString("base64"),
+    tag: cipher.getAuthTag().toString("base64"),
+    data: data.toString("base64"),
+  });
+}
+
+function decryptJson(text) {
+  let obj;
+  try {
+    obj = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!obj || obj.__enc !== 1) return obj;
+  if (!DATA_KEY) return null;
+  try {
+    const decipher = crypto.createDecipheriv("aes-256-gcm", DATA_KEY, Buffer.from(obj.iv, "base64"));
+    decipher.setAuthTag(Buffer.from(obj.tag, "base64"));
+    const plain = Buffer.concat([decipher.update(Buffer.from(obj.data, "base64")), decipher.final()]);
+    return JSON.parse(plain.toString("utf8"));
+  } catch {
+    return null;
+  }
+}
+
 function saveSession(session, file) {
   try {
-    fs.writeFileSync(file || SAVE_FILE, JSON.stringify(session, null, 2));
+    fs.writeFileSync(file || SAVE_FILE, encryptJson(session));
   } catch {}
 }
 
 function loadSession(file) {
   try {
-    return JSON.parse(fs.readFileSync(file || SAVE_FILE, "utf8"));
+    return decryptJson(fs.readFileSync(file || SAVE_FILE, "utf8"));
   } catch {
     return null;
   }
