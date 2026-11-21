@@ -15,7 +15,7 @@ services:
       - key: GUEST_TURN_LIMIT
         value: "800"
       - key: GUEST_DAILY_CALLS
-        value: "0"
+        value: "200"
       - key: MAX_CONCURRENT_MODELS
         value: "4"
       - key: DATA_DIR

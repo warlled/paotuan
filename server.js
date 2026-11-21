@@ -14,12 +14,46 @@ const PUBLIC = path.join(ROOT, "public");
 const STATE_FILE = path.join(engine.WORK, "server.json");
 const SESS_DIR = path.join(engine.WORK, "sessions");
 const STATS_FILE = path.join(engine.WORK, "share-stats.json");
+const SHARE_STATE_FILE = path.join(engine.WORK, "share-state.json");
 fs.mkdirSync(SESS_DIR, { recursive: true });
 
 const shareKey = String(engine.config.shareKey || "").trim();
-const guestTurnLimit = Number(engine.config.guestTurnLimit) || 60;
-const guestDailyCalls = Number(engine.config.guestDailyCalls) || 150;
-const maxConcurrentModels = Number(engine.config.maxConcurrentModels) || 2;
+const numOr = (value, fallback) => (Number.isFinite(Number(value)) ? Number(value) : fallback);
+const guestTurnLimit = numOr(engine.config.guestTurnLimit, 60);
+const guestDailyCalls = numOr(engine.config.guestDailyCalls, 150);
+const maxConcurrentModels = numOr(engine.config.maxConcurrentModels, 2);
+
+/** 管理密钥：优先用 ADMIN_KEY，否则从 DeepSeek 密钥派生，避免公开仓库泄露。 */
+const ADMIN_KEY = (() => {
+  const explicit = String(engine.config.adminKey || process.env.ADMIN_KEY || "").trim();
+  if (explicit) return explicit;
+  const apiKey = String(process.env.DEEPSEEK_API_KEY || engine.config.apiKey || "");
+  return apiKey ? crypto.createHash("sha256").update(apiKey).digest("hex").slice(0, 16) : "";
+})();
+
+function loadShareState() {
+  try {
+    const s = JSON.parse(fs.readFileSync(SHARE_STATE_FILE, "utf8"));
+    return { open: s.open !== false, openUntil: Number(s.openUntil) || 0, updatedAt: Number(s.updatedAt) || 0 };
+  } catch {
+    return { open: true, openUntil: 0, updatedAt: 0 };
+  }
+}
+
+let shareState = loadShareState();
+
+function saveShareState(next) {
+  shareState = next;
+  try {
+    fs.writeFileSync(SHARE_STATE_FILE, JSON.stringify(next, null, 2));
+  } catch {}
+}
+
+function siteOpen() {
+  if (!shareState.open) return false;
+  if (!shareState.openUntil) return true;
+  return Date.now() < shareState.openUntil;
+}
 
 const store = new Map(); // sid -> { sid, owner, session, busy, lastSeen }
 let activeModels = 0;
@@ -143,6 +177,99 @@ function denyPage() {
 </div></body>`;
 }
 
+function closedPage() {
+  return `<!doctype html><meta charset="utf-8"><title>暂停营业</title>
+<body style="margin:0;height:100vh;display:grid;place-items:center;background:#0d0f15;color:#e7e8ee;font:16px/1.8 'Microsoft YaHei',sans-serif">
+<div style="text-align:center;max-width:520px;padding:24px">
+<div style="font-size:22px;letter-spacing:3px;color:#c8a06a;margin-bottom:14px">今日暂停营业</div>
+<div style="color:#8b90a0">房主暂时关闭了入口，晚点再来。</div>
+<div style="color:#4a5062;font-size:13px;margin-top:18px">（这不是故障，入口随时会重新开放）</div>
+</div></body>`;
+}
+
+function adminDeniedPage() {
+  return `<!doctype html><meta charset="utf-8"><title>需要管理密钥</title>
+<body style="margin:0;height:100vh;display:grid;place-items:center;background:#0d0f15;color:#e7e8ee;font:16px/1.8 'Microsoft YaHei',sans-serif">
+<div style="text-align:center;max-width:520px;padding:24px">
+<div style="font-size:20px;letter-spacing:2px;margin-bottom:12px">这个页面需要管理密钥</div>
+<div style="color:#8b90a0">请使用带 ?key= 的完整管理链接。</div>
+</div></body>`;
+}
+
+function adminState() {
+  const now = Date.now();
+  return {
+    open: siteOpen(),
+    manualOpen: shareState.open,
+    openUntil: shareState.openUntil || 0,
+    minutesLeft: shareState.openUntil ? Math.max(0, Math.round((shareState.openUntil - now) / 60000)) : 0,
+    updatedAt: shareState.updatedAt || 0,
+    guestTurnLimit,
+    guestDailyCalls,
+    callsToday: readStats().calls,
+  };
+}
+
+function adminPage(key) {
+  const html = [
+    '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width,initial-scale=1">',
+    "<title>跑团入口开关</title><style>",
+    "body{margin:0;min-height:100vh;background:#0d0f15;color:#e7e8ee;font:15px/1.7 'Microsoft YaHei',sans-serif;display:grid;place-items:center;padding:24px}",
+    ".card{width:min(560px,100%);background:#151823;border:1px solid #262b3a;border-radius:18px;padding:26px}",
+    "h1{font-size:20px;margin:0 0 6px;letter-spacing:2px}",
+    ".sub{color:#8b90a0;font-size:13px;margin-bottom:20px}",
+    ".status{padding:14px 16px;border-radius:12px;margin-bottom:18px;font-size:16px;letter-spacing:1px}",
+    ".on{background:#14251c;border:1px solid #2f6a4a;color:#8fd8ac}",
+    ".off{background:#2a1720;border:1px solid #6a2f3f;color:#f0a3b4}",
+    ".meta{color:#8b90a0;font-size:12.5px;margin-top:6px;letter-spacing:0}",
+    ".row{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}",
+    "button{border:0;border-radius:10px;padding:10px 18px;font:inherit;cursor:pointer;background:#262b3a;color:#e7e8ee}",
+    "button.primary{background:#c8a06a;color:#1a1408;font-weight:600}",
+    "button.danger{background:#5a2330;color:#ffd7de}",
+    ".note{color:#6f7486;font-size:12.5px;margin-top:18px;line-height:1.7}",
+    "</style></head><body><div class=card>",
+    "<h1>跑团入口开关</h1>",
+    '<div class="sub">关闭后所有访客都会看到“今日暂停营业”，模型不会被调用。</div>',
+    '<div id="status" class="status off">读取中…</div>',
+    '<div class="row">',
+    '<button id="close" class="danger">立即关闭</button>',
+    '<button id="open1">开放 1 小时</button>',
+    '<button id="open2">开放 2 小时</button>',
+    '<button id="open0" class="primary">持续开放</button>',
+    "</div>",
+    '<div class="note">每日调用上限：<b id="cap"></b> 次（今天已用 <b id="used"></b> 次）。<br>',
+    "达到上限后会自动停止接待，次日恢复。上限在主机的 GUEST_DAILY_CALLS 环境变量里改。</div>",
+    "</div><script>",
+    "const key = " + JSON.stringify(key) + ";",
+    'const statusEl = document.getElementById("status");',
+    'function fmt(m){ return m > 0 ? ("剩余约 " + m + " 分钟") : "未设自动关闭"; }',
+    "async function refresh(){",
+    '  const r = await fetch("/api/admin/state?key=" + encodeURIComponent(key));',
+    "  const s = await r.json();",
+    '  statusEl.className = "status " + (s.open ? "on" : "off");',
+    '  statusEl.innerHTML = (s.open ? "● 正在营业" : "● 已关闭") +',
+    '    `<div class="meta">` + (s.open ? fmt(s.minutesLeft) : "访客将看到暂停营业页") + "</div>";',
+    '  document.getElementById("cap").textContent = s.guestDailyCalls > 0 ? s.guestDailyCalls : "不限";',
+    '  document.getElementById("used").textContent = s.callsToday;',
+    "}",
+    "async function setState(open, minutes){",
+    '  await fetch("/api/admin/state?key=" + encodeURIComponent(key), {',
+    '    method: "POST", headers: {"content-type": "application/json"},',
+    "    body: JSON.stringify({key, open, minutes})",
+    "  });",
+    "  refresh();",
+    "}",
+    'document.getElementById("close").onclick = () => setState(false, 0);',
+    'document.getElementById("open1").onclick = () => setState(true, 60);',
+    'document.getElementById("open2").onclick = () => setState(true, 120);',
+    'document.getElementById("open0").onclick = () => setState(true, 0);',
+    "refresh();",
+    "</script></body></html>",
+  ];
+  return html.join("");
+}
+
 function ctxFor(req, res) {
   if (isLocal(req)) {
     return { entry: getEntry("owner", true), local: true };
@@ -229,6 +356,37 @@ const server = http.createServer(async (req, res) => {
   const ctx = ctxFor(req, res);
   if (ctx.denied) return send(res, 403, denyPage(), "text/html; charset=utf-8");
   const entry = ctx.entry;
+
+  const keyInQuery = url.searchParams.get("key") || req.headers["x-admin-key"] || "";
+  const adminOk = entry.owner || Boolean(ADMIN_KEY && keyInQuery === ADMIN_KEY);
+
+  if (p === "/admin") {
+    if (!adminOk) return send(res, 403, adminDeniedPage(), "text/html; charset=utf-8");
+    return send(res, 200, adminPage(keyInQuery), "text/html; charset=utf-8");
+  }
+  if (p === "/api/admin/state") {
+    if (req.method === "GET") {
+      if (!adminOk) return send(res, 403, { error: "没有管理权限" });
+      return send(res, 200, adminState());
+    }
+    const body = await readBody(req);
+    const supplied = body.key || keyInQuery;
+    if (!(entry.owner || (ADMIN_KEY && supplied === ADMIN_KEY))) {
+      return send(res, 403, { error: "没有管理权限" });
+    }
+    const open = Boolean(body.open);
+    const minutes = Math.max(0, Math.min(24 * 60, Number(body.minutes) || 0));
+    saveShareState({
+      open,
+      openUntil: open && minutes > 0 ? Date.now() + minutes * 60000 : 0,
+      updatedAt: Date.now(),
+    });
+    return send(res, 200, adminState());
+  }
+
+  if (!entry.owner && !siteOpen()) {
+    return send(res, 503, closedPage(), "text/html; charset=utf-8");
+  }
 
   if (req.method === "GET" && (p === "/" || p === "/index.html")) {
     return send(res, 200, fs.readFileSync(path.join(PUBLIC, "index.html"), "utf8"), "text/html; charset=utf-8");
