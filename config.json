@@ -1,0 +1,10 @@
+{
+  "model": "deepseek-v4-flash",
+  "port": 8890,
+  "guestTurnLimit": 800,
+  "guestDailyCalls": 0,
+  "maxConcurrentModels": 4,
+  "bindHost": "0.0.0.0",
+  "reasoningEffort": "low",
+  "shareKey": "gmv1f7"
+}

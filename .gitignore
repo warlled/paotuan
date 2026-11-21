@@ -1,0 +1,8 @@
+work/
+bin/
+node_modules/
+*.log
+*.ico
+*.png
+*.env
+*.local

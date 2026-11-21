@@ -1,0 +1,16 @@
+@echo off
+cd /d "%~dp0"
+where node >nul 2>nul
+if errorlevel 1 goto nonode
+title ???? - ???????????
+node share.js
+echo.
+echo ??????
+pause
+goto end
+
+:nonode
+echo Node.js was not found.
+pause
+
+:end

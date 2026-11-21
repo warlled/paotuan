@@ -1,0 +1,7 @@
+work
+bin
+node_modules
+*.png
+*.ico
+*.log
+.git

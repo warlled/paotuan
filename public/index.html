@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>跑团 · 本地 GM</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<section id="setup">
+  <div class="setup-wrap">
+    <h1>跑团 · <span>本地 GM</span></h1>
+    <div class="setup-sub">模型负责讲故事和扮演 NPC，骰子、时间、数值由程序管。<span id="modelTag"></span></div>
+
+    <div class="step">
+      <h2>一、选剧本</h2>
+      <div class="picker-bar">
+        <div class="tabs" id="scenario-tabs"></div>
+        <div class="pager">
+          <button id="sc-prev" title="上一页">‹</button>
+          <span id="sc-page">第 1 / 1 页</span>
+          <button id="sc-next" title="下一页">›</button>
+        </div>
+      </div>
+      <div class="cards" id="scenarios"></div>
+      <div class="start-bar">
+        <button class="ghost" id="btn-custom-scenario">＋ 自己写一个剧本</button>
+        <button class="ghost hidden" id="btn-edit-scenario">编辑选中的自定义剧本</button>
+        <button class="ghost hidden" id="btn-del-scenario">删除选中的自定义剧本</button>
+        <span class="hint" id="scenario-note"></span>
+      </div>
+      <div class="custom hidden" id="custom-box">
+        <div class="grid2">
+          <div class="field"><label>剧本标题 *</label><input id="s-title" placeholder="例如：雪夜来客"></div>
+          <div class="field"><label>类型</label><input id="s-genre" placeholder="例如：民国 · 密室"></div>
+          <div class="field"><label>一句话简介</label><input id="s-blurb" placeholder="开局界面上显示这一行"></div>
+          <div class="field"><label>基调</label><input id="s-tone" placeholder="例如：冷、克制、压抑"></div>
+        </div>
+        <div class="grid2" style="margin-top:12px">
+          <div class="field"><label>背景设定 *</label><textarea id="s-background" placeholder="这是个什么地方、什么时候、发生了什么、玩家为什么在这里"></textarea></div>
+          <div class="field"><label>玩家初始处境</label><textarea id="s-hook" placeholder="开局那一刻，玩家站在哪、手上有什么"></textarea></div>
+          <div class="field"><label>开场白（留空则由 GM 自动写）</label><textarea id="s-opening" placeholder="想自己写开场就把文字贴这里，会原样出现在游戏里"></textarea></div>
+          <div class="field"><label>真相 / 内幕（GM 知道但不会直说）</label><textarea id="s-truth" placeholder="幕后是谁、为什么。留空则由 GM 自己编一个并保持一致"></textarea></div>
+        </div>
+        <div class="grid2" style="margin-top:12px">
+          <div class="field"><label>人物（每行一个：名字｜一句话描述｜内情）</label><textarea id="s-npcs" placeholder="陆守仁｜六十二岁的当家，手指偶尔发颤｜其实已经中毒"></textarea></div>
+          <div class="field"><label>线索池（每行一条）</label><textarea id="s-clues" placeholder="药渣里有乌头的苦味"></textarea></div>
+          <div class="field"><label>时间表（每行：第几天｜时:分｜事件｜说明）</label><textarea id="s-schedule" placeholder="1｜20:00｜后厅开宴｜所有人都要到场&#10;2｜01:00｜书房前的影子｜有人开了灯"></textarea></div>
+          <div class="field"><label>结局（每行：名称｜达成条件）</label><textarea id="s-endings" placeholder="当众揭破｜在老爷死前把凶手与旧案一并揭出"></textarea></div>
+        </div>
+        <div class="grid3" style="margin-top:12px">
+          <div class="field"><label>开局第几天</label><input id="s-day" value="1"></div>
+          <div class="field"><label>开局时间（时:分）</label><input id="s-time" value="18:00"></div>
+          <div class="field"><label>随身钱</label><input id="s-money" value="100"></div>
+        </div>
+        <div class="field" style="margin-top:12px"><label>随身物品（用逗号分隔）</label><input id="s-items" placeholder="怀表, 折叠伞, 一封信"></div>
+        <div class="field" style="margin-top:12px">
+          <label>参考资料链接（每行一个，会随剧本保存）</label>
+          <textarea id="s-links" placeholder="https://example.com/worldbuilding&#10;https://example.com/timeline"></textarea>
+          <div class="start-bar" style="margin-top:8px">
+            <button class="ghost" id="btn-fetch-scenario-links">抓取链接内容</button>
+            <span class="hint" id="s-links-note">抓回来的正文会作为设定依据交给 GM</span>
+          </div>
+          <div class="links-list" id="s-links-list"></div>
+        </div>
+        <div class="start-bar">
+          <button class="primary" id="btn-save-scenario">保存剧本</button>
+          <button class="ghost" id="btn-cancel-scenario">收起</button>
+          <span class="hint">保存后会出现在上面的剧本列表里，下次也能用。</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="step">
+      <h2>二、写你的角色</h2>
+      <div class="grid2">
+        <div class="field"><label>姓名 *</label><input id="c-name" placeholder="例如：沈聿"></div>
+        <div class="field"><label>称呼 / 性别</label><input id="c-gender" placeholder="例如：男 / 女 / 不必称呼"></div>
+        <div class="field"><label>年龄</label><input id="c-age" placeholder="例如：28"></div>
+        <div class="field"><label>身份职业</label><input id="c-role" placeholder="例如：报社记者"></div>
+      </div>
+      <div style="height:12px"></div>
+      <div class="grid2">
+        <div class="field"><label>外貌</label><textarea id="c-appearance" placeholder="衣着、体态、一眼会被记住的地方"></textarea></div>
+        <div class="field"><label>性格</label><textarea id="c-personality" placeholder="平时什么样，急起来什么样"></textarea></div>
+        <div class="field"><label>背景</label><textarea id="c-background" placeholder="你从哪来，为什么到这里"></textarea></div>
+        <div class="field"><label>目标 / 动机</label><textarea id="c-goal" placeholder="你最想弄清或得到什么"></textarea></div>
+      </div>
+      <div class="start-bar" style="margin-top:12px">
+        <input id="preset-name" placeholder="预设名（存角色用）" style="width:200px">
+        <button class="ghost" id="btn-save-preset">保存这个角色</button>
+        <select id="preset-list" style="width:170px"></select>
+        <button class="ghost" id="btn-load-preset">读取</button>
+        <button class="ghost" id="btn-del-preset">删除</button>
+      </div>
+    </div>
+
+    <div class="step">
+      <h2>三、分配属性（共 30 点，每项 1-10）</h2>
+      <div class="pool" id="pool"></div>
+      <div class="attrs" id="attrs"></div>
+      <div class="start-bar">
+        <button class="ghost" id="btn-random-attrs">随机分配</button>
+        <button class="ghost" id="btn-reset-attrs">重置为 5</button>
+        <span class="hint" id="derived"></span>
+      </div>
+    </div>
+
+    <div class="step">
+      <h2>四、难度</h2>
+      <div class="cards" id="diffs" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))"></div>
+    </div>
+
+    <div class="err" id="err"></div>
+    <div class="start-bar">
+      <button class="primary" id="start">开始游戏</button>
+      <button class="ghost hidden" id="resume">继续上次的游戏</button>
+      <span class="hint" id="startHint"></span>
+    </div>
+  </div>
+</section>
+
+<section id="game">
+  <aside id="side">
+    <div class="sect">
+      <div class="bigname" id="pc-name"></div>
+      <div class="sub" id="pc-sub"></div>
+      <div class="bar hp"><div class="lab"><span>生命</span><span id="hp-text"></span></div><div class="track"><div class="fill" id="hp-fill"></div></div></div>
+      <div class="bar san"><div class="lab"><span>理智</span><span id="san-text"></span></div><div class="track"><div class="fill" id="san-fill"></div></div></div>
+      <div class="kv"><span>随身钱</span><span id="money"></span></div>
+      <div class="kv"><span>已进行</span><span id="turns"></span></div>
+    </div>
+
+    <div class="sect">
+      <h3>属性</h3>
+      <div id="attr-list"></div>
+    </div>
+
+    <div class="sect">
+      <h3>技能值</h3>
+      <div class="tags" id="skill-list"></div>
+    </div>
+
+    <div class="sect">
+      <h3>主动掷骰</h3>
+      <div class="dice-panel">
+        <select id="roll-skill"></select>
+        <select id="roll-dc">
+          <option value="10">简单</option>
+          <option value="15" selected>普通</option>
+          <option value="20">困难</option>
+          <option value="25">极难</option>
+        </select>
+        <button id="roll-btn">掷</button>
+      </div>
+    </div>
+
+    <div class="sect">
+      <h3>背包</h3>
+      <div class="tags" id="inventory"></div>
+    </div>
+
+    <div class="sect">
+      <h3>线索</h3>
+      <div class="tags" id="clues"></div>
+    </div>
+
+      <div class="sect">
+        <h3>时间表</h3>
+        <div class="sched" id="schedule"></div>
+      </div>
+
+      <div class="sect">
+        <h3>人物关系</h3>
+        <div class="rel-list" id="relations"></div>
+      </div>
+
+      <div class="sect">
+        <h3>当前目标</h3>
+        <div class="obj-list" id="objectives"></div>
+      </div>
+
+      <div class="sect">
+        <h3>已发生事件</h3>
+        <div class="sched" id="eventlog"></div>
+      </div>
+
+      <div class="sect" id="settings-sect">
+        <h3>设定（下一回合生效）</h3>
+      <div class="field"><label>叙事篇幅</label><select id="set-length"></select></div>
+      <div class="field" style="margin-top:8px"><label>思考强度</label>
+        <select id="set-effort">
+          <option value="low">低（最快）</option>
+          <option value="medium">中</option>
+          <option value="high">高（最细，也最慢）</option>
+        </select>
+      </div>
+      <div class="field" style="margin-top:8px"><label>大失败</label>
+        <select id="set-critfail">
+          <option value="true">开启（掷出 1 必失败）</option>
+          <option value="false">关闭（最低也只是代价大）</option>
+        </select>
+      </div>
+      <div class="field" style="margin-top:8px"><label>GM 没给耗时时，默认推进（分钟）</label>
+        <input id="set-advance" type="number" min="0" max="240" value="10">
+      </div>
+        <div class="field" style="margin-top:8px"><label>补充设定（风格、口径、禁忌，会进提示词）</label>
+          <textarea id="set-extra" placeholder="例如：不要写超自然元素；NPC 说话短一些；可以适当血腥"></textarea>
+        </div>
+        <div class="field" style="margin-top:8px"><label>参考资料链接（每行一个）</label>
+          <textarea id="set-links" placeholder="https://example.com/wiki"></textarea>
+        </div>
+        <div class="start-bar">
+          <button class="ghost" id="btn-fetch-setting-links">抓取链接内容</button>
+          <span class="hint" id="set-links-note"></span>
+        </div>
+        <div class="links-list" id="set-links-list"></div>
+        <div class="start-bar">
+          <button class="ghost" id="btn-save-settings">保存设定</button>
+        <span class="hint" id="settings-note"></span>
+      </div>
+    </div>
+
+    <div class="sect">
+      <h3>负载</h3>
+      <div class="kv"><span>模型调用</span><span id="usage-calls">0</span></div>
+      <div class="kv"><span>输入 tokens</span><span id="usage-input">0</span></div>
+      <div class="kv"><span>输出 tokens</span><span id="usage-output">0</span></div>
+      <div class="kv"><span>日志条数</span><span id="usage-log">0</span></div>
+      <div class="hint" id="usage-note"></div>
+    </div>
+  </aside>
+
+  <div id="main">
+    <div id="topbar">
+      <span class="title" id="tb-title"></span>
+      <span class="clock" id="tb-clock"></span>
+      <span class="spacer"></span>
+      <span class="hint" id="tb-save">自动存档</span>
+      <button id="btn-new">重新开始</button>
+      <button id="btn-quit">退出</button>
+    </div>
+    <div id="log"></div>
+    <button id="jump-latest" class="jump hidden">↓ 有新内容，回到最新</button>
+    <div id="composer">
+      <div id="quick">
+        <button data-q="我先观察一下四周，看看有没有不对劲的地方。">观察四周</button>
+        <button data-q="我找个身边的人搭话，试探一下他的反应。">找人搭话</button>
+        <button data-q="我把现在知道的事情在脑子里过一遍，理一理线索。">梳理线索</button>
+        <button data-q="我原地休息一会儿，顺便留意周围的动静。">休息一会儿</button>
+      </div>
+      <div id="inputRow">
+        <textarea id="input" placeholder="你要做什么？（Enter 发送，Shift+Enter 换行）"></textarea>
+        <button class="primary" id="send">行动</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script src="/app.js"></script>
+</body>
+</html>

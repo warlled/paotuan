@@ -1,0 +1,952 @@
+/* 跑团面板前端 */
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, text) => {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined) n.textContent = text;
+  return n;
+};
+
+let meta = null;
+let session = null;
+let busy = false;
+
+const setupState = {
+  scenarioId: null,
+  difficulty: "normal",
+  attrs: {},
+  editingId: null,
+};
+
+/* ---------- 开局界面 ---------- */
+
+const PAGE_SIZE = 4;
+let scFilter = "all";
+let scPage = 0;
+
+function scenarioSeries(s) {
+  const genre = String(s.genre || "");
+  if (/^dc-/i.test(s.id) || /DC/i.test(genre)) return "dc";
+  if (/^marvel-/i.test(s.id) || /Marvel|漫威/i.test(genre)) return "marvel";
+  return "original";
+}
+
+function filteredScenarios() {
+  const all = meta.scenarios || [];
+  return scFilter === "all" ? all : all.filter((s) => scenarioSeries(s) === scFilter);
+}
+
+function renderScenarioTabs() {
+  const box = $("scenario-tabs");
+  if (!box) return;
+  box.innerHTML = "";
+  const tabs = [
+    ["all", "全部"],
+    ["original", "原创"],
+    ["dc", "DC"],
+    ["marvel", "漫威"],
+  ];
+  for (const [key, label] of tabs) {
+    const b = el("button", scFilter === key ? "on" : "", label);
+    b.addEventListener("click", () => {
+      if (scFilter === key) return;
+      scFilter = key;
+      scPage = 0;
+      setupState.scenarioId = null;
+      renderScenarios();
+    });
+    box.appendChild(b);
+  }
+}
+
+function renderScenarios(selectId) {
+  renderScenarioTabs();
+  if (selectId && !filteredScenarios().some((s) => s.id === selectId)) {
+    scFilter = "all";
+    renderScenarioTabs();
+  }
+  const list = filteredScenarios();
+  const pages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
+  if (selectId) {
+    const idx = list.findIndex((s) => s.id === selectId);
+    if (idx >= 0) scPage = Math.floor(idx / PAGE_SIZE);
+  }
+  scPage = Math.max(0, Math.min(pages - 1, scPage));
+  const slice = list.slice(scPage * PAGE_SIZE, scPage * PAGE_SIZE + PAGE_SIZE);
+
+  const box = $("scenarios");
+  box.innerHTML = "";
+  for (const s of slice) {
+    const card = el("button", "card");
+    card.appendChild(el("div", "t", s.title));
+    card.appendChild(
+      el("div", "g", `${s.genre} · ${s.scheduleCount} 个日程节点${s.hasOpening ? " · 已写开场白" : ""}${s.editable ? " · 可编辑" : ""}`)
+    );
+    card.appendChild(el("div", "b", s.blurb));
+    card.addEventListener("click", () => {
+      setupState.scenarioId = s.id;
+      setupState.editingId = s.editable ? s.id : null;
+      [...box.children].forEach((c) => c.classList.remove("on"));
+      card.classList.add("on");
+      const editable = Boolean(s.editable);
+      $("btn-edit-scenario").classList.toggle("hidden", !editable);
+      $("btn-del-scenario").classList.toggle("hidden", !editable);
+    });
+    box.appendChild(card);
+  }
+
+  const keep = slice.find((s) => s.id === setupState.scenarioId);
+  if (keep) {
+    [...box.children][slice.indexOf(keep)]?.click();
+  } else if (slice.length) {
+    box.firstChild.click();
+  } else {
+    setupState.scenarioId = null;
+    $("btn-edit-scenario").classList.add("hidden");
+    $("btn-del-scenario").classList.add("hidden");
+  }
+
+  $("sc-page").textContent = `第 ${scPage + 1} / ${pages} 页`;
+  $("sc-prev").disabled = scPage <= 0;
+  $("sc-next").disabled = scPage >= pages - 1;
+}
+
+$("sc-prev").addEventListener("click", () => {
+  if (scPage > 0) {
+    scPage -= 1;
+    renderScenarios();
+  }
+});
+$("sc-next").addEventListener("click", () => {
+  scPage += 1;
+  renderScenarios();
+});
+document.addEventListener("keydown", (e) => {
+  if ($("setup")?.classList.contains("hidden")) return;
+  if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+  if (["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) return;
+  if (e.key === "ArrowLeft" && !$("sc-prev").disabled) $("sc-prev").click();
+  if (e.key === "ArrowRight" && !$("sc-next").disabled) $("sc-next").click();
+});
+
+function renderDiffs() {
+  const box = $("diffs");
+  box.innerHTML = "";
+  for (const [key, d] of Object.entries(meta.difficulty)) {
+    const card = el("button", "card");
+    card.appendChild(el("div", "t", d.label));
+    card.appendChild(el("div", "b", d.hint));
+    card.addEventListener("click", () => {
+      setupState.difficulty = key;
+      [...box.children].forEach((c) => c.classList.remove("on"));
+      card.classList.add("on");
+      updateDerived();
+    });
+    box.appendChild(card);
+    if (key === "normal") setTimeout(() => card.click(), 0);
+  }
+}
+
+function renderAttrs() {
+  const box = $("attrs");
+  box.innerHTML = "";
+  for (const a of meta.attrs) {
+    if (setupState.attrs[a.key] === undefined) setupState.attrs[a.key] = 5;
+    const row = el("div", "attr-row");
+    row.appendChild(el("div", "attr-name", a.label));
+    row.appendChild(el("div", "attr-desc", a.desc));
+    const val = el("div", "attr-val", String(setupState.attrs[a.key]));
+    const minus = el("button", "", "−");
+    const plus = el("button", "", "+");
+    minus.addEventListener("click", () => change(a.key, -1, val));
+    plus.addEventListener("click", () => change(a.key, 1, val));
+    row.appendChild(val);
+    row.appendChild(minus);
+    row.appendChild(plus);
+    box.appendChild(row);
+  }
+  updatePool();
+}
+
+function totalPoints() {
+  return Object.values(setupState.attrs).reduce((a, b) => a + b, 0);
+}
+
+function change(key, delta, valNode) {
+  const cur = setupState.attrs[key];
+  const next = Math.max(meta.attrMin, Math.min(meta.attrMax, cur + delta));
+  if (next === cur) return;
+  if (delta > 0 && totalPoints() >= meta.attrPoints) return;
+  setupState.attrs[key] = next;
+  valNode.textContent = String(next);
+  updatePool();
+}
+
+function updatePool() {
+  const used = totalPoints();
+  const left = meta.attrPoints - used;
+  const pool = $("pool");
+  pool.innerHTML = `已分配 <b>${used}</b> / ${meta.attrPoints} 点，剩余 <b>${left}</b> 点`;
+  pool.classList.toggle("over", left < 0);
+  $("start").disabled = left < 0 || left > 6;
+  $("startHint").textContent = left > 6 ? "属性点还要用掉一些（最多可以留 6 点不用）" : "";
+  updateDerived();
+}
+
+function updateDerived() {
+  const diff = meta.difficulty[setupState.difficulty] || { hpShift: 0, sanShift: 0, label: "" };
+  const a = setupState.attrs;
+  const hp = 18 + (a.con || 5) * 2 + diff.hpShift;
+  const san = 18 + (a.int || 5) + (a.per || 5) + diff.sanShift;
+  $("derived").textContent = `${diff.label}难度下：初始生命 ${hp}，初始理智 ${san}。技能判定＝d20＋对应属性，对比如上难度。`;
+}
+
+/* ---------- 开局/继续 ---------- */
+
+async function loadMeta() {
+  const res = await fetch("/api/meta");
+  meta = await res.json();
+  $("modelTag").textContent = `当前模型：${meta.model}`;
+  renderScenarios();
+  renderDiffs();
+  renderAttrs();
+  renderPresets();
+  fillSettings();
+  for (const name of meta.narrativeLengths || []) {
+    const opt = el("option", "", `${name}篇幅`);
+    opt.value = name;
+    $("set-length").appendChild(opt);
+  }
+  for (const s of meta.skills) {
+    const opt = el("option", "", `${s.name}（${meta.attrs.find((a) => a.key === s.attr).label}）`);
+    opt.value = s.name;
+    $("roll-skill").appendChild(opt);
+  }
+  if (meta.hasSave) {
+    $("resume").classList.remove("hidden");
+    $("resume").addEventListener("click", async () => {
+      const r = await fetch("/api/state");
+      const data = await r.json();
+      if (data.session) {
+        session = data.session;
+        $("setup").classList.add("hidden");
+        $("game").classList.add("on");
+        renderSession();
+        session.log.forEach((entry) => appendSegment(entry, true));
+        scrollLog();
+      }
+    });
+  }
+
+  if (meta.isOwner === false) {
+    $("btn-quit").classList.add("hidden");
+    $("settings-sect")?.classList.add("hidden");
+    $("preset-name")?.parentElement?.classList.add("hidden");
+    const sub = document.querySelector(".setup-sub");
+    if (sub) {
+      sub.insertAdjacentHTML(
+        "beforeend",
+        `<div style="margin-top:8px;color:#c8a06a">你是访客：这一局最多 ${meta.guestTurnLimit || 60} 回合，进度只保存在你自己的浏览器里。</div>`
+      );
+    }
+  }
+}
+
+async function startGame() {
+  $("err").textContent = "";
+  const character = {
+    name: $("c-name").value,
+    gender: $("c-gender").value,
+    age: $("c-age").value,
+    role: $("c-role").value,
+    appearance: $("c-appearance").value,
+    personality: $("c-personality").value,
+    background: $("c-background").value,
+    goal: $("c-goal").value,
+    attrs: setupState.attrs,
+  };
+  if (!character.name.trim()) {
+    $("err").textContent = "先给角色起个名字。";
+    return;
+  }
+  $("start").disabled = true;
+  $("start").textContent = "正在开幕…";
+  try {
+    const res = await fetch("/api/new", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ character, scenarioId: setupState.scenarioId, difficulty: setupState.difficulty }),
+    });
+    const data = await res.json();
+    if (data.error) {
+      $("err").textContent = data.error;
+      return;
+    }
+    session = data.session;
+    $("setup").classList.add("hidden");
+    $("game").classList.add("on");
+    $("log").innerHTML = "";
+    renderSession();
+    appendSegment({ type: "sys", text: `${session.scenario.title} · ${meta.difficulty[session.difficulty].label}难度 · 游戏开始` }, true);
+    (data.segments || []).forEach(appendSegment);
+    scrollLog();
+  } catch (e) {
+    $("err").textContent = "启动失败：" + e.message;
+  } finally {
+    $("start").disabled = false;
+    $("start").textContent = "开始游戏";
+  }
+}
+
+/* ---------- 游戏界面 ---------- */
+
+function appendSegment(seg, silent) {
+  const log = $("log");
+  const row = el("div", `seg ${seg.type === "change" ? "change" : seg.type}`);
+  if (seg.type === "player") {
+    row.appendChild(el("div", "b", seg.text));
+  } else if (seg.type === "gm") {
+    row.textContent = seg.text;
+  } else {
+    const cls = seg.type === "dice" ? `b ${seg.grade === "失败" || seg.grade === "大失败" ? "lose" : "win"}` : "b";
+    row.appendChild(el("div", cls, seg.text));
+  }
+  log.appendChild(row);
+  if (!silent) scrollLog();
+}
+
+let stickToBottom = true;
+
+function nearBottom() {
+  const log = $("log");
+  return log.scrollHeight - log.scrollTop - log.clientHeight < 140;
+}
+
+function showJump(on) {
+  const b = $("jump-latest");
+  if (b) b.classList.toggle("hidden", !on);
+}
+
+function scrollLog(force) {
+  const log = $("log");
+  if (force || stickToBottom) {
+    log.scrollTop = log.scrollHeight;
+    showJump(false);
+  }
+}
+
+$("log").addEventListener("scroll", () => {
+  stickToBottom = nearBottom();
+  showJump(!stickToBottom);
+});
+
+$("jump-latest").addEventListener("click", () => {
+  stickToBottom = true;
+  scrollLog(true);
+});
+
+function statBar(sel, value, max) {
+  $(sel + "-text").textContent = `${value} / ${max}`;
+  $(sel + "-fill").style.width = `${Math.max(0, Math.min(100, (value / max) * 100))}%`;
+}
+
+function renderSession() {
+  if (!session) return;
+  const c = session.character;
+  $("pc-name").textContent = c.name;
+  $("pc-sub").textContent = [c.gender, c.age ? `${c.age} 岁` : "", c.role].filter(Boolean).join(" · ");
+  statBar("hp", session.status.hp, session.status.hpMax);
+  statBar("san", session.status.san, session.status.sanMax);
+  $("money").textContent = String(session.status.money);
+  $("turns").textContent = `${session.turns || 0} 回合`;
+
+  const attrBox = $("attr-list");
+  attrBox.innerHTML = "";
+  for (const a of meta.attrs) {
+    const row = el("div", "kv");
+    row.appendChild(el("span", "", a.label));
+    row.appendChild(el("span", "", String(c.attrs[a.key])));
+    attrBox.appendChild(row);
+  }
+
+  const skillBox = $("skill-list");
+  skillBox.innerHTML = "";
+  for (const s of meta.skills) {
+    skillBox.appendChild(el("span", "tag", `${s.name} ${c.attrs[s.attr]}`));
+  }
+
+  const inv = $("inventory");
+  inv.innerHTML = "";
+  (session.inventory.length ? session.inventory : ["（空）"]).forEach((i) => inv.appendChild(el("span", "tag", i)));
+
+  const clues = $("clues");
+  clues.innerHTML = "";
+  (session.clues.length ? session.clues : ["（还没有线索）"]).forEach((i) => clues.appendChild(el("span", "tag clue", i)));
+
+  const sched = $("schedule");
+  sched.innerHTML = "";
+  const upcomingKeys = new Set((session.upcoming || []).map((u) => u.key));
+  const nextKey = (session.upcoming || [])[0]?.key;
+  for (const ev of session.schedule || []) {
+    const h = Math.floor(ev.minute / 60);
+    const m = ev.minute % 60;
+    const row = el("div", "row" + (ev.fired ? " done" : upcomingKeys.has(ev.key) ? (ev.key === nextKey ? " next" : "") : ""));
+    row.appendChild(el("div", "when", `第 ${ev.day} 天 ${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}${ev.fired ? " · 已发生" : ""}`));
+    row.appendChild(el("div", "", ev.title));
+    sched.appendChild(row);
+  }
+
+  const rel = $("relations");
+  rel.innerHTML = "";
+  const relEntries = Object.entries(session.relations || {});
+  if (!relEntries.length) rel.appendChild(el("div", "hint", "（还没跟谁打过交道）"));
+  relEntries.sort((a, b) => (b[1].updatedTurn || 0) - (a[1].updatedTurn || 0));
+  for (const [name, r] of relEntries) {
+    const row = el("div", "rel-row");
+    const head = el("div", "rel-head");
+    head.appendChild(el("div", "rel-name", name));
+    const value = Number(r.value) || 0;
+    head.appendChild(el("div", `rel-attitude${value > 0 ? " up" : value < 0 ? " down" : ""}`, r.attitude || "未定"));
+    row.appendChild(head);
+    if (r.note) row.appendChild(el("div", "rel-note", r.note));
+    const meter = el("div", "rel-meter");
+    const fill = el("div", "fill");
+    fill.style.width = `${Math.round(((value + 10) / 20) * 100)}%`;
+    meter.appendChild(fill);
+    row.appendChild(meter);
+    rel.appendChild(row);
+  }
+
+  const obj = $("objectives");
+  obj.innerHTML = "";
+  const objectives = session.objectives || [];
+  if (!objectives.length) obj.appendChild(el("div", "hint", "（还没有明确目标）"));
+  for (const o of objectives) {
+    const row = el("div", `obj-row${o.done ? " done" : ""}`);
+    row.appendChild(el("span", "obj-dot", o.done ? "✓" : "•"));
+    row.appendChild(el("span", "", o.text));
+    obj.appendChild(row);
+  }
+
+  const evBox = $("eventlog");
+  evBox.innerHTML = "";
+  const events = (session.eventLog || []).slice(-8).reverse();
+  if (!events.length) evBox.appendChild(el("div", "hint", "（还没有触发事件）"));
+  for (const e of events) {
+    const row = el("div", "row done");
+    row.appendChild(el("div", "when", e.at || `第 ${e.day} 天`));
+    row.appendChild(el("div", "", e.title));
+    evBox.appendChild(row);
+  }
+
+  $("tb-title").textContent = `${session.scenario.title} · ${c.name}`;
+  $("tb-clock").textContent = session.clock;
+
+  const u = session.usage || {};
+  $("usage-calls").textContent = String(u.calls || 0);
+  $("usage-input").textContent = `${((u.input || 0) / 1000).toFixed(1)}k`;
+  $("usage-output").textContent = `${((u.output || 0) / 1000).toFixed(1)}k`;
+  $("usage-log").textContent = `${(session.log || []).length}${session.logTrimmed ? `（另存 ${session.logTrimmed}）` : ""}`;
+  if (session.limits) {
+    $("usage-note").textContent =
+      `平均每次调用约 ${(session.limits.avgInputK / 10).toFixed(1)}k 输入 tokens；` +
+      `日志超过 ${session.limits.logTrimAt} 条会自动归档到 work 文件夹，不会拖慢界面。`;
+  }
+
+  if (session.ended) showEnding(session.ended);
+}
+
+function showEnding(name) {
+  if ($("log").querySelector(".ending")) return;
+  const banner = el("div", "ending", `—— 结局：${name} ——`);
+  $("log").appendChild(banner);
+  $("input").disabled = true;
+  $("send").disabled = true;
+  $("input").placeholder = "故事已经结束，点右上角「重新开始」再来一局。";
+  appendSegment({ type: "sys", text: "这一局结束了。可以点右上角「重新开始」，换个角色或换个剧本。", silent: true });
+  scrollLog();
+}
+
+function setBusy(on, note) {
+  busy = on;
+  $("send").disabled = on || Boolean(session?.ended);
+  $("input").disabled = on || Boolean(session?.ended);
+  if (note) {
+    if (on) {
+      const row = el("div", "seg gm busy", note);
+      row.id = "thinking";
+      $("log").appendChild(row);
+      scrollLog();
+    } else {
+      $("thinking")?.remove();
+    }
+  }
+}
+
+async function act(text) {
+  if (!text.trim() || busy || session?.ended) return;
+  stickToBottom = true;
+  appendSegment({ type: "player", text });
+  $("input").value = "";
+  $("input").style.height = "";
+  setBusy(true, "……");
+  try {
+    const res = await fetch("/api/action", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    const data = await res.json();
+    setBusy(false);
+    if (data.error) {
+      appendSegment({ type: "sys", text: data.error });
+      return;
+    }
+    session = data.session;
+    (data.segments || []).forEach(appendSegment);
+    renderSession();
+  } catch (e) {
+    setBusy(false);
+    appendSegment({ type: "sys", text: "请求失败：" + e.message });
+  }
+}
+
+/* ---------- 事件绑定 ---------- */
+
+$("start").addEventListener("click", startGame);
+
+$("send").addEventListener("click", () => act($("input").value));
+
+$("input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    act($("input").value);
+  }
+});
+
+$("input").addEventListener("input", () => {
+  $("input").style.height = "auto";
+  $("input").style.height = Math.min($("input").scrollHeight, 180) + "px";
+});
+
+for (const b of document.querySelectorAll("#quick button")) {
+  b.addEventListener("click", () => act(b.dataset.q));
+}
+
+$("roll-btn").addEventListener("click", async () => {
+  if (!session || busy) return;
+  const skill = $("roll-skill").value;
+  const dc = $("roll-dc").value;
+  const res = await fetch("/api/roll", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ skill, dc }),
+  });
+  const data = await res.json();
+  if (data.error) return appendSegment({ type: "sys", text: data.error });
+  session = data.session;
+  (data.segments || []).forEach(appendSegment);
+});
+
+$("btn-new").addEventListener("click", async () => {
+  if (!confirm("重新开始会清掉当前进度（存档也会一并删掉），确定吗？")) return;
+  await fetch("/api/reset", { method: "POST" });
+  location.reload();
+});
+
+$("btn-quit").addEventListener("click", async () => {
+  if (!confirm("退出后要重新双击桌面快捷方式才能继续，确定退出？")) return;
+  try {
+    await fetch("/api/quit", { method: "POST" });
+  } catch {}
+  $("log").innerHTML = "";
+  appendSegment({ type: "sys", text: "已经退出了。想继续就再双击一次桌面的跑团快捷方式（进度还在）。" });
+});
+
+loadMeta();
+
+/* ---------- 角色预设 ---------- */
+
+function currentCharacterForm() {
+  return {
+    name: $("c-name").value,
+    gender: $("c-gender").value,
+    age: $("c-age").value,
+    role: $("c-role").value,
+    appearance: $("c-appearance").value,
+    personality: $("c-personality").value,
+    background: $("c-background").value,
+    goal: $("c-goal").value,
+    attrs: { ...setupState.attrs },
+  };
+}
+
+function fillCharacterForm(c) {
+  if (!c) return;
+  $("c-name").value = c.name || "";
+  $("c-gender").value = c.gender || "";
+  $("c-age").value = c.age || "";
+  $("c-role").value = c.role || "";
+  $("c-appearance").value = c.appearance || "";
+  $("c-personality").value = c.personality || "";
+  $("c-background").value = c.background || "";
+  $("c-goal").value = c.goal || "";
+  if (c.attrs) {
+    for (const [k, v] of Object.entries(c.attrs)) {
+      if (setupState.attrs[k] !== undefined) setupState.attrs[k] = Math.max(meta.attrMin, Math.min(meta.attrMax, Number(v) || 5));
+    }
+    renderAttrs();
+  }
+}
+
+function renderPresets(list) {
+  if (list) meta.presets = list;
+  const box = $("preset-list");
+  box.innerHTML = "";
+  const empty = el("option", "", "（还没有预设）");
+  empty.value = "";
+  box.appendChild(empty);
+  for (const p of meta.presets || []) {
+    const opt = el("option", "", `${p.name}${p.role ? ` · ${p.role}` : ""}`);
+    opt.value = p.name;
+    box.appendChild(opt);
+  }
+}
+
+async function presetAction(path, options) {
+  const res = await fetch(path, options);
+  const data = await res.json();
+  if (data.error) {
+    $("err").textContent = data.error;
+    return null;
+  }
+  return data;
+}
+
+$("btn-save-preset").addEventListener("click", async () => {
+  $("err").textContent = "";
+  const name = $("preset-name").value.trim() || $("c-name").value.trim();
+  if (!name) {
+    $("err").textContent = "给预设起个名字，或者先把角色名填上。";
+    return;
+  }
+  const data = await presetAction("/api/presets", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name, character: currentCharacterForm() }),
+  });
+  if (data) {
+    renderPresets(data.presets);
+    $("err").textContent = "";
+    $("preset-name").value = name;
+  }
+});
+
+$("btn-load-preset").addEventListener("click", async () => {
+  const name = $("preset-list").value;
+  if (!name) return;
+  const res = await fetch(`/api/preset?name=${encodeURIComponent(name)}`);
+  const data = await res.json();
+  if (data.error) {
+    $("err").textContent = data.error;
+    return;
+  }
+  fillCharacterForm(data.character);
+  $("err").textContent = `已读取预设「${name}」。`;
+});
+
+$("btn-del-preset").addEventListener("click", async () => {
+  const name = $("preset-list").value;
+  if (!name) return;
+  if (!confirm(`删除角色预设「${name}」？`)) return;
+  const data = await presetAction("/api/preset", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (data) renderPresets(data.presets);
+});
+
+/* ---------- 属性随机 ---------- */
+
+$("btn-random-attrs").addEventListener("click", () => {
+  const keys = meta.attrs.map((a) => a.key);
+  for (const k of keys) setupState.attrs[k] = meta.attrMin;
+  let left = meta.attrPoints - keys.length * meta.attrMin;
+  while (left > 0) {
+    const k = keys[Math.floor(Math.random() * keys.length)];
+    if (setupState.attrs[k] >= meta.attrMax) continue;
+    setupState.attrs[k] += 1;
+    left -= 1;
+  }
+  renderAttrs();
+});
+
+$("btn-reset-attrs").addEventListener("click", () => {
+  for (const a of meta.attrs) setupState.attrs[a.key] = 5;
+  renderAttrs();
+});
+
+/* ---------- 自定义剧本 ---------- */
+
+function splitLines(text) {
+  return String(text || "")
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+}
+
+function splitCols(line, max) {
+  return line
+    .split(/[|｜]/)
+    .map((s) => s.trim())
+    .concat(Array(max).fill(""))
+    .slice(0, max);
+}
+
+function timeToMinute(text) {
+  const m = String(text || "").match(/(\d{1,2})\s*[:：]\s*(\d{1,2})/);
+  if (!m) return 9 * 60;
+  const h = Math.max(0, Math.min(23, Number(m[1])));
+  const mi = Math.max(0, Math.min(59, Number(m[2])));
+  return h * 60 + mi;
+}
+
+function fillScenarioForm(s) {
+  $("s-title").value = s.title || "";
+  $("s-genre").value = s.genre || "";
+  $("s-blurb").value = s.blurb || "";
+  $("s-tone").value = s.tone || "";
+  $("s-background").value = s.background || "";
+  $("s-hook").value = s.hook || "";
+  $("s-opening").value = s.opening || "";
+  $("s-truth").value = s.truth || "";
+  $("s-npcs").value = (s.npcs || []).map((n) => [n.name, n.desc, n.secret].filter(Boolean).join("｜")).join("\n");
+  $("s-clues").value = (s.clues || []).join("\n");
+  $("s-schedule").value = (s.schedule || [])
+    .map((ev) => {
+      const h = String(Math.floor(ev.minute / 60)).padStart(2, "0");
+      const m = String(ev.minute % 60).padStart(2, "0");
+      return [ev.day, `${h}:${m}`, ev.title, ev.note || ""].join("｜");
+    })
+    .join("\n");
+  $("s-endings").value = (s.endings || []).map((e) => [e.name, e.condition].filter(Boolean).join("｜")).join("\n");
+  $("s-day").value = s.startDay || 1;
+  const h = String(Math.floor((s.startMinute ?? 540) / 60)).padStart(2, "0");
+  const m = String((s.startMinute ?? 540) % 60).padStart(2, "0");
+  $("s-time").value = `${h}:${m}`;
+  $("s-money").value = s.startMoney ?? 0;
+  $("s-items").value = (s.startItems || []).join(", ");
+  scenarioLinks = (s.links || []).slice();
+  $("s-links").value = "";
+  $("s-links-note").textContent = "抓回来的正文会作为设定依据交给 GM";
+  renderLinkList("s-links-list", scenarioLinks, "s-links-note");
+}
+
+function readScenarioForm() {
+  return {
+    title: $("s-title").value,
+    genre: $("s-genre").value,
+    blurb: $("s-blurb").value,
+    tone: $("s-tone").value,
+    background: $("s-background").value,
+    hook: $("s-hook").value,
+    opening: $("s-opening").value,
+    truth: $("s-truth").value,
+    npcs: splitLines($("s-npcs").value).map((l) => {
+      const [name, desc, secret] = splitCols(l, 3);
+      return { name, desc, secret };
+    }),
+    clues: splitLines($("s-clues").value),
+    schedule: splitLines($("s-schedule").value).map((l) => {
+      const [day, time, title, note] = splitCols(l, 4);
+      return { day: Number(day) || 1, minute: timeToMinute(time), title, note };
+    }),
+    endings: splitLines($("s-endings").value).map((l) => {
+      const [name, condition] = splitCols(l, 2);
+      return { name, condition };
+    }),
+    startDay: Number($("s-day").value) || 1,
+    startMinute: timeToMinute($("s-time").value),
+    startMoney: Number($("s-money").value) || 0,
+    startItems: String($("s-items").value || "")
+      .split(/[,，、]/)
+      .map((s) => s.trim())
+      .filter(Boolean),
+    links: scenarioLinks.slice(),
+  };
+}
+
+/* ---------- 外部链接 ---------- */
+
+let scenarioLinks = [];
+let settingLinks = [];
+
+function renderLinkList(listId, list, noteId) {
+  const box = $(listId);
+  box.innerHTML = "";
+  if (!list.length) {
+    box.appendChild(el("div", "hint", "（还没有导入链接）"));
+    return;
+  }
+  for (const link of list) {
+    const row = el("div", "link-item");
+    row.appendChild(el("span", "t", link.title || link.url));
+    row.appendChild(el("span", "c", `${link.chars || (link.text || "").length} 字`));
+    const del = el("button", "", "✕");
+    del.title = "移除这条";
+    del.addEventListener("click", () => {
+      const i = list.indexOf(link);
+      if (i >= 0) list.splice(i, 1);
+      renderLinkList(listId, list, noteId);
+      if (noteId) $(noteId).textContent = "已移除一条链接。";
+    });
+    row.appendChild(del);
+    box.appendChild(row);
+  }
+}
+
+async function fetchLinksInto(textareaId, noteId, listId, target) {
+  const urls = splitLines($(textareaId).value);
+  if (!urls.length) {
+    $(noteId).textContent = "先把链接贴进去。";
+    return;
+  }
+  $(noteId).textContent = "正在抓取…";
+  try {
+    const res = await fetch("/api/links/fetch", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ urls }),
+    });
+    const data = await res.json();
+    if (data.error) {
+      $(noteId).textContent = data.error;
+      return;
+    }
+    for (const link of data.links || []) {
+      if (!target.some((x) => x.url === link.url)) target.push(link);
+    }
+    const failed = (data.failed || []).map((f) => `${f.url}（${f.error}）`).join("；");
+    $(noteId).textContent =
+      `抓到 ${(data.links || []).length} 条` + (failed ? `，失败：${failed}` : "，记得点保存才会生效。");
+    $(textareaId).value = "";
+    renderLinkList(listId, target, noteId);
+  } catch (e) {
+    $(noteId).textContent = "抓取失败：" + e.message;
+  }
+}
+
+$("btn-fetch-scenario-links").addEventListener("click", () =>
+  fetchLinksInto("s-links", "s-links-note", "s-links-list", scenarioLinks)
+);
+$("btn-fetch-setting-links").addEventListener("click", () =>
+  fetchLinksInto("set-links", "set-links-note", "set-links-list", settingLinks)
+);
+
+$("btn-custom-scenario").addEventListener("click", () => {
+  if ($("custom-box").classList.contains("hidden")) {
+    for (const id of ["s-title", "s-genre", "s-blurb", "s-tone", "s-background", "s-hook", "s-opening", "s-truth", "s-npcs", "s-clues", "s-schedule", "s-endings", "s-items", "s-links"]) {
+      $(id).value = "";
+    }
+    $("s-day").value = "1";
+    $("s-time").value = "18:00";
+    $("s-money").value = "100";
+    setupState.editingId = null;
+    scenarioLinks = [];
+    renderLinkList("s-links-list", scenarioLinks, "s-links-note");
+  }
+  $("custom-box").classList.remove("hidden");
+  $("scenario-note").textContent = "在下面填好，保存后会出现在上面的剧本列表里。";
+});
+
+$("btn-cancel-scenario").addEventListener("click", () => {
+  $("custom-box").classList.add("hidden");
+  $("scenario-note").textContent = "";
+});
+
+$("btn-edit-scenario").addEventListener("click", async () => {
+  if (!setupState.editingId) return;
+  const res = await fetch(`/api/scenario?id=${encodeURIComponent(setupState.editingId)}`);
+  const data = await res.json();
+  if (data.error) {
+    $("err").textContent = data.error;
+    return;
+  }
+  fillScenarioForm(data.scenario);
+  $("custom-box").classList.remove("hidden");
+  $("scenario-note").textContent = `正在编辑「${data.scenario.title}」，保存会覆盖它。`;
+});
+
+$("btn-del-scenario").addEventListener("click", async () => {
+  if (!setupState.editingId) return;
+  if (!confirm("删除这个自定义剧本？")) return;
+  const data = await presetAction("/api/scenario/delete", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ id: setupState.editingId }),
+  });
+  if (data) {
+    meta.scenarios = data.scenarios;
+    setupState.editingId = null;
+    $("custom-box").classList.add("hidden");
+    renderScenarios();
+    $("scenario-note").textContent = "剧本已删除。";
+  }
+});
+
+$("btn-save-scenario").addEventListener("click", async () => {
+  $("err").textContent = "";
+  const data = await presetAction("/api/scenario", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ id: setupState.editingId, data: readScenarioForm() }),
+  });
+  if (!data) return;
+  meta.scenarios = data.scenarios;
+  setupState.editingId = data.id;
+  setupState.scenarioId = data.id;
+  $("custom-box").classList.add("hidden");
+  renderScenarios(data.id);
+  $("scenario-note").textContent = "剧本已保存，并已选中它。";
+});
+
+/* ---------- 游戏内设定 ---------- */
+
+function fillSettings() {
+  const s = meta.settings || {};
+  $("set-length").value = s.narrativeLength || "标准";
+  $("set-effort").value = s.reasoningEffort || "low";
+  $("set-critfail").value = String(s.allowCritFail !== false);
+  $("set-advance").value = s.autoAdvanceMinutes ?? 10;
+  $("set-extra").value = s.extraInstructions || "";
+  settingLinks = (s.links || []).slice();
+  $("set-links").value = "";
+  $("set-links-note").textContent = "";
+  renderLinkList("set-links-list", settingLinks, "set-links-note");
+}
+
+$("btn-save-settings").addEventListener("click", async () => {
+  const payload = {
+    narrativeLength: $("set-length").value,
+    reasoningEffort: $("set-effort").value,
+    allowCritFail: $("set-critfail").value === "true",
+    autoAdvanceMinutes: Number($("set-advance").value) || 0,
+    extraInstructions: $("set-extra").value,
+    links: settingLinks.slice(),
+  };
+  const res = await fetch("/api/settings", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (data.error) {
+    $("settings-note").textContent = data.error;
+    return;
+  }
+  meta.settings = data;
+  fillSettings();
+  $("settings-note").textContent = "已保存，下一回合生效。";
+  setTimeout(() => ($("settings-note").textContent = ""), 2500);
+});
