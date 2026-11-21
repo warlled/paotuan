@@ -383,7 +383,8 @@ function ctxFor(req, res) {
   if (isOwnerReq(req)) {
     return { entry: getEntry("owner", true), local: false, ownerCookie: true };
   }
-  if (shareKey) {
+  const adminPath = url.pathname === "/admin" || url.pathname === "/admin/login" || url.pathname === "/admin/logout" || url.pathname === "/admin/owner" || url.pathname === "/admin/owner/off" || url.pathname === "/api/admin/state";
+  if (shareKey && !adminPath) {
     const provided = url.searchParams.get("k") || cookies.rk || "";
     if (provided !== shareKey) return { denied: true };
     if (cookies.rk !== shareKey) setCookie(res, `rk=${encodeURIComponent(shareKey)}; Path=/; Max-Age=2592000; SameSite=Lax`);
@@ -547,7 +548,12 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, fs.readFileSync(path.join(PUBLIC, p), "utf8"), type);
   }
   if (p === "/api/ping") {
-    return send(res, 200, { ok: true, model: engine.config.model, shared: Boolean(shareKey) });
+    return send(res, 200, {
+      ok: true,
+      model: engine.config.model,
+      shared: Boolean(shareKey),
+      commit: String(process.env.RENDER_GIT_COMMIT || "").slice(0, 7) || "local",
+    });
   }
   if (p === "/api/meta") {
     return send(res, 200, {
