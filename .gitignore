@@ -1,8 +1,8 @@
 work/
 bin/
-node_modules/
+.env
+.env.cloud
 *.log
-*.ico
 *.png
-*.env
-*.local
+*.ico
+node_modules/
