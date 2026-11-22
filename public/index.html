@@ -89,6 +89,13 @@
     <div class="row2" style="margin-top:14px;border-top:1px solid var(--line);padding-top:10px">
       <span class="theme-label">AI 模型（可选，用自己的额度）</span>
     </div>
+    <div class="field">
+      <label>模型目录（选择后自动填接口和模型名）</label>
+      <div class="model-pick-row">
+        <span id="model-icon" class="model-icon">AI</span>
+        <select id="model-picker"></select>
+      </div>
+    </div>
     <div class="field"><label>接口地址（OpenAI 兼容 Base URL）</label><input id="model-base" placeholder="例如 https://api.deepseek.com"></div>
     <div class="grid2">
       <div class="field"><label>模型名</label><input id="model-name" placeholder="例如 deepseek-chat"></div>

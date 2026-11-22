@@ -968,6 +968,69 @@ $("me-open").addEventListener("click", () => {
   loadModelInfo();
 });
 
+const MODEL_CATALOG = [
+  { id:"deepseek", name:"DeepSeek", color:"#4D6BFE", icon:"DS", baseUrl:"https://api.deepseek.com", models:["deepseek-chat","deepseek-reasoner"] },
+  { id:"openai", name:"ChatGPT / OpenAI", color:"#E8E4DA", icon:"GPT", baseUrl:"https://api.openai.com/v1", models:["gpt-4o","gpt-4o-mini","gpt-4.1","gpt-4.1-mini","o3","o4-mini"] },
+  { id:"doubao", name:"豆包 Doubao", color:"#1664FF", icon:"豆", baseUrl:"https://ark.cn-beijing.volces.com/api/v3", models:["doubao-1-5-pro-32k","doubao-1-5-lite-32k","doubao-pro-32k","doubao-lite-32k"] },
+  { id:"qwen", name:"通义千问 Qwen", color:"#615CED", icon:"Q", baseUrl:"https://dashscope.aliyuncs.com/compatible-mode/v1", models:["qwen-max","qwen-plus","qwen-turbo"] },
+  { id:"kimi", name:"Kimi / Moonshot", color:"#1E1E1E", icon:"K", baseUrl:"https://api.moonshot.cn/v1", models:["moonshot-v1-8k","moonshot-v1-32k","moonshot-v1-128k"] },
+  { id:"zhipu", name:"智谱 GLM", color:"#3857F4", icon:"GLM", baseUrl:"https://open.bigmodel.cn/api/paas/v4", models:["glm-4-plus","glm-4-air","glm-4-flash"] },
+  { id:"baidu", name:"百度文心 ERNIE", color:"#2932E1", icon:"文", baseUrl:"https://qianfan.baidubce.com/v2", models:["ernie-4.0-8k","ernie-3.5-8k","ernie-speed-8k"] },
+  { id:"spark", name:"讯飞星火 Spark", color:"#0A6CFF", icon:"星", baseUrl:"https://spark-api-open.xf-yun.com/v1", models:["generalv3.5","4.0Ultra"] },
+  { id:"hunyuan", name:"腾讯混元 Hunyuan", color:"#0052D9", icon:"混", baseUrl:"https://api.hunyuan.cloud.tencent.com/v1", models:["hunyuan-pro","hunyuan-standard"] },
+  { id:"minimax", name:"MiniMax", color:"#FF5C35", icon:"M", baseUrl:"https://api.minimax.chat/v1", models:["abab6.5s-chat","abab6.5g-chat"] },
+  { id:"step", name:"阶跃星辰 Step", color:"#7B61FF", icon:"S", baseUrl:"https://api.stepfun.com/v1", models:["step-1-8k","step-1-32k"] },
+  { id:"yi", name:"零一万物 Yi", color:"#00A3FF", icon:"Y", baseUrl:"https://api.lingyiwanwu.com/v1", models:["yi-large","yi-medium"] },
+  { id:"siliconflow", name:"硅基流动 SiliconFlow", color:"#6E56CF", icon:"SF", baseUrl:"https://api.siliconflow.cn/v1", models:["Qwen/Qwen2.5-72B-Instruct","deepseek-ai/DeepSeek-V3"] },
+  { id:"openrouter", name:"OpenRouter 聚合", color:"#6467F2", icon:"OR", baseUrl:"https://openrouter.ai/api/v1", models:["openai/gpt-4o","anthropic/claude-3.5-sonnet","google/gemini-2.0-flash-001","meta-llama/llama-3.3-70b-instruct"] },
+  { id:"gemini", name:"Google Gemini", color:"#4285F4", icon:"G", baseUrl:"https://generativelanguage.googleapis.com/v1beta/openai", models:["gemini-2.0-flash","gemini-1.5-pro"] },
+  { id:"grok", name:"xAI Grok", color:"#111111", icon:"X", baseUrl:"https://api.x.ai/v1", models:["grok-2-latest","grok-beta"] },
+  { id:"mistral", name:"Mistral", color:"#FF7000", icon:"M", baseUrl:"https://api.mistral.ai/v1", models:["mistral-large-latest","mistral-small-latest"] },
+  { id:"groq", name:"Groq", color:"#F55036", icon:"GQ", baseUrl:"https://api.groq.com/openai/v1", models:["llama-3.3-70b-versatile","mixtral-8x7b-32768"] },
+  { id:"perplexity", name:"Perplexity", color:"#20808D", icon:"P", baseUrl:"https://api.perplexity.ai", models:["sonar","sonar-pro"] },
+  { id:"ollama", name:"本地 Ollama", color:"#333333", icon:"OL", baseUrl:"http://127.0.0.1:11434/v1", models:["qwen2.5:7b","llama3.1:8b"] },
+  { id:"custom", name:"自定义 / 其他兼容接口", color:"#666666", icon:"AI", baseUrl:"", models:[] },
+];
+
+function setModelIcon(p) {
+  const el = $("model-icon");
+  el.textContent = p?.icon || "AI";
+  el.style.setProperty("--brand", p?.color || "#555");
+  el.style.color = p?.id === "openai" ? "#1b1b1b" : "#fff";
+  el.title = p?.name || "自定义";
+}
+
+function buildModelPicker() {
+  const sel = $("model-picker");
+  if (!sel || sel.dataset.built) return;
+  sel.dataset.built = "1";
+  for (const p of MODEL_CATALOG) {
+    const g = document.createElement("optgroup");
+    g.label = `${p.icon} ${p.name}`;
+    if (!p.models.length) {
+      const o = document.createElement("option");
+      o.value = p.id + "|";
+      o.textContent = "自定义";
+      g.appendChild(o);
+    }
+    for (const m of p.models) {
+      const o = document.createElement("option");
+      o.value = p.id + "|" + m;
+      o.textContent = m;
+      g.appendChild(o);
+    }
+    sel.appendChild(g);
+  }
+  sel.addEventListener("change", () => {
+    const [pid, model] = sel.value.split("|");
+    const p = MODEL_CATALOG.find((x) => x.id === pid);
+    if (!p) return;
+    if (p.baseUrl) $("model-base").value = p.baseUrl;
+    if (model) $("model-name").value = model;
+    setModelIcon(p);
+  });
+}
+
 async function loadModelInfo() {
   try {
     const m = await (await fetch("/api/model")).json();
@@ -979,6 +1042,9 @@ async function loadModelInfo() {
     $("model-status").textContent = m.configured
       ? (m.enabled ? "已启用，你的对局会优先使用自己的模型" : "已保存，但未启用")
       : "未配置，将使用站点免费模型";
+    const p = MODEL_CATALOG.find((x) => x.baseUrl && (m.baseUrl || "").startsWith(x.baseUrl));
+    setModelIcon(p);
+    if (p && p.models.includes(m.model)) $("model-picker").value = `${p.id}|${m.model}`;
   } catch {}
 }
 
@@ -1408,6 +1474,7 @@ try {
   if (rk && rlink) rlink.href = "/room?k=" + encodeURIComponent(rk);
 } catch {}
 
+buildModelPicker();
 loadMe();
 loadMeta();
 
