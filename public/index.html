@@ -86,6 +86,21 @@
         <button type="button" class="sw dark" data-site-theme="dark">黑色</button>
       </div>
     </div>
+    <div class="row2" style="margin-top:14px;border-top:1px solid var(--line);padding-top:10px">
+      <span class="theme-label">AI 模型（可选，用自己的额度）</span>
+    </div>
+    <div class="field"><label>接口地址（OpenAI 兼容 Base URL）</label><input id="model-base" placeholder="例如 https://api.deepseek.com"></div>
+    <div class="grid2">
+      <div class="field"><label>模型名</label><input id="model-name" placeholder="例如 deepseek-chat"></div>
+      <div class="field"><label>API Key（留空则不修改）</label><input id="model-key" type="password" placeholder="sk-..."></div>
+    </div>
+    <div class="row2">
+      <label class="checkbox"><input type="checkbox" id="model-enabled"> 使用我自己的模型</label>
+      <button id="model-save" type="button" class="ghost">保存</button>
+      <button id="model-test" type="button" class="ghost">测试连接</button>
+      <button id="model-clear" type="button" class="ghost">清除</button>
+      <span id="model-status" class="hint"></span>
+    </div>
     <div class="row2">
       <button id="me-save" class="primary2">保存资料</button>
       <a id="me-space" class="linkbtn" href="/space" target="_blank" rel="noopener">进入我的私人空间</a>

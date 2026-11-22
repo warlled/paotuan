@@ -71,6 +71,81 @@ function saveProfileFor(sid, patch) {
   return next;
 }
 
+/* ---------- 玩家自带模型（BYOK） ---------- */
+
+let MODEL_SECRET_CACHE = null;
+function modelSecret() {
+  if (!MODEL_SECRET_CACHE) {
+    MODEL_SECRET_CACHE = crypto.createHash("sha256").update("paotuan-model|" + ADMIN_PASSWORD).digest();
+  }
+  return MODEL_SECRET_CACHE;
+}
+
+function modelFile(sid) {
+  return path.join(USERS_DIR, `${sid.replace(/[^a-z0-9]/gi, "")}-model.json`);
+}
+
+function encSecret(text) {
+  const iv = crypto.randomBytes(12);
+  const c = crypto.createCipheriv("aes-256-gcm", modelSecret(), iv);
+  const data = Buffer.concat([c.update(String(text), "utf8"), c.final()]);
+  return [iv.toString("base64"), c.getAuthTag().toString("base64"), data.toString("base64")].join(".");
+}
+
+function decSecret(blob) {
+  try {
+    const [iv, tag, data] = String(blob).split(".");
+    const d = crypto.createDecipheriv("aes-256-gcm", modelSecret(), Buffer.from(iv, "base64"));
+    d.setAuthTag(Buffer.from(tag, "base64"));
+    return Buffer.concat([d.update(Buffer.from(data, "base64")), d.final()]).toString("utf8");
+  } catch {
+    return "";
+  }
+}
+
+function loadModelFor(sid) {
+  try {
+    const p = JSON.parse(fs.readFileSync(modelFile(sid), "utf8"));
+    return {
+      enabled: Boolean(p.enabled),
+      provider: p.provider || "custom",
+      baseUrl: p.baseUrl || "",
+      model: p.model || "",
+      apiKey: decSecret(p.apiKeyEnc || ""),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function publicModel(cfg) {
+  if (!cfg) return { configured: false, enabled: false };
+  const key = cfg.apiKey || "";
+  return {
+    configured: Boolean(key),
+    enabled: Boolean(cfg.enabled),
+    provider: cfg.provider,
+    baseUrl: cfg.baseUrl,
+    model: cfg.model,
+    keyMask: key ? key.slice(0, 4) + "…" + key.slice(-4) : "",
+  };
+}
+
+function saveModelFor(sid, patch) {
+  const prev = loadModelFor(sid) || {};
+  const apiKey = String(patch.apiKey || "").trim() || prev.apiKey || "";
+  const next = {
+    enabled: Boolean(patch.enabled),
+    provider: String(patch.provider || "custom").slice(0, 20),
+    baseUrl: String(patch.baseUrl || "").trim().slice(0, 300),
+    model: String(patch.model || "").trim().slice(0, 80),
+    apiKeyEnc: apiKey ? encSecret(apiKey) : "",
+    updatedAt: Date.now(),
+  };
+  writeJsonFile(modelFile(sid), next);
+  return loadModelFor(sid);
+}
+
 function sniffMime(buffer) {
   const b = buffer;
   if (b.length > 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "image/png";
@@ -1666,7 +1741,7 @@ const server = http.createServer(async (req, res) => {
     if (!Object.keys(room.actions).length) return send(res, 400, { error: "还没有人提交行动" });
     room.busy = true;
     try {
-      const result = await engine.askModel(roomPrompt(room), { reasoningEffort: "low" });
+      const result = await engine.askModel(roomPrompt(room), { reasoningEffort: "low" }, loadModelFor(room.hostSid));
       const parsed = engine.parseModelTurn(result.text);
       const narration = parsed.narrative || String(result.text || "").slice(0, 4000);
       if (narration) room.log.push({ type: "gm", text: narration, at: Date.now() });
@@ -1723,6 +1798,43 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, { ok: true, session: publicSession(entry) });
   }
 
+  if (p === "/api/model") {
+    if (req.method === "GET") return send(res, 200, publicModel(loadModelFor(entry.sid)));
+    if (req.method === "DELETE") {
+      try {
+        if (fs.existsSync(modelFile(entry.sid))) fs.unlinkSync(modelFile(entry.sid));
+      } catch {}
+      return send(res, 200, { ok: true });
+    }
+    const body = await readBody(req);
+    try {
+      return send(res, 200, publicModel(saveModelFor(entry.sid, body)));
+    } catch (err) {
+      return send(res, 400, { error: String(err.message || err) });
+    }
+  }
+
+  if (req.method === "POST" && p === "/api/model/test") {
+    const body = await readBody(req);
+    const saved = loadModelFor(entry.sid);
+    const cfg = {
+      enabled: true,
+      provider: String(body.provider || saved?.provider || "custom"),
+      baseUrl: String(body.baseUrl || saved?.baseUrl || ""),
+      model: String(body.model || saved?.model || ""),
+      apiKey: String(body.apiKey || saved?.apiKey || ""),
+    };
+    if (!cfg.baseUrl || !cfg.model || !cfg.apiKey) {
+      return send(res, 400, { error: "Base URL、模型名和 Key 都要填齐。" });
+    }
+    try {
+      const out = await engine.askModel("只回复两个字：收到", {}, cfg);
+      return send(res, 200, { ok: true, reply: String(out.text).slice(0, 40) });
+    } catch (err) {
+      return send(res, 400, { error: String(err.message || err) });
+    }
+  }
+
   if (req.method === "POST" && p === "/api/quit") {
     if (!entry.owner) return send(res, 403, { error: "访客不能关闭服务。" });
     send(res, 200, { ok: true });
@@ -1758,7 +1870,7 @@ const server = http.createServer(async (req, res) => {
     await acquireSlot();
     if (!entry.owner) addGuestCalls(1);
     try {
-      const opening = await engine.runOpening(entry.session, scenario);
+      const opening = await engine.runOpening(entry.session, scenario, loadModelFor(entry.sid));
       const firstGm = entry.session.log.find((e) => e.type === "gm");
       if (firstGm) entry.session.opening = firstGm.text;
       saveEntry(entry);
@@ -1793,7 +1905,7 @@ const server = http.createServer(async (req, res) => {
     await acquireSlot();
     if (!entry.owner) addGuestCalls(1);
     try {
-      const out = await engine.runTurn(entry.session, scenario, text);
+      const out = await engine.runTurn(entry.session, scenario, text, loadModelFor(entry.sid));
       if (!entry.owner && out.segments.some((s) => s.type === "dice")) addGuestCalls(1);
       saveEntry(entry);
       return send(res, 200, { session: publicSession(entry), segments: out.segments });

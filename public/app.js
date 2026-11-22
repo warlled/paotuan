@@ -965,6 +965,58 @@ async function saveMe() {
 $("me-open").addEventListener("click", () => {
   $("me-modal").classList.remove("hidden");
   loadMe();
+  loadModelInfo();
+});
+
+async function loadModelInfo() {
+  try {
+    const m = await (await fetch("/api/model")).json();
+    $("model-base").value = m.baseUrl || "";
+    $("model-name").value = m.model || "";
+    $("model-enabled").checked = Boolean(m.enabled);
+    $("model-key").value = "";
+    $("model-key").placeholder = m.keyMask ? `已保存：${m.keyMask}（留空不改）` : "sk-...";
+    $("model-status").textContent = m.configured
+      ? (m.enabled ? "已启用，你的对局会优先使用自己的模型" : "已保存，但未启用")
+      : "未配置，将使用站点免费模型";
+  } catch {}
+}
+
+$("model-save").addEventListener("click", async () => {
+  const r = await fetch("/api/model", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      enabled: $("model-enabled").checked,
+      baseUrl: $("model-base").value,
+      model: $("model-name").value,
+      apiKey: $("model-key").value,
+    }),
+  });
+  const d = await r.json();
+  $("model-status").textContent = r.ok ? "已保存" : d.error || "保存失败";
+  if (r.ok) loadModelInfo();
+});
+
+$("model-test").addEventListener("click", async () => {
+  $("model-status").textContent = "测试中…";
+  const r = await fetch("/api/model/test", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      baseUrl: $("model-base").value,
+      model: $("model-name").value,
+      apiKey: $("model-key").value,
+    }),
+  });
+  const d = await r.json();
+  $("model-status").textContent = r.ok ? `连接成功：${d.reply}` : d.error || "测试失败";
+});
+
+$("model-clear").addEventListener("click", async () => {
+  if (!confirm("清除自己保存的模型配置？")) return;
+  await fetch("/api/model", { method: "DELETE" });
+  loadModelInfo();
 });
 
 $("me-save").addEventListener("click", saveMe);

@@ -683,9 +683,93 @@ function askDeepSeek(prompt, settings) {
 }
 
 function askModel(prompt, settings) {
+  if (arguments.length > 2) {
+    const override = arguments[2];
+    if (override && override.enabled && override.apiKey && override.baseUrl && override.model) {
+      return askCompatible(prompt, override);
+    }
+  }
   const provider = String(config.provider || "codex").toLowerCase();
   if (provider === "deepseek" || provider === "api") return askDeepSeek(prompt, settings);
   return askCodex(prompt, settings);
+}
+
+function askCompatible(prompt, cfg) {
+  return new Promise((resolve, reject) => {
+    let base;
+    try {
+      base = new URL(String(cfg.baseUrl || ""));
+    } catch {
+      reject(new Error("Base URL 无效"));
+      return;
+    }
+    if (!/^https?:$/.test(base.protocol)) {
+      reject(new Error("Base URL 必须是 http 或 https"));
+      return;
+    }
+    const endpoint = String(cfg.baseUrl).replace(/\/+$/, "") + "/chat/completions";
+    const payload = JSON.stringify({
+      model: String(cfg.model || ""),
+      messages: [
+        { role: "system", content: "你是一位跑团主持人（GM），严格按用户消息中的格式输出。" },
+        { role: "user", content: prompt },
+      ],
+      temperature: 0.9,
+      max_tokens: 2000,
+      stream: false,
+    });
+    const mod = base.protocol === "https:" ? https : require("node:http");
+    const req = mod.request(
+      endpoint,
+      {
+        method: "POST",
+        timeout: 150000,
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${cfg.apiKey}`,
+          "content-length": Buffer.byteLength(payload),
+        },
+      },
+      (res) => {
+        let raw = "";
+        res.on("data", (c) => (raw += c.toString("utf8")));
+        res.on("end", () => {
+          if (res.statusCode !== 200) {
+            let detail = raw.slice(0, 200);
+            try {
+              detail = JSON.parse(raw).error?.message || detail;
+            } catch {}
+            reject(new Error(`模型接口 ${res.statusCode}：${detail}`));
+            return;
+          }
+          let data;
+          try {
+            data = JSON.parse(raw);
+          } catch {
+            reject(new Error("模型返回的不是合法 JSON"));
+            return;
+          }
+          const text = String(data.choices?.[0]?.message?.content || "").trim();
+          if (!text) {
+            reject(new Error("模型返回了空内容"));
+            return;
+          }
+          const u = data.usage || {};
+          resolve({
+            text,
+            usage: {
+              input_tokens: u.prompt_tokens || 0,
+              output_tokens: u.completion_tokens || 0,
+              cached_input_tokens: 0,
+            },
+          });
+        });
+      }
+    );
+    req.on("timeout", () => req.destroy(new Error("模型接口请求超时")));
+    req.on("error", reject);
+    req.end(payload);
+  });
 }
 
 function addUsage(session, usage) {
@@ -1181,13 +1265,13 @@ function applyState(session, scenario, state) {
 
 /* ---------- 回合流程 ---------- */
 
-async function runTurn(session, scenario, playerAction) {
+async function runTurn(session, scenario, playerAction, modelOverride) {
   const segments = [];
   const settings = getSettings();
   const fallbackMinutes = settings.autoAdvanceMinutes;
   session.log.push({ type: "player", text: playerAction });
 
-  const first = await askModel(buildPrompt(session, scenario, playerAction, settings), settings);
+  const first = await askModel(buildPrompt(session, scenario, playerAction, settings), settings, modelOverride);
   addUsage(session, first.usage);
   const parsed = parseModelTurn(first.text);
   let narrative = parsed.narrative;
@@ -1216,7 +1300,8 @@ async function runTurn(session, scenario, playerAction) {
     }
     const second = await askModel(
       buildContinuePrompt(session, scenario, playerAction, narrative, results, firedEvents, settings),
-      settings
+      settings,
+      modelOverride
     );
     addUsage(session, second.usage);
     const parsed2 = parseModelTurn(second.text);
@@ -1264,7 +1349,7 @@ async function runTurn(session, scenario, playerAction) {
   return { segments };
 }
 
-async function runOpening(session, scenario) {
+async function runOpening(session, scenario, modelOverride) {
   const settings = getSettings();
   const customOpening = String(scenario.opening || "").trim();
   const prompt = [
@@ -1294,7 +1379,7 @@ async function runOpening(session, scenario) {
       : "【这是游戏的第一幕】请写出开场：把玩家放进场景里，交代他在哪、此刻看到听到什么、眼前最值得注意的东西是什么。3 到 5 段，节奏稳一点，不要急着抛出全部悬念。",
     "结尾按格式给出状态块（如果开局不推进时间，advance_minutes 写 0）。",
   ].join("\n");
-  const raw = await askModel(prompt, settings);
+  const raw = await askModel(prompt, settings, modelOverride);
   addUsage(session, raw.usage);
   const parsed = parseModelTurn(raw.text);
   if (parsed.narrative) session.log.push({ type: "gm", text: parsed.narrative });

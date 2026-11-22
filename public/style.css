@@ -400,6 +400,8 @@ body:has(.owner-closed-banner) #game { padding-top: 28px; }
   font-size: 12.5px; color: var(--muted);
 }
 .rules-grid input { width: auto; }
+.checkbox { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
+.checkbox input { width: auto; }
 #side .field { margin-bottom: 2px; }
 #side .field select, #side .field input, #side .field textarea { width: 100%; }
 #side .field textarea { min-height: 58px; resize: vertical; }
