@@ -6,3 +6,4 @@ bin/
 *.png
 *.ico
 node_modules/
+私密信息.txt
