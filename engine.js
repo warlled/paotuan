@@ -289,6 +289,48 @@ function saveCustomScenario(input, existingId, targetDir) {
     title,
     genre: clip(input.genre, CLI.genre) || "自定义",
     blurb: clip(input.blurb, CLI.blurb) || background.slice(0, 80),
+    tags: cleanList(input.tags, 20, 12),
+    version: clip(input.version, 20) || "1.0",
+    versionNote: clip(input.versionNote, 500),
+    world: clip(input.world, 4000) || background,
+    rules: {
+      diceDefault: input.rules?.diceDefault !== false,
+      allowDiceToggle: input.rules?.allowDiceToggle !== false,
+      fixedOpeningDefault: Boolean(input.rules?.fixedOpeningDefault),
+      allowOpeningToggle: input.rules?.allowOpeningToggle !== false,
+      randomMode: input.rules?.randomMode !== false,
+    },
+    entities: (Array.isArray(input.entities) ? input.entities : [])
+      .map((e) => ({
+        name: clip(e.name, 30),
+        info: clip(e.info, 200),
+        setting: clip(e.setting, 600),
+        initial: clip(e.initial, 200),
+        summary: clip(e.summary, 300),
+        rules: clip(e.rules, 300),
+      }))
+      .filter((e) => e.name)
+      .slice(0, 30),
+    statuses: (Array.isArray(input.statuses) ? input.statuses : [])
+      .map((s) => ({ name: clip(s.name, 30), initial: clip(s.initial, 40), desc: clip(s.desc, 200) }))
+      .filter((s) => s.name)
+      .slice(0, 20),
+    loopEvents: (Array.isArray(input.loopEvents) ? input.loopEvents : [])
+      .map((e) => ({ every: clip(e.every, 40), title: clip(e.title, 60), note: clip(e.note, 200) }))
+      .filter((e) => e.title)
+      .slice(0, 20),
+    plotPoints: (Array.isArray(input.plotPoints) ? input.plotPoints : [])
+      .map((p) => ({ title: clip(p.title, 60), note: clip(p.note, 300), at: clip(p.at, 40) }))
+      .filter((p) => p.title)
+      .slice(0, 40),
+    lexicon: (Array.isArray(input.lexicon) ? input.lexicon : [])
+      .map((l) => ({ term: clip(l.term, 40), def: clip(l.def, 300) }))
+      .filter((l) => l.term)
+      .slice(0, 60),
+    actions: (Array.isArray(input.actions) ? input.actions : [])
+      .map((a) => ({ label: clip(a.label, 20), text: clip(a.text, 300) }))
+      .filter((a) => a.label && a.text)
+      .slice(0, 12),
     tone: clip(input.tone, CLI.tone) || "由玩家设定",
     background,
     hook: clip(input.hook, CLI.hook),
@@ -695,14 +737,36 @@ function scenarioBrief(scenario) {
     .map((n) => `- ${n.name}：${n.desc}${n.secret ? `（内情：${n.secret}）` : ""}`)
     .join("\n");
   const endings = (scenario.endings || []).map((e) => `- ${e.name}：${e.condition}`).join("\n");
+  const rules = scenario.rules || {};
+  const entities = (scenario.entities || [])
+    .slice(0, 12)
+    .map((e) => `- ${e.name}｜${e.info || ""}｜设定：${e.setting || ""}｜初始：${e.initial || ""}｜${e.summary || ""}｜规则：${e.rules || ""}`)
+    .join("\n");
+  const statuses = (scenario.statuses || [])
+    .map((s) => `- ${s.name}：初始 ${s.initial || "?"}${s.desc ? " · " + s.desc : ""}`)
+    .join("\n");
+  const loops = (scenario.loopEvents || []).map((e) => `- 每 ${e.every || "?"}：${e.title}${e.note ? " · " + e.note : ""}`).join("\n");
+  const plots = (scenario.plotPoints || []).slice(0, 10).map((p) => `- ${p.at ? p.at + " " : ""}${p.title}${p.note ? " · " + p.note : ""}`).join("\n");
+  const lexicon = (scenario.lexicon || []).slice(0, 20).map((l) => `- ${l.term}：${l.def}`).join("\n");
+  const actions = (scenario.actions || []).map((a) => a.label).join("、");
   return [
     `【剧本】${scenario.title}（${scenario.genre}）`,
+    `版本：v${scenario.version || "1.0"}${scenario.versionNote ? " · " + scenario.versionNote : ""}`,
+    `标签：${(scenario.tags || []).join("、") || "无"}`,
+    `世界设定：${scenario.world || scenario.background}`,
     `背景：${scenario.background}`,
     `玩家初始处境：${scenario.hook || ""}`,
     `相关人物：\n${npcs}`,
     `线索池（GM 内部参考，只能通过场景与对话逐步放出）：${(scenario.clues || []).join("、")}`,
     `真相（严禁直接说破）：${scenario.truth || ""}`,
     `结局方向：\n${endings}`,
+    `实体名录：\n${entities || "无"}`,
+    `玩家持续状态：\n${statuses || "无"}`,
+    `循环事件：\n${loops || "无"}`,
+    `剧情点：\n${plots || "无"}`,
+    `词条库：\n${lexicon || "无"}`,
+    `预设行动：${actions || "无"}`,
+    `规则配置：默认骰子检定 ${rules.diceDefault === false ? "关闭" : "开启"}；玩家可切换骰子 ${rules.allowDiceToggle === false ? "否" : "是"}；固定开局默认 ${rules.fixedOpeningDefault ? "开启" : "关闭"}；玩家可切换固定开局 ${rules.allowOpeningToggle === false ? "否" : "是"}；随机机制 ${rules.randomMode === false ? "关闭" : "开启"}`,
     `基调：${scenario.tone || "紧张、克制、有画面感"}`,
   ].join("\n");
 }

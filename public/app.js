@@ -1437,6 +1437,23 @@ function fillScenarioForm(s) {
   $("s-genre").value = s.genre || "";
   $("s-blurb").value = s.blurb || "";
   $("s-tone").value = s.tone || "";
+  $("s-version").value = s.version || "1.0";
+  $("s-tags").value = (s.tags || []).join(", ");
+  $("s-genre2").value = s.genre || "";
+  $("s-version-note").value = s.versionNote || "";
+  $("s-world").value = s.world || "";
+  const rules = s.rules || {};
+  $("s-rule-dice").checked = rules.diceDefault !== false;
+  $("s-rule-dice-toggle").checked = rules.allowDiceToggle !== false;
+  $("s-rule-fixed").checked = Boolean(rules.fixedOpeningDefault);
+  $("s-rule-fixed-toggle").checked = rules.allowOpeningToggle !== false;
+  $("s-rule-random").checked = rules.randomMode !== false;
+  $("s-entities").value = (s.entities || []).map((e) => [e.name, e.info, e.setting, e.initial, e.summary, e.rules].join("｜")).join("\n");
+  $("s-statuses").value = (s.statuses || []).map((x) => [x.name, x.initial, x.desc].join("｜")).join("\n");
+  $("s-loops").value = (s.loopEvents || []).map((x) => [x.every, x.title, x.note].join("｜")).join("\n");
+  $("s-plots").value = (s.plotPoints || []).map((x) => [x.title, x.note, x.at].join("｜")).join("\n");
+  $("s-lexicon").value = (s.lexicon || []).map((x) => [x.term, x.def].join("｜")).join("\n");
+  $("s-actions").value = (s.actions || []).map((x) => [x.label, x.text].join("｜")).join("\n");
   $("s-background").value = s.background || "";
   $("s-hook").value = s.hook || "";
   $("s-opening").value = s.opening || "";
@@ -1466,9 +1483,20 @@ function fillScenarioForm(s) {
 function readScenarioForm() {
   return {
     title: $("s-title").value,
-    genre: $("s-genre").value,
+    genre: $("s-genre").value || $("s-genre2").value,
     blurb: $("s-blurb").value,
     tone: $("s-tone").value,
+    version: $("s-version").value,
+    tags: String($("s-tags").value || "").split(/[,，、]/).map((x) => x.trim()).filter(Boolean),
+    versionNote: $("s-version-note").value,
+    world: $("s-world").value,
+    rules: {
+      diceDefault: $("s-rule-dice").checked,
+      allowDiceToggle: $("s-rule-dice-toggle").checked,
+      fixedOpeningDefault: $("s-rule-fixed").checked,
+      allowOpeningToggle: $("s-rule-fixed-toggle").checked,
+      randomMode: $("s-rule-random").checked,
+    },
     background: $("s-background").value,
     hook: $("s-hook").value,
     opening: $("s-opening").value,
@@ -1493,6 +1521,30 @@ function readScenarioForm() {
       .split(/[,，、]/)
       .map((s) => s.trim())
       .filter(Boolean),
+    entities: splitLines($("s-entities").value).map((line) => {
+      const [name, info, setting, initial, summary, rules] = splitCols(line, 6);
+      return { name, info, setting, initial, summary, rules };
+    }),
+    statuses: splitLines($("s-statuses").value).map((line) => {
+      const [name, initial, desc] = splitCols(line, 3);
+      return { name, initial, desc };
+    }),
+    loopEvents: splitLines($("s-loops").value).map((line) => {
+      const [every, title, note] = splitCols(line, 3);
+      return { every, title, note };
+    }),
+    plotPoints: splitLines($("s-plots").value).map((line) => {
+      const [title, note, at] = splitCols(line, 3);
+      return { title, note, at };
+    }),
+    lexicon: splitLines($("s-lexicon").value).map((line) => {
+      const [term, def] = splitCols(line, 2);
+      return { term, def };
+    }),
+    actions: splitLines($("s-actions").value).map((line) => {
+      const [label, text] = splitCols(line, 2);
+      return { label, text };
+    }),
     links: scenarioLinks.slice(),
   };
 }
@@ -1591,18 +1643,28 @@ function updateScenarioPreview() {
   const title = $("s-title").value.trim() || "未命名剧本";
   const genre = $("s-genre").value.trim() || "未定类型";
   const blurb = $("s-blurb").value.trim() || "还没有一句话简介";
+  const version = $("s-version").value.trim() || "1.0";
+  const tags = $("s-tags").value.trim();
   const npcs = splitLines($("s-npcs").value).length;
   const clues = splitLines($("s-clues").value).length;
   const schedule = splitLines($("s-schedule").value).length;
   const endings = splitLines($("s-endings").value).length;
+  const entities = splitLines($("s-entities").value).length;
+  const statuses = splitLines($("s-statuses").value).length;
+  const loops = splitLines($("s-loops").value).length;
+  const plots = splitLines($("s-plots").value).length;
+  const lexicon = splitLines($("s-lexicon").value).length;
+  const actions = splitLines($("s-actions").value).length;
   box.innerHTML =
     `<div class="sp-title">${escHtml(title)}</div>` +
-    `<div class="sp-genre">${escHtml(genre)}</div>` +
+    `<div class="sp-genre">v${escHtml(version)} · ${escHtml(genre)}${tags ? " · " + escHtml(tags) : ""}</div>` +
     `<div class="sp-blurb">${escHtml(blurb)}</div>` +
-    `<div class="sp-meta">人物 ${npcs} · 线索 ${clues} · 时间节点 ${schedule} · 结局 ${endings} · 参考链接 ${scenarioLinks.length}</div>`;
+    `<div class="sp-meta">人物 ${npcs} · 实体 ${entities} · 状态 ${statuses} · 线索 ${clues}</div>` +
+    `<div class="sp-meta">时间节点 ${schedule} · 循环事件 ${loops} · 剧情点 ${plots} · 结局 ${endings}</div>` +
+    `<div class="sp-meta">词条 ${lexicon} · 预设行动 ${actions} · 参考链接 ${scenarioLinks.length}</div>`;
 }
 
-for (const id of ["s-title", "s-genre", "s-blurb", "s-npcs", "s-clues", "s-schedule", "s-endings"]) {
+for (const id of ["s-title", "s-genre", "s-blurb", "s-version", "s-tags", "s-npcs", "s-clues", "s-schedule", "s-endings", "s-entities", "s-statuses", "s-loops", "s-plots", "s-lexicon", "s-actions"]) {
   $(id).addEventListener("input", updateScenarioPreview);
 }
 

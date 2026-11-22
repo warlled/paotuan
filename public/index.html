@@ -169,17 +169,39 @@
           <div class="field"><label>一句话简介</label><input id="s-blurb" placeholder="开局界面上显示这一行"></div>
           <div class="field"><label>基调</label><input id="s-tone" placeholder="例如：冷、克制、压抑"></div>
         </div>
+        <div class="grid3" style="margin-top:12px">
+          <div class="field"><label>版本号</label><input id="s-version" value="1.0"></div>
+          <div class="field"><label>标签（逗号分隔）</label><input id="s-tags" placeholder="悬疑, 民国, 单人"></div>
+          <div class="field"><label>分类</label><input id="s-genre2" placeholder="沿用上面的类型即可"></div>
+        </div>
+        <div class="field" style="margin-top:12px"><label>版本描述</label><input id="s-version-note" placeholder="这一版改了什么"></div>
         <div class="grid2" style="margin-top:12px">
           <div class="field"><label>背景设定 *</label><textarea id="s-background" placeholder="这是个什么地方、什么时候、发生了什么、玩家为什么在这里"></textarea></div>
           <div class="field"><label>玩家初始处境</label><textarea id="s-hook" placeholder="开局那一刻，玩家站在哪、手上有什么"></textarea></div>
           <div class="field"><label>开场白（留空则由 GM 自动写）</label><textarea id="s-opening" placeholder="想自己写开场就把文字贴这里，会原样出现在游戏里"></textarea></div>
           <div class="field"><label>真相 / 内幕（GM 知道但不会直说）</label><textarea id="s-truth" placeholder="幕后是谁、为什么。留空则由 GM 自己编一个并保持一致"></textarea></div>
         </div>
+        <div class="field" style="margin-top:12px"><label>世界设定（世界框架、地图、势力、时代、基本规则）</label><textarea id="s-world" placeholder="这个世界怎么运转、有哪些地点与势力、什么能做/不能做"></textarea></div>
+        <div class="rules-grid" style="margin-top:10px">
+          <label><input type="checkbox" id="s-rule-dice" checked> 默认开启骰子检定</label>
+          <label><input type="checkbox" id="s-rule-dice-toggle" checked> 玩家可自主开关骰子</label>
+          <label><input type="checkbox" id="s-rule-fixed"> 固定开局默认开启</label>
+          <label><input type="checkbox" id="s-rule-fixed-toggle" checked> 玩家可自主开关固定开局</label>
+          <label><input type="checkbox" id="s-rule-random" checked> 启用随机机制</label>
+        </div>
         <div class="grid2" style="margin-top:12px">
           <div class="field"><label>人物（每行一个：名字｜一句话描述｜内情）</label><textarea id="s-npcs" placeholder="陆守仁｜六十二岁的当家，手指偶尔发颤｜其实已经中毒"></textarea></div>
           <div class="field"><label>线索池（每行一条）</label><textarea id="s-clues" placeholder="药渣里有乌头的苦味"></textarea></div>
           <div class="field"><label>时间表（每行：第几天｜时:分｜事件｜说明）</label><textarea id="s-schedule" placeholder="1｜20:00｜后厅开宴｜所有人都要到场&#10;2｜01:00｜书房前的影子｜有人开了灯"></textarea></div>
           <div class="field"><label>结局（每行：名称｜达成条件）</label><textarea id="s-endings" placeholder="当众揭破｜在老爷死前把凶手与旧案一并揭出"></textarea></div>
+        </div>
+        <div class="grid2" style="margin-top:12px">
+          <div class="field"><label>实体名录（每行：名称｜信息｜设定｜初始值｜简介｜规则）</label><textarea id="s-entities" placeholder="黄铜怀表｜计时工具｜走时总慢七分钟｜完好｜祖辈留下的旧物｜停下时会指向地下"></textarea></div>
+          <div class="field"><label>玩家持续状态（每行：名称｜初始值｜说明）</label><textarea id="s-statuses" placeholder="理智｜50｜见闻超自然事物时下降"></textarea></div>
+          <div class="field"><label>循环事件（每行：频率｜标题｜说明）</label><textarea id="s-loops" placeholder="每天 23:00｜钟声｜全城都能听见"></textarea></div>
+          <div class="field"><label>剧情点（每行：标题｜说明｜触发时间）</label><textarea id="s-plots" placeholder="第一封信｜信从门缝塞进来｜第1天 20:00"></textarea></div>
+          <div class="field"><label>词条库（每行：词条｜解释）</label><textarea id="s-lexicon" placeholder="交界地｜黄金树与法环维系的世界"></textarea></div>
+          <div class="field"><label>预设行动（每行：按钮名｜行动文本）</label><textarea id="s-actions" placeholder="观察四周｜我先观察四周，确认环境和出口。"></textarea></div>
         </div>
         <div class="grid3" style="margin-top:12px">
           <div class="field"><label>开局第几天</label><input id="s-day" value="1"></div>
