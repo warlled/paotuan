@@ -461,6 +461,10 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://127.0.0.1");
   const p = url.pathname;
 
+  if (p !== "/app.js" && p !== "/style.css") {
+    res.setHeader("cache-control", "no-store");
+  }
+
   const ctx = ctxFor(req, res);
   if (ctx.denied) return send(res, 403, denyPage(), "text/html; charset=utf-8");
   const entry = ctx.entry;
@@ -572,6 +576,7 @@ const server = http.createServer(async (req, res) => {
       attrMax: engine.ATTR_MAX,
       model: engine.config.model,
       isOwner: entry.owner,
+      siteOpen: siteOpen(),
       guestTurnLimit: entry.owner ? null : guestTurnLimit,
       hasSave: Boolean(entry.session),
     });

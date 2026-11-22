@@ -250,6 +250,13 @@ async function loadMeta() {
       );
     }
   }
+
+  if (meta.isOwner === true && meta.siteOpen === false) {
+    const bar = document.createElement("div");
+    bar.className = "owner-closed-banner";
+    bar.textContent = "入口已关闭：你是房主所以仍可进入，访客会看到“今日暂停营业”。";
+    document.body.prepend(bar);
+  }
 }
 
 async function startGame() {

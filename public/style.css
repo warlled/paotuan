@@ -24,6 +24,14 @@ input, textarea, select {
 input:focus, textarea:focus, select:focus { border-color: var(--accent2); }
 .hidden { display: none !important; }
 
+.owner-closed-banner {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 50;
+  background: #5a2330; color: #ffd7de; text-align: center;
+  font-size: 12.5px; padding: 6px 12px; letter-spacing: .5px;
+}
+body:has(.owner-closed-banner) #setup { padding-top: 56px; }
+body:has(.owner-closed-banner) #game { padding-top: 28px; }
+
 /* ---------- 开局界面 ---------- */
 #setup {
   height: 100%; overflow-y: auto; padding: 34px 22px 60px;
