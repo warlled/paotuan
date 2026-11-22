@@ -336,6 +336,10 @@ function render() {
   for (const p of r.players) {
     const s = r.state.status[p.pid] || { hp: 0, hpMax: 10, san: 0, sanMax: 10 };
     const g = r.state.growth[p.pid] || { level: 1, xp: 0 };
+    const a = p.character.attrs || {};
+    const attrChips = [["str","力"],["dex","敏"],["con","体"],["int","智"],["per","感"],["cha","魅"]]
+      .map(([k, label]) => `<span class="tag">${label}${a[k] ?? 5}</span>`)
+      .join("");
     const items = (r.state.items[p.pid] || []).map((i) => `<span class="tag">${esc(i)}</span>`).join("");
     const el = document.createElement("div");
     el.className = "player";
@@ -345,6 +349,7 @@ function render() {
       (p.character.bio ? `<div class="meta">${esc(p.character.bio)}</div>` : "") +
       `<div class="bars">${bar(s.hp, s.hpMax, "hp")}${bar(s.san, s.sanMax, "san")}</div>` +
       `<div class="meta">HP ${s.hp}/${s.hpMax} · SAN ${s.san}/${s.sanMax} · Lv.${g.level} (${g.xp || 0} XP)</div>` +
+      `<div class="mini">${attrChips}</div>` +
       `<div class="mini">${items || '<span class="tag">背包空</span>'}</div>`;
     $("r-players").appendChild(el);
   }
@@ -412,7 +417,11 @@ function showRoomOpening() {
   const firstGm = room.log.find((e) => e.type === "gm");
   const opening = room.opening || (firstGm && firstGm.text) || room.scenario.blurb || "（暂无开场）";
   const players = room.players
-    .map((p) => `<div class="item"><b>${esc(p.character.name)}</b> · ${esc(p.character.role || "")}${p.character.bio ? " · " + esc(p.character.bio) : ""}</div>`)
+    .map((p) => {
+      const a = p.character.attrs || {};
+      const attrs = `力${a.str ?? 5} 敏${a.dex ?? 5} 体${a.con ?? 5} 智${a.int ?? 5} 感${a.per ?? 5} 魅${a.cha ?? 5}`;
+      return `<div class="item"><b>${esc(p.character.name)}</b> · ${esc(p.character.role || "")}${p.character.bio ? " · " + esc(p.character.bio) : ""}<div class="meta">${attrs}</div></div>`;
+    })
     .join("");
   $("ro-title").textContent = room.scenario.title + " · 开场";
   $("ro-body").innerHTML =
