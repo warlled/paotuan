@@ -840,7 +840,7 @@ function ctxFor(req, res) {
   if (isOwnerReq(req)) {
     return { entry: getEntry("owner", true), local: false, ownerCookie: true };
   }
-  const adminPath = url.pathname === "/admin" || url.pathname === "/admin/login" || url.pathname === "/admin/logout" || url.pathname === "/admin/owner" || url.pathname === "/admin/owner/off" || url.pathname === "/api/admin/state";
+  const adminPath = url.pathname === "/admin" || url.pathname.startsWith("/admin/") || url.pathname.startsWith("/api/admin/");
   if (shareKey && !adminPath) {
     const provided = url.searchParams.get("k") || cookies.rk || "";
     if (provided !== shareKey) return { denied: true };
