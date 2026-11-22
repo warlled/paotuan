@@ -153,7 +153,7 @@ async function api(path, opts = {}) {
   const r = await fetch(withKey(path), opts);
   let body = null;
   try { body = await r.json(); } catch {}
-  return { status: r.status, body };
+  return { status: r.status, ok: r.ok, body };
 }
 const post = (path, obj) => api(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(obj) });
 
