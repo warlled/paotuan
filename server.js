@@ -800,6 +800,11 @@ function dataStats() {
     }
   };
   return {
+    online: onlineCount(),
+    playingRooms: Object.values(rooms).filter((r) => r.status === "playing").length,
+    playingPeople: Object.values(rooms)
+      .filter((r) => r.status === "playing")
+      .reduce((n, r) => n + (r.players?.length || 0), 0),
     feedback: feedback.length,
     up: votes.up || 0,
     down: votes.down || 0,
@@ -874,7 +879,7 @@ function adminPage() {
     '<div class="note">每日调用上限：<b id="cap"></b> 次（今天已用 <b id="used"></b> 次）。<br>',
     "达到上限后会自动停止接待，次日恢复。上限在主机的 GUEST_DAILY_CALLS 环境变量里改。</div>",
     '<div class="note" style="margin-top:16px;border-top:1px solid #262b3a;padding-top:14px">',
-    "<b>数据总览</b><br>留言 <b id=\"d-fb\">-</b> · 好评 <b id=\"d-up\">-</b> · 差评 <b id=\"d-down\">-</b> · 用户 <b id=\"d-users\">-</b><br>",
+    "<b>数据总览</b><br>在线 <b id=\"d-online\">-</b> · 游玩中 <b id=\"d-playing\">-</b> 局 / <b id=\"d-players\">-</b> 人<br>留言 <b id=\"d-fb\">-</b> · 好评 <b id=\"d-up\">-</b> · 差评 <b id=\"d-down\">-</b> · 用户 <b id=\"d-users\">-</b><br>",
     "作品 <b id=\"d-cm\">-</b> · 房间 <b id=\"d-rooms\">-</b> · 存档 <b id=\"d-sessions\">-</b> · 上传 <b id=\"d-uploads\">-</b><br>",
     '<span id="d-persist"></span>',
     '<div class="row" style="margin-top:10px">',
@@ -908,6 +913,9 @@ function adminPage() {
     "}",
     "async function refreshStats(){",
     '  const s = await (await fetch("/api/admin/stats")).json();',
+    '  document.getElementById("d-online").textContent = s.online;',
+    '  document.getElementById("d-playing").textContent = s.playingRooms;',
+    '  document.getElementById("d-players").textContent = s.playingPeople;',
     '  document.getElementById("d-fb").textContent = s.feedback;',
     '  document.getElementById("d-up").textContent = s.up;',
     '  document.getElementById("d-down").textContent = s.down;',
