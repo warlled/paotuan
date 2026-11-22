@@ -1514,6 +1514,55 @@ try {
   grip.addEventListener("pointercancel", end);
 })();
 
+$("btn-export-play").addEventListener("click", () => {
+  if (!session) {
+    alert("先开始一局游戏，再导出游玩记录。");
+    return;
+  }
+  if (typeof PptxGenJS === "undefined") {
+    alert("PPT 组件加载失败，请检查网络后重试。");
+    return;
+  }
+  const pptx = new PptxGenJS();
+  pptx.layout = "LAYOUT_16x9";
+  const c = session.character || {};
+  const sc = session.scenario || {};
+  const g = session.growth || {};
+  const cover = pptx.addSlide();
+  cover.addText(`${sc.title || "跑团"} · ${c.name || ""}`, { x: 0.5, y: 1.1, w: 9, h: 1, fontSize: 28, bold: true });
+  cover.addText(`${session.mode === "free" ? "自由探索" : "跑团"} · ${(meta?.difficulty?.[session.difficulty]?.label) || ""} · ${session.clock || ""}`, { x: 0.5, y: 2.1, w: 9, fontSize: 14 });
+  cover.addText(`导出时间：${new Date().toLocaleString("zh-CN")}`, { x: 0.5, y: 2.6, w: 9, fontSize: 12 });
+  const slide = (h, b) => {
+    if (!b) return;
+    const s = pptx.addSlide();
+    s.addText(h, { x: 0.4, y: 0.3, w: 9.2, fontSize: 18, bold: true });
+    s.addText(String(b), { x: 0.4, y: 0.95, w: 9.2, h: 4.7, fontSize: 10.5, valign: "top" });
+  };
+  const attrs = (meta?.attrs || []).map((a) => `${a.label} ${c.attrs?.[a.key] ?? "-"}`).join("　");
+  const skills = (meta?.skills || []).map((s) => `${s.name} ${c.attrs?.[s.attr] ?? "-"}`).join("　");
+  slide("角色卡", `姓名：${c.name}\n称呼：${c.gender || ""}　年龄：${c.age || ""}\n身份：${c.role || ""}\n外貌：${c.appearance || ""}\n性格：${c.personality || ""}\n背景：${c.background || ""}\n目标：${c.goal || ""}\n\n属性：${attrs}\n技能：${skills}`);
+  slide("状态与成长", `生命：${session.status?.hp}/${session.status?.hpMax}\n理智：${session.status?.san}/${session.status?.sanMax}\n金钱：${session.status?.money}\n等级：${g.level || 1}　经验：${g.xp || 0}\n地点：${session.location || "未记录"}\n已认识：${(session.npcsKnown || []).join("、") || "无"}\n\n物品：${(session.inventory || []).join("、") || "空"}\n线索：${(session.clues || []).join("、") || "无"}`);
+  slide("关系与任务", `人物关系：\n${Object.entries(session.relations || {}).map(([k, v]) => `${k}：${v.attitude || ""}（${v.value ?? 0}）${v.note ? " " + v.note : ""}`).join("\n") || "无"}\n\n目标：${(session.objectives || []).map((o) => o.text + (o.done ? "（已完成）" : "")).join("、") || "无"}\n任务：${(session.quests || []).map((o) => o.text + (o.done ? "（已完成）" : "")).join("、") || "无"}`);
+  slide("事件与日程", `已发生事件：\n${(session.eventLog || []).map((e) => `${e.at || ""} ${e.title}`).join("\n") || "无"}\n\n时间表：\n${(session.schedule || []).map((e) => `第${e.day}天 ${String(Math.floor(e.minute / 60)).padStart(2, "0")}:${String(e.minute % 60).padStart(2, "0")} ${e.title}${e.fired ? "（已发生）" : ""}`).join("\n")}`);
+  const lines = (session.log || []).map((e) => {
+    const tag = e.type === "player" ? "玩家" : e.type === "gm" ? "GM" : e.type === "dice" ? "判定" : e.type === "event" ? "事件" : e.type === "change" ? "变化" : "系统";
+    return `[${tag}] ${e.text}`;
+  });
+  let buf = "", idx = 1;
+  const flush = () => {
+    if (buf.trim()) {
+      slide(`剧情记录 ${idx++}`, buf);
+      buf = "";
+    }
+  };
+  for (const line of lines) {
+    if ((buf + line).length > 900) flush();
+    buf += line + "\n";
+  }
+  flush();
+  pptx.writeFile({ fileName: `${sc.title || "跑团"}-${c.name || "角色"}-游玩记录.pptx` }).catch(() => alert("导出失败，请重试。"));
+});
+
 buildModelPicker();
 loadMe();
 loadMeta();
@@ -1971,7 +2020,7 @@ $("btn-save-scenario").addEventListener("click", async () => {
   $("scenario-note").textContent = "剧本已保存，并已选中它。";
 });
 
-$("btn-export-ppt").addEventListener("click", () => {
+if ($("btn-export-ppt")) $("btn-export-ppt").addEventListener("click", () => {
   if (typeof PptxGenJS === "undefined") {
     alert("PPT 组件加载失败，请检查网络后重试。");
     return;
