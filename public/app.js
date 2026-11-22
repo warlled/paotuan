@@ -1515,6 +1515,39 @@ $("btn-save-scenario").addEventListener("click", async () => {
   $("scenario-note").textContent = "剧本已保存，并已选中它。";
 });
 
+$("s-import-file").addEventListener("change", async (e) => {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  if (file.size > 2 * 1024 * 1024) {
+    alert("文件太大，剧本 JSON 请控制在 2MB 以内。");
+    return;
+  }
+  let data;
+  try {
+    data = JSON.parse(await file.text());
+  } catch {
+    alert("这个文件不是有效的 JSON。");
+    return;
+  }
+  const r = await fetch("/api/scenario", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ data }),
+  });
+  const out = await r.json();
+  if (!r.ok) {
+    alert(out.error || "导入失败");
+    return;
+  }
+  try {
+    meta = await (await fetch("/api/meta")).json();
+    setupState.scenarioId = out.id;
+    renderScenarios(out.id);
+  } catch {}
+  alert(`已导入「${data.title || "剧本"}」到你的剧本库。`);
+});
+
 /* ---------- 游戏内设定 ---------- */
 
 function fillSettings() {
