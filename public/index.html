@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>跑团 · 本地 GM</title>
+<title>雾港跑团 · 故事工坊</title>
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -120,8 +120,13 @@
 
 <section id="setup">
   <div class="setup-wrap">
-    <h1>跑团 · <span>本地 GM</span></h1>
-    <div class="setup-sub">模型负责讲故事和扮演 NPC，骰子、时间、数值由程序管。<span id="modelTag"></span></div>
+    <h1>雾港跑团 · <span>故事工坊</span></h1>
+    <div class="setup-sub">选一个剧本和角色开始故事；也可以自己写剧本、发布作品、装饰自己的空间。</div>
+    <div class="create-bar">
+      <button id="quick-new-scenario" class="ghost">＋ 写一个新剧本</button>
+      <button id="quick-community" class="ghost">去创作社区</button>
+      <a class="ghost" href="/space" target="_blank" rel="noopener">我的空间</a>
+    </div>
 
     <div class="step">
       <h2>一、选剧本</h2>
@@ -333,14 +338,6 @@
       </div>
     </div>
 
-    <div class="sect">
-      <h3>负载</h3>
-      <div class="kv"><span>模型调用</span><span id="usage-calls">0</span></div>
-      <div class="kv"><span>输入 tokens</span><span id="usage-input">0</span></div>
-      <div class="kv"><span>输出 tokens</span><span id="usage-output">0</span></div>
-      <div class="kv"><span>日志条数</span><span id="usage-log">0</span></div>
-      <div class="hint" id="usage-note"></div>
-    </div>
   </aside>
 
   <div id="main">

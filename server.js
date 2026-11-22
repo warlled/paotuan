@@ -841,30 +841,29 @@ const server = http.createServer(async (req, res) => {
       return send(res, 400, { error: String(err.message || err) });
     }
   }
+  const presetDir = entry.owner ? engine.PRESET_DIR : path.join(engine.WORK, "users", `${entry.sid}-presets`);
   if (p === "/api/presets") {
-    if (req.method === "GET") return send(res, 200, { presets: entry.owner ? engine.listPresets() : [] });
-    if (!entry.owner) return send(res, 403, { error: "访客不能保存角色预设。" });
+    if (req.method === "GET") return send(res, 200, { presets: engine.listPresets(presetDir) });
     const body = await readBody(req);
     try {
-      engine.savePreset(body.name, body.character || {});
-      return send(res, 200, { ok: true, presets: engine.listPresets() });
+      engine.savePreset(body.name, body.character || {}, presetDir);
+      return send(res, 200, { ok: true, presets: engine.listPresets(presetDir) });
     } catch (err) {
       return send(res, 400, { error: String(err.message || err) });
     }
   }
   if (p === "/api/preset") {
-    if (!entry.owner) return send(res, 403, { error: "访客不能读取角色预设。" });
     if (req.method === "GET") {
       try {
-        return send(res, 200, engine.loadPreset(url.searchParams.get("name") || ""));
+        return send(res, 200, engine.loadPreset(url.searchParams.get("name") || "", presetDir));
       } catch (err) {
         return send(res, 404, { error: String(err.message || err) });
       }
     }
     const body = await readBody(req);
     try {
-      engine.deletePreset(String(body.name || ""));
-      return send(res, 200, { ok: true, presets: engine.listPresets() });
+      engine.deletePreset(String(body.name || ""), presetDir);
+      return send(res, 200, { ok: true, presets: engine.listPresets(presetDir) });
     } catch (err) {
       return send(res, 400, { error: String(err.message || err) });
     }

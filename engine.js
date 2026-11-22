@@ -330,17 +330,17 @@ function deleteCustomScenario(id, extraDir) {
 
 /* ---------- 角色预设 ---------- */
 
-function listPresets() {
+function listPresets(dir = PRESET_DIR) {
   let files = [];
   try {
-    files = fs.readdirSync(PRESET_DIR).filter((f) => f.endsWith(".json"));
+    files = fs.readdirSync(dir).filter((f) => f.endsWith(".json"));
   } catch {
     return [];
   }
   return files
     .map((f) => {
       try {
-        const data = JSON.parse(fs.readFileSync(path.join(PRESET_DIR, f), "utf8"));
+        const data = JSON.parse(fs.readFileSync(path.join(dir, f), "utf8"));
         return {
           name: data.name || path.basename(f, ".json"),
           role: data.character?.role || "",
@@ -353,32 +353,33 @@ function listPresets() {
     .filter(Boolean);
 }
 
-function savePreset(name, character) {
+function savePreset(name, character, dir = PRESET_DIR) {
   const clean = String(name || character?.name || "").trim();
   if (!clean) throw new Error("预设名字不能为空");
   if (!NAME_RULE.test(clean)) throw new Error("预设名只能用中文、字母、数字、下划线或短横线");
+  fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(
-    path.join(PRESET_DIR, `${clean}.json`),
+    path.join(dir, `${clean}.json`),
     JSON.stringify({ name: clean, character }, null, 2),
     "utf8"
   );
   return clean;
 }
 
-function loadPreset(name) {
+function loadPreset(name, dir = PRESET_DIR) {
   const clean = String(name || "").trim();
   if (!NAME_RULE.test(clean)) throw new Error("预设名不合法");
   try {
-    return JSON.parse(fs.readFileSync(path.join(PRESET_DIR, `${clean}.json`), "utf8"));
+    return JSON.parse(fs.readFileSync(path.join(dir, `${clean}.json`), "utf8"));
   } catch {
     throw new Error("找不到这个角色预设");
   }
 }
 
-function deletePreset(name) {
+function deletePreset(name, dir = PRESET_DIR) {
   const clean = String(name || "").trim();
   if (!NAME_RULE.test(clean)) throw new Error("预设名不合法");
-  const file = path.join(PRESET_DIR, `${clean}.json`);
+  const file = path.join(dir, `${clean}.json`);
   if (!fs.existsSync(file)) throw new Error("找不到这个角色预设");
   fs.unlinkSync(file);
   if (fs.existsSync(file)) throw new Error("删除失败，文件可能被占用");

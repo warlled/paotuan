@@ -208,7 +208,6 @@ function updateDerived() {
 async function loadMeta() {
   const res = await fetch("/api/meta");
   meta = await res.json();
-  $("modelTag").textContent = `当前模型：${meta.model}`;
   renderScenarios();
   renderDiffs();
   renderAttrs();
@@ -243,7 +242,6 @@ async function loadMeta() {
   if (meta.isOwner === false) {
     $("btn-quit").classList.add("hidden");
     $("settings-sect")?.classList.add("hidden");
-    $("preset-name")?.parentElement?.classList.add("hidden");
     const sub = document.querySelector(".setup-sub");
     if (sub) {
       sub.insertAdjacentHTML(
@@ -450,17 +448,6 @@ function renderSession() {
 
   $("tb-title").textContent = `${session.scenario.title} · ${c.name}`;
   $("tb-clock").textContent = session.clock;
-
-  const u = session.usage || {};
-  $("usage-calls").textContent = String(u.calls || 0);
-  $("usage-input").textContent = `${((u.input || 0) / 1000).toFixed(1)}k`;
-  $("usage-output").textContent = `${((u.output || 0) / 1000).toFixed(1)}k`;
-  $("usage-log").textContent = `${(session.log || []).length}${session.logTrimmed ? `（另存 ${session.logTrimmed}）` : ""}`;
-  if (session.limits) {
-    $("usage-note").textContent =
-      `平均每次调用约 ${(session.limits.avgInputK / 10).toFixed(1)}k 输入 tokens；` +
-      `日志超过 ${session.limits.logTrimAt} 条会自动归档到 work 文件夹，不会拖慢界面。`;
-  }
 
   if (session.ended) showEnding(session.ended);
 }
@@ -1462,6 +1449,9 @@ $("btn-cancel-scenario").addEventListener("click", () => {
   $("custom-box").classList.add("hidden");
   $("scenario-note").textContent = "";
 });
+
+$("quick-new-scenario").addEventListener("click", () => $("btn-custom-scenario").click());
+$("quick-community").addEventListener("click", () => $("cm-open").click());
 
 $("btn-edit-scenario").addEventListener("click", async () => {
   if (!setupState.editingId) return;
