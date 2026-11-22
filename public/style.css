@@ -65,7 +65,11 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent2); }
 #hud-left {
   flex-direction: column; align-items: stretch; gap: 3px;
   max-width: calc(100vw - 96px); border-radius: 14px;
+  position: fixed; left: 10px; top: 44px; z-index: 61;
 }
+.hud-drag { justify-content: center; cursor: grab; touch-action: none; user-select: none; }
+.hud-drag:active { cursor: grabbing; }
+.hud-grip { color: var(--muted); font-size: 11px; line-height: 1; letter-spacing: 2px; }
 .hud-row { display: flex; align-items: center; gap: 4px; }
 .hud-actions { border-top: 1px solid var(--line); padding-top: 3px; }
 .envelope {

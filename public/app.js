@@ -1475,6 +1475,45 @@ try {
   if (rk && rlink) rlink.href = "/room?k=" + encodeURIComponent(rk);
 } catch {}
 
+(function initHudDrag() {
+  const box = $("hud-left");
+  const grip = document.querySelector(".hud-grip");
+  if (!box || !grip) return;
+  const KEY = "pt-hud-pos";
+  try {
+    const p = JSON.parse(localStorage.getItem(KEY) || "null");
+    if (p && Number.isFinite(p.left) && Number.isFinite(p.top)) {
+      box.style.left = p.left + "px";
+      box.style.top = p.top + "px";
+    }
+  } catch {}
+  let drag = null;
+  grip.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    const r = box.getBoundingClientRect();
+    drag = { x: e.clientX, y: e.clientY, left: r.left, top: r.top };
+    grip.setPointerCapture(e.pointerId);
+  });
+  grip.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    const w = box.offsetWidth;
+    const h = box.offsetHeight;
+    const left = Math.max(4, Math.min(window.innerWidth - w - 4, drag.left + e.clientX - drag.x));
+    const top = Math.max(4, Math.min(window.innerHeight - h - 4, drag.top + e.clientY - drag.y));
+    box.style.left = left + "px";
+    box.style.top = top + "px";
+  });
+  const end = () => {
+    if (!drag) return;
+    drag = null;
+    try {
+      localStorage.setItem(KEY, JSON.stringify({ left: box.offsetLeft, top: box.offsetTop }));
+    } catch {}
+  };
+  grip.addEventListener("pointerup", end);
+  grip.addEventListener("pointercancel", end);
+})();
+
 buildModelPicker();
 loadMe();
 loadMeta();
