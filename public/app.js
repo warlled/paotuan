@@ -1132,7 +1132,7 @@ function renderCommunity(posts) {
   const filtered = posts.filter((p) => {
     if (cmFilter === "all") return true;
     if (cmFilter === "mine") return Boolean(p.pid && me && p.pid === me.pid);
-    return (p.type || "post") === cmFilter;
+    return p.category === cmFilter;
   });
   if (!filtered.length) {
     const empty = document.createElement("div");
@@ -1172,6 +1172,30 @@ function renderCommunity(posts) {
       h.className = "cm-title";
       h.textContent = post.title;
       card.appendChild(h);
+    }
+    if (post.category) {
+      const cat = document.createElement("span");
+      cat.className = "tag";
+      cat.textContent = post.category;
+      card.appendChild(cat);
+      cat.style.marginTop = "4px";
+    }
+    if (post.pid && me && post.pid === me.pid) {
+      const del = document.createElement("button");
+      del.textContent = "删除";
+      del.className = "cm-like";
+      del.style.marginLeft = "8px";
+      del.addEventListener("click", async () => {
+        if (!confirm("删除这条作品？")) return;
+        const r = await fetch("/api/community/delete", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ id: post.id }),
+        });
+        if (r.ok) loadCommunity();
+        else alert("删除失败");
+      });
+      card.appendChild(del);
     }
     if (post.type === "scenario") {
       const badge = document.createElement("div");
@@ -1353,7 +1377,7 @@ $("cm-post").addEventListener("click", async () => {
   const r = await fetch("/api/community", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ title, text, media, tags: $("cm-tags").value }),
+    body: JSON.stringify({ title, text, media, tags: $("cm-tags").value, category: $("cm-category").value }),
   });
   const data = await r.json();
   if (!r.ok) {

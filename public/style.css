@@ -263,6 +263,9 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent2); }
   border-radius: 999px; padding: 3px 12px; font-size: 12px;
 }
 .cm-tabs button.on { background: var(--accent); color: #1a1408; border-color: var(--accent); font-weight: 600; }
+.cm-tabs-scroll { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; }
+.cm-tabs-scroll button { flex: 0 0 auto; }
+.cm-form-meta select { width: auto; min-width: 90px; }
 .cm-form-meta { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
 .cm-form-meta input { flex: 1; margin-bottom: 0; }
 .cm-preview img, .cm-preview video { max-width: 100%; max-height: 140px; border-radius: 10px; margin-top: 8px; display: block; }

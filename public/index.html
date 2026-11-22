@@ -123,10 +123,18 @@
       <h2>创作社区</h2>
       <button data-close="cm-modal" title="关闭">✕</button>
     </div>
-    <div class="cm-tabs" id="cm-tabs">
+    <div class="cm-tabs cm-tabs-scroll" id="cm-tabs">
       <button data-filter="all" class="on">全部</button>
-      <button data-filter="post">作品</button>
-      <button data-filter="scenario">剧本</button>
+      <button data-filter="历史">历史</button>
+      <button data-filter="奇幻">奇幻</button>
+      <button data-filter="科幻">科幻</button>
+      <button data-filter="现实">现实</button>
+      <button data-filter="言情">言情</button>
+      <button data-filter="脑洞">脑洞</button>
+      <button data-filter="玄幻">玄幻</button>
+      <button data-filter="仙侠">仙侠</button>
+      <button data-filter="怪谈">怪谈</button>
+      <button data-filter="悬疑">悬疑</button>
       <button data-filter="mine">我的</button>
     </div>
     <div class="cm-search">
@@ -138,6 +146,11 @@
       <input id="cm-title" maxlength="60" placeholder="作品标题">
       <textarea id="cm-text" maxlength="1000" placeholder="写下你的设定、剧本片段、角色故事，或分享一张跑团截图……"></textarea>
       <div class="cm-form-meta">
+        <select id="cm-category">
+          <option>历史</option><option>奇幻</option><option>科幻</option><option selected>现实</option>
+          <option>言情</option><option>脑洞</option><option>玄幻</option><option>仙侠</option>
+          <option>怪谈</option><option>悬疑</option>
+        </select>
         <input id="cm-tags" maxlength="60" placeholder="标签，逗号分隔（如：民国, 悬疑）">
         <span class="hint" id="cm-counter">0 / 1000</span>
       </div>

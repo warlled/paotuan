@@ -174,6 +174,7 @@ function saveUpload(base64, declaredMime, maxBytes) {
 
 let community = readJsonFile(COMMUNITY_FILE, []);
 if (!Array.isArray(community)) community = [];
+const COMMUNITY_CATEGORIES = ["历史","奇幻","科幻","现实","言情","脑洞","玄幻","仙侠","怪谈","悬疑"];
 
 /* ---------- 多人联机房间 ---------- */
 
@@ -405,6 +406,7 @@ function communityView(post, sid) {
     avatar: post.avatar || "",
     title: post.title,
     text: post.text,
+    category: post.category || "现实",
     tags: post.tags || [],
     genre: post.scenario?.genre || "",
     blurb: post.scenario?.blurb || "",
@@ -1471,6 +1473,7 @@ const server = http.createServer(async (req, res) => {
       title,
       text,
       media,
+      category: COMMUNITY_CATEGORIES.includes(body.category) ? body.category : "现实",
       tags: (Array.isArray(body.tags) ? body.tags : String(body.tags || "").split(/[,，、]/))
         .map((t) => String(t).trim().slice(0, 16))
         .filter(Boolean)
@@ -1515,6 +1518,16 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, communityView(post, entry.sid));
   }
 
+  if (req.method === "POST" && p === "/api/community/delete") {
+    const body = await readBody(req);
+    const idx = community.findIndex((x) => x.id === String(body.id || ""));
+    if (idx < 0) return send(res, 404, { error: "作品不存在" });
+    if (community[idx].sid !== entry.sid) return send(res, 403, { error: "只能删除自己的作品" });
+    community.splice(idx, 1);
+    writeJsonFile(COMMUNITY_FILE, community);
+    return send(res, 200, { ok: true });
+  }
+
   if (req.method === "POST" && p === "/api/scenario/share") {
     const body = await readBody(req);
     const sc = ownScenario(entry, String(body.id || ""));
@@ -1532,6 +1545,7 @@ const server = http.createServer(async (req, res) => {
       avatar: profile.avatar || "",
       title: sc.title,
       text: sc.blurb || "",
+      category: "奇幻",
       scenario: sc,
       tags: sc.tags || [],
       comments: [],
