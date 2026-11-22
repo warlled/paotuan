@@ -15,7 +15,48 @@ const STATE_FILE = path.join(engine.WORK, "server.json");
 const SESS_DIR = path.join(engine.WORK, "sessions");
 const STATS_FILE = path.join(engine.WORK, "share-stats.json");
 const SHARE_STATE_FILE = path.join(engine.WORK, "share-state.json");
+const FEEDBACK_FILE = path.join(engine.WORK, "feedback.json");
+const VOTES_FILE = path.join(engine.WORK, "votes.json");
 fs.mkdirSync(SESS_DIR, { recursive: true });
+
+/* ---------- 在线人数 / 好评差评 / 留言板 ---------- */
+
+const PRESENCE_TTL = 8000;
+const presence = new Map();
+const lastPostAt = new Map();
+
+function readJsonFile(file, fallback) {
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    return fallback;
+  }
+}
+
+function writeJsonFile(file, data) {
+  try {
+    fs.writeFileSync(file, JSON.stringify(data));
+  } catch {}
+}
+
+let votes = readJsonFile(VOTES_FILE, { up: 0, down: 0, voters: {} });
+if (!votes.voters || typeof votes.voters !== "object") votes.voters = {};
+let feedback = readJsonFile(FEEDBACK_FILE, []);
+if (!Array.isArray(feedback)) feedback = [];
+
+function onlineCount() {
+  const now = Date.now();
+  let n = 0;
+  for (const [sid, seen] of presence) {
+    if (now - seen <= PRESENCE_TTL) n += 1;
+    else presence.delete(sid);
+  }
+  return n;
+}
+
+function voteSnapshot(sid) {
+  return { up: votes.up, down: votes.down, mine: votes.voters[sid] || null };
+}
 
 const shareKey = String(engine.config.shareKey || "").trim();
 const numOr = (value, fallback) => (Number.isFinite(Number(value)) ? Number(value) : fallback);
@@ -692,6 +733,50 @@ const server = http.createServer(async (req, res) => {
   if (p === "/api/state") {
     return send(res, 200, { session: publicSession(entry), busy: entry.busy, owner: entry.owner });
   }
+
+  if (p === "/api/presence") {
+    presence.set(entry.sid, Date.now());
+    return send(res, 200, { online: onlineCount(), ...voteSnapshot(entry.sid) });
+  }
+
+  if (req.method === "POST" && p === "/api/vote") {
+    const body = await readBody(req);
+    const value = body.value === "down" ? "down" : body.value === "up" ? "up" : "";
+    if (!value) return send(res, 400, { error: "投票类型无效" });
+    const prev = votes.voters[entry.sid];
+    if (prev === value) {
+      delete votes.voters[entry.sid];
+      votes[value] = Math.max(0, votes[value] - 1);
+    } else {
+      if (prev) votes[prev] = Math.max(0, votes[prev] - 1);
+      votes.voters[entry.sid] = value;
+      votes[value] += 1;
+    }
+    writeJsonFile(VOTES_FILE, votes);
+    return send(res, 200, voteSnapshot(entry.sid));
+  }
+
+  if (p === "/api/feedback") {
+    if (req.method === "GET") {
+      return send(res, 200, {
+        messages: feedback.slice(-200).reverse(),
+        ...voteSnapshot(entry.sid),
+      });
+    }
+    const body = await readBody(req);
+    const text = String(body.text || "").trim().slice(0, 500);
+    const name = String(body.name || "").trim().slice(0, 24) || "匿名旅人";
+    if (!text) return send(res, 400, { error: "写点什么再发吧。" });
+    const last = lastPostAt.get(entry.sid) || 0;
+    if (Date.now() - last < 15000) return send(res, 429, { error: "发得太快了，歇一会儿再发。" });
+    lastPostAt.set(entry.sid, Date.now());
+    const message = { id: crypto.randomUUID(), name, text, at: new Date().toISOString() };
+    feedback.push(message);
+    while (feedback.length > 500) feedback.shift();
+    writeJsonFile(FEEDBACK_FILE, feedback);
+    return send(res, 200, { ok: true, message });
+  }
+
   if (req.method === "POST" && p === "/api/quit") {
     if (!entry.owner) return send(res, 403, { error: "访客不能关闭服务。" });
     send(res, 200, { ok: true });

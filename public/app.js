@@ -570,6 +570,132 @@ $("btn-quit").addEventListener("click", async () => {
   appendSegment({ type: "sys", text: "已经退出了。想继续就再双击一次桌面的跑团快捷方式（进度还在）。" });
 });
 
+/* ---------- 顶部 HUD：在线人数 / 好评差评 / 留言板 ---------- */
+
+let fbTimer = null;
+
+function updateHud(data) {
+  if (data.online != null) $("online-count").textContent = String(Math.max(1, data.online));
+  if (data.up != null) $("vote-up-count").textContent = String(data.up);
+  if (data.down != null) $("vote-down-count").textContent = String(data.down);
+  if (data.mine !== undefined) {
+    $("vote-up").classList.toggle("on", data.mine === "up");
+    $("vote-down").classList.toggle("on", data.mine === "down");
+  }
+}
+
+async function beat() {
+  try {
+    const r = await fetch("/api/presence", { method: "POST" });
+    if (r.ok) updateHud(await r.json());
+  } catch {}
+}
+
+async function castVote(value) {
+  try {
+    const r = await fetch("/api/vote", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ value }),
+    });
+    if (r.ok) updateHud(await r.json());
+  } catch {}
+}
+
+async function loadFeedback() {
+  try {
+    const r = await fetch("/api/feedback");
+    if (!r.ok) return;
+    const data = await r.json();
+    updateHud(data);
+    $("fb-count").textContent = String((data.messages || []).length);
+    const list = $("fb-list");
+    list.innerHTML = "";
+    if (!data.messages || !data.messages.length) {
+      const empty = document.createElement("div");
+      empty.className = "fb-empty";
+      empty.textContent = "还没有留言，来写第一条吧。";
+      list.appendChild(empty);
+      return;
+    }
+    for (const m of data.messages) {
+      const item = document.createElement("div");
+      item.className = "fb-item";
+      const meta = document.createElement("div");
+      meta.className = "fb-meta";
+      const name = document.createElement("span");
+      name.textContent = m.name || "匿名旅人";
+      const time = document.createElement("span");
+      try {
+        time.textContent = new Date(m.at).toLocaleString("zh-CN", {
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+      } catch {
+        time.textContent = "";
+      }
+      meta.append(name, time);
+      const text = document.createElement("div");
+      text.className = "fb-text";
+      text.textContent = m.text;
+      item.append(meta, text);
+      list.appendChild(item);
+    }
+  } catch {}
+}
+
+function openFeedback() {
+  $("fb-modal").classList.remove("hidden");
+  loadFeedback();
+  clearInterval(fbTimer);
+  fbTimer = setInterval(loadFeedback, 5000);
+}
+
+function closeFeedback() {
+  $("fb-modal").classList.add("hidden");
+  clearInterval(fbTimer);
+  fbTimer = null;
+}
+
+$("vote-up").addEventListener("click", () => castVote("up"));
+$("vote-down").addEventListener("click", () => castVote("down"));
+$("feedback-open").addEventListener("click", openFeedback);
+$("fb-close").addEventListener("click", closeFeedback);
+$("fb-modal").addEventListener("click", (e) => {
+  if (e.target === $("fb-modal")) closeFeedback();
+});
+$("fb-send").addEventListener("click", async () => {
+  const text = $("fb-text").value.trim();
+  if (!text) {
+    $("fb-status").textContent = "写点什么再发吧。";
+    return;
+  }
+  $("fb-status").textContent = "发布中…";
+  try {
+    const r = await fetch("/api/feedback", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: $("fb-name").value, text }),
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      $("fb-status").textContent = data.error || "发布失败";
+      return;
+    }
+    $("fb-text").value = "";
+    $("fb-status").textContent = "已发布，所有人可见。";
+    loadFeedback();
+  } catch {
+    $("fb-status").textContent = "网络不给力，稍后再试。";
+  }
+});
+
+setInterval(beat, 1000);
+beat();
+loadFeedback();
+
 loadMeta();
 
 /* ---------- 角色预设 ---------- */
