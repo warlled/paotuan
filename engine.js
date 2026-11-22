@@ -217,11 +217,17 @@ const CLI = {
   eventTitle: 40,
   eventNote: 200,
   eventCount: 60,
+  openingOptionCount: 12,
   endingName: 40,
   endingCondition: 200,
   endingCount: 12,
   item: 30,
   itemCount: 20,
+  entityGroup: 40,
+  entityKind: 40,
+  entityAttributeCount: 80,
+  randomCount: 20,
+  randomRangeCount: 30,
   characterField: 400,
   characterName: 40,
 };
@@ -273,14 +279,57 @@ function saveCustomScenario(input, existingId, targetDir) {
   const npcs = (Array.isArray(input.npcs) ? input.npcs : [])
     .map((n) => ({
       name: clip(n.name, CLI.npcName),
+      faction: clip(n.faction, 80),
+      role: clip(n.role, 80),
+      attitude: clip(n.attitude, 80),
       desc: clip(n.desc, CLI.npcDesc),
       secret: clip(n.secret, CLI.npcSecret),
     }))
     .filter((n) => n.name)
     .slice(0, CLI.npcCount);
 
+  const clues = (Array.isArray(input.clues) ? input.clues : [])
+    .map((clue) => {
+      if (typeof clue === "string") return { category: "", text: clip(clue, CLI.clue) };
+      return { category: clip(clue?.category, 60), text: clip(clue?.text, CLI.clue) };
+    })
+    .filter((clue) => clue.text)
+    .slice(0, CLI.clueCount);
+
+  const openingOptions = (Array.isArray(input.openingOptions) ? input.openingOptions : [])
+    .map((option) => ({
+      text: clip(option?.text, CLI.hook),
+      result: clip(option?.result, 600),
+    }))
+    .filter((option) => option.text)
+    .slice(0, CLI.openingOptionCount);
+
+  const randomTables = (Array.isArray(input.randomTables) ? input.randomTables : [])
+    .map((table) => ({
+      name: clip(table?.name, 60),
+      trigger: clip(table?.trigger, 200),
+      note: clip(table?.note, 500),
+      diceCount: Math.max(1, Math.min(20, Math.floor(Number(table?.diceCount) || 1))),
+      diceSides: Math.max(2, Math.min(1000, Math.floor(Number(table?.diceSides) || 100))),
+      modifier: Math.max(-999, Math.min(999, Math.floor(Number(table?.modifier) || 0))),
+      ranges: (Array.isArray(table?.ranges) ? table.ranges : [])
+        .map((range) => ({
+          min: Math.floor(Number(range?.min) || 0),
+          max: Math.floor(Number(range?.max) || 0),
+          hit: clip(range?.hit, 300),
+        }))
+        .filter((range) => range.hit)
+        .slice(0, CLI.randomRangeCount),
+    }))
+    .filter((table) => table.name)
+    .slice(0, CLI.randomCount);
+
   const endings = (Array.isArray(input.endings) ? input.endings : [])
-    .map((e) => ({ name: clip(e.name, CLI.endingName), condition: clip(e.condition, CLI.endingCondition) }))
+    .map((e) => ({
+      name: clip(e.name, CLI.endingName),
+      condition: clip(e.condition, CLI.endingCondition),
+      effect: clip(e.effect, 600),
+    }))
     .filter((e) => e.name)
     .slice(0, CLI.endingCount);
 
@@ -299,50 +348,95 @@ function saveCustomScenario(input, existingId, targetDir) {
       fixedOpeningDefault: Boolean(input.rules?.fixedOpeningDefault),
       allowOpeningToggle: input.rules?.allowOpeningToggle !== false,
       randomMode: input.rules?.randomMode !== false,
+      fixedOpeningDesc: clip(input.rules?.fixedOpeningDesc || input.fixedOpeningDesc, CLI.hook),
     },
     entities: (Array.isArray(input.entities) ? input.entities : [])
       .map((e) => ({
+        group: clip(e.group, CLI.entityGroup) || "默认分组",
         name: clip(e.name, 30),
+        kind: clip(e.kind, CLI.entityKind),
         info: clip(e.info, 200),
         setting: clip(e.setting, 600),
         initial: clip(e.initial, 200),
         summary: clip(e.summary, 300),
         rules: clip(e.rules, 300),
+        isPlayer: Boolean(e.isPlayer),
+        hidden: Boolean(e.hidden),
+        visible: e.visible !== false,
+        attributes: (Array.isArray(e.attributes) ? e.attributes : [])
+          .map((attr) => ({
+            group: clip(attr?.group, CLI.entityGroup) || "默认分组",
+            name: clip(attr?.name, 40),
+            initial: clip(attr?.initial, 80),
+            rule: clip(attr?.rule, 400),
+          }))
+          .filter((attr) => attr.name)
+          .slice(0, CLI.entityAttributeCount),
       }))
       .filter((e) => e.name)
       .slice(0, 30),
     statuses: (Array.isArray(input.statuses) ? input.statuses : [])
-      .map((s) => ({ name: clip(s.name, 30), initial: clip(s.initial, 40), desc: clip(s.desc, 200) }))
+      .map((s) => ({
+        name: clip(s.name, 30),
+        initial: clip(s.initial, 40),
+        expiresAt: clip(s.expiresAt, 100),
+        desc: clip(s.desc, 200),
+      }))
       .filter((s) => s.name)
       .slice(0, 20),
     loopEvents: (Array.isArray(input.loopEvents) ? input.loopEvents : [])
-      .map((e) => ({ every: clip(e.every, 40), title: clip(e.title, 60), note: clip(e.note, 200) }))
+      .map((e) => ({
+        every: clip(e.every, 40),
+        title: clip(e.title, 60),
+        nextAt: clip(e.nextAt, 100),
+        expiresAt: clip(e.expiresAt, 100),
+        note: clip(e.note, 200),
+      }))
       .filter((e) => e.title)
       .slice(0, 20),
     plotPoints: (Array.isArray(input.plotPoints) ? input.plotPoints : [])
-      .map((p) => ({ title: clip(p.title, 60), note: clip(p.note, 300), at: clip(p.at, 40) }))
+      .map((p) => ({
+        title: clip(p.title, 60),
+        note: clip(p.note, 300),
+        at: clip(p.at, 100),
+        effect: clip(p.effect, 400),
+      }))
       .filter((p) => p.title)
       .slice(0, 40),
     lexicon: (Array.isArray(input.lexicon) ? input.lexicon : [])
-      .map((l) => ({ term: clip(l.term, 40), def: clip(l.def, 300) }))
+      .map((l) => ({
+        path: clip(l.path, 200),
+        term: clip(l.term, 40),
+        def: clip(l.def, 300),
+        visible: l.visible !== false,
+      }))
       .filter((l) => l.term)
       .slice(0, 60),
     actions: (Array.isArray(input.actions) ? input.actions : [])
-      .map((a) => ({ label: clip(a.label, 20), text: clip(a.text, 300) }))
+      .map((a) => ({
+        label: clip(a.label, 20),
+        text: clip(a.text, 300),
+        note: clip(a.note, 200),
+        kind: clip(a.kind, 40) || "text",
+      }))
       .filter((a) => a.label && a.text)
       .slice(0, 12),
+    randomTables,
+    openingOptions,
+    fixedOpeningDesc: clip(input.rules?.fixedOpeningDesc || input.fixedOpeningDesc, CLI.hook),
     tone: clip(input.tone, CLI.tone) || "由玩家设定",
     background,
     hook: clip(input.hook, CLI.hook),
     opening: clip(input.opening, CLI.opening),
     truth: clip(input.truth, CLI.truth) || "（玩家未指定，请自行设计一个合理的内幕并保持前后一致）",
-    clues: cleanList(input.clues, CLI.clue, CLI.clueCount),
+    clues,
     npcs,
     schedule,
     endings: endings.length ? endings : [{ name: "自由结局", condition: "由剧情自然收束" }],
     startDay: Math.max(1, Math.floor(Number(input.startDay) || 1)),
     startMinute: Math.max(0, Math.min(1439, Math.floor(Number(input.startMinute) ?? 9 * 60))),
     startMoney: Math.max(0, Math.floor(Number(input.startMoney) || 0)),
+    startLocation: clip(input.startLocation, 120),
     startItems: cleanList(input.startItems, CLI.item, CLI.itemCount),
     links: sanitizeLinks(input.links),
     custom: true,
@@ -836,21 +930,61 @@ function recentLog(session, limit = 12) {
 
 function scenarioBrief(scenario) {
   const npcs = (scenario.npcs || [])
-    .map((n) => `- ${n.name}：${n.desc}${n.secret ? `（内情：${n.secret}）` : ""}`)
+    .map((n) => {
+      const tags = [n.faction, n.role, n.attitude].filter(Boolean).join(" / ");
+      return `- ${n.name}${tags ? `（${tags}）` : ""}：${n.desc || ""}${n.secret ? `（内情：${n.secret}）` : ""}`;
+    })
     .join("\n");
-  const endings = (scenario.endings || []).map((e) => `- ${e.name}：${e.condition}`).join("\n");
+  const endings = (scenario.endings || [])
+    .map((e) => `- ${e.name}：${e.condition}${e.effect ? `｜收束效果：${e.effect}` : ""}`)
+    .join("\n");
   const rules = scenario.rules || {};
   const entities = (scenario.entities || [])
     .slice(0, 12)
-    .map((e) => `- ${e.name}｜${e.info || ""}｜设定：${e.setting || ""}｜初始：${e.initial || ""}｜${e.summary || ""}｜规则：${e.rules || ""}`)
+    .map((e) => {
+      const attrs = (e.attributes || [])
+        .slice(0, 8)
+        .map((a) => `${a.group ? a.group + "/" : ""}${a.name}=${a.initial || "?"}${a.rule ? `（${a.rule}）` : ""}`)
+        .join("；");
+      const flags = [e.isPlayer ? "玩家实体" : "", e.hidden ? "默认隐藏" : "", e.visible === false ? "初始不可见" : "初始可见"]
+        .filter(Boolean)
+        .join(" / ");
+      return `- [${e.group || "默认分组"}] ${e.name}${e.kind ? `（${e.kind}）` : ""}｜${e.info || ""}｜设定：${e.setting || ""}｜初始：${e.initial || ""}｜${e.summary || ""}｜规则：${e.rules || ""}${flags ? `｜${flags}` : ""}${attrs ? `｜属性：${attrs}` : ""}`;
+    })
     .join("\n");
   const statuses = (scenario.statuses || [])
-    .map((s) => `- ${s.name}：初始 ${s.initial || "?"}${s.desc ? " · " + s.desc : ""}`)
+    .map((s) => `- ${s.name}：初始 ${s.initial || "?"}${s.expiresAt ? ` · 结束于 ${s.expiresAt}` : ""}${s.desc ? " · " + s.desc : ""}`)
     .join("\n");
-  const loops = (scenario.loopEvents || []).map((e) => `- 每 ${e.every || "?"}：${e.title}${e.note ? " · " + e.note : ""}`).join("\n");
-  const plots = (scenario.plotPoints || []).slice(0, 10).map((p) => `- ${p.at ? p.at + " " : ""}${p.title}${p.note ? " · " + p.note : ""}`).join("\n");
-  const lexicon = (scenario.lexicon || []).slice(0, 20).map((l) => `- ${l.term}：${l.def}`).join("\n");
+  const loops = (scenario.loopEvents || [])
+    .map((e) => `- 每 ${e.every || "?"}：${e.title}${e.nextAt ? `（下次 ${e.nextAt}）` : ""}${e.expiresAt ? `（结束于 ${e.expiresAt}）` : ""}${e.note ? " · " + e.note : ""}`)
+    .join("\n");
+  const plots = (scenario.plotPoints || [])
+    .slice(0, 10)
+    .map((p) => `- ${p.at ? p.at + " " : ""}${p.title}${p.note ? " · " + p.note : ""}${p.effect ? `｜生效：${p.effect}` : ""}`)
+    .join("\n");
+  const lexicon = (scenario.lexicon || [])
+    .slice(0, 20)
+    .map((l) => `- ${l.path ? l.path + " / " : ""}${l.term}：${l.def}${l.visible === false ? "（初始隐藏）" : ""}`)
+    .join("\n");
   const actions = (scenario.actions || []).map((a) => a.label).join("、");
+  const randomTables = (scenario.randomTables || [])
+    .map((table) => {
+      const ranges = (table.ranges || [])
+        .map((range) => `${range.min}-${range.max}=${range.hit}`)
+        .join("；");
+      return `- ${table.name}｜时机：${table.trigger || "未限定"}｜${table.diceCount}d${table.diceSides}${table.modifier ? `${table.modifier >= 0 ? "+" : ""}${table.modifier}` : ""}${ranges ? `｜${ranges}` : ""}${table.note ? `｜${table.note}` : ""}`;
+    })
+    .join("\n");
+  const openings = (scenario.openingOptions || [])
+    .map((option) => `- ${option.text}${option.result ? ` → ${option.result}` : ""}`)
+    .join("\n");
+  const clues = (scenario.clues || [])
+    .map((clue) => {
+      if (typeof clue === "string") return clue;
+      return `${clue.category ? `【${clue.category}】` : ""}${clue.text || ""}`;
+    })
+    .filter(Boolean)
+    .join("、");
   return [
     `【剧本】${scenario.title}（${scenario.genre}）`,
     `版本：v${scenario.version || "1.0"}${scenario.versionNote ? " · " + scenario.versionNote : ""}`,
@@ -858,8 +992,11 @@ function scenarioBrief(scenario) {
     `世界设定：${scenario.world || scenario.background}`,
     `背景：${scenario.background}`,
     `玩家初始处境：${scenario.hook || ""}`,
+    `开局地点：${scenario.startLocation || "由场景自然确定"}`,
+    `固定开局：${rules.fixedOpeningDesc || scenario.fixedOpeningDesc || "未单独描述"}`,
+    `固定开局选项：\n${openings || "无"}`,
     `相关人物：\n${npcs}`,
-    `线索池（GM 内部参考，只能通过场景与对话逐步放出）：${(scenario.clues || []).join("、")}`,
+    `线索池（GM 内部参考，只能通过场景与对话逐步放出）：${clues}`,
     `真相（严禁直接说破）：${scenario.truth || ""}`,
     `结局方向：\n${endings}`,
     `实体名录：\n${entities || "无"}`,
@@ -868,6 +1005,7 @@ function scenarioBrief(scenario) {
     `剧情点：\n${plots || "无"}`,
     `词条库：\n${lexicon || "无"}`,
     `预设行动：${actions || "无"}`,
+    `随机机制（必须由引擎执行，不得自行编造结果）：\n${randomTables || "无"}`,
     `规则配置：默认骰子检定 ${rules.diceDefault === false ? "关闭" : "开启"}；玩家可切换骰子 ${rules.allowDiceToggle === false ? "否" : "是"}；固定开局默认 ${rules.fixedOpeningDefault ? "开启" : "关闭"}；玩家可切换固定开局 ${rules.allowOpeningToggle === false ? "否" : "是"}；随机机制 ${rules.randomMode === false ? "关闭" : "开启"}`,
     `基调：${scenario.tone || "紧张、克制、有画面感"}`,
   ].join("\n");

@@ -223,72 +223,272 @@
 <button class="ghost hidden" id="btn-share-scenario">分享到社区</button>
         <span class="hint" id="scenario-note"></span>
       </div>
-      <div class="custom hidden" id="custom-box">
-        <div class="scn-preview" id="scn-preview"></div>
-        <div class="grid2">
-          <div class="field"><label>剧本标题 *</label><input id="s-title" placeholder="例如：雪夜来客"></div>
-          <div class="field"><label>类型</label><input id="s-genre" placeholder="例如：民国 · 密室"></div>
-          <div class="field"><label>一句话简介</label><input id="s-blurb" placeholder="开局界面上显示这一行"></div>
-          <div class="field"><label>基调</label><input id="s-tone" placeholder="例如：冷、克制、压抑"></div>
-        </div>
-        <div class="grid3" style="margin-top:12px">
-          <div class="field"><label>版本号</label><input id="s-version" value="1.0"></div>
-          <div class="field"><label>标签（逗号分隔）</label><input id="s-tags" placeholder="悬疑, 民国, 单人"></div>
-          <div class="field"><label>分类</label><input id="s-genre2" placeholder="沿用上面的类型即可"></div>
-        </div>
-        <div class="field" style="margin-top:12px"><label>版本描述</label><input id="s-version-note" placeholder="这一版改了什么"></div>
-        <div class="grid2" style="margin-top:12px">
-          <div class="field"><label>背景设定 *</label><textarea id="s-background" placeholder="这是个什么地方、什么时候、发生了什么、玩家为什么在这里"></textarea></div>
-          <div class="field"><label>玩家初始处境</label><textarea id="s-hook" placeholder="开局那一刻，玩家站在哪、手上有什么"></textarea></div>
-          <div class="field"><label>开场白（留空则由 GM 自动写）</label><textarea id="s-opening" placeholder="想自己写开场就把文字贴这里，会原样出现在游戏里"></textarea></div>
-          <div class="field"><label>真相 / 内幕（GM 知道但不会直说）</label><textarea id="s-truth" placeholder="幕后是谁、为什么。留空则由 GM 自己编一个并保持一致"></textarea></div>
-        </div>
-        <div class="field" style="margin-top:12px"><label>世界设定（世界框架、地图、势力、时代、基本规则）</label><textarea id="s-world" placeholder="这个世界怎么运转、有哪些地点与势力、什么能做/不能做"></textarea></div>
-        <div class="rules-grid" style="margin-top:10px">
-          <label><input type="checkbox" id="s-rule-dice" checked> 默认开启骰子检定</label>
-          <label><input type="checkbox" id="s-rule-dice-toggle" checked> 玩家可自主开关骰子</label>
-          <label><input type="checkbox" id="s-rule-fixed"> 固定开局默认开启</label>
-          <label><input type="checkbox" id="s-rule-fixed-toggle" checked> 玩家可自主开关固定开局</label>
-          <label><input type="checkbox" id="s-rule-random" checked> 启用随机机制</label>
-        </div>
-        <div class="grid2" style="margin-top:12px">
-          <div class="field"><label>人物（每行一个：名字｜一句话描述｜内情）</label><textarea id="s-npcs" placeholder="陆守仁｜六十二岁的当家，手指偶尔发颤｜其实已经中毒"></textarea></div>
-          <div class="field"><label>线索池（每行一条）</label><textarea id="s-clues" placeholder="药渣里有乌头的苦味"></textarea></div>
-          <div class="field"><label>时间表（每行：第几天｜时:分｜事件｜说明）</label><textarea id="s-schedule" placeholder="1｜20:00｜后厅开宴｜所有人都要到场&#10;2｜01:00｜书房前的影子｜有人开了灯"></textarea></div>
-          <div class="field"><label>结局（每行：名称｜达成条件）</label><textarea id="s-endings" placeholder="当众揭破｜在老爷死前把凶手与旧案一并揭出"></textarea></div>
-        </div>
-        <div class="grid2" style="margin-top:12px">
-          <div class="field"><label>实体名录（每行：名称｜信息｜设定｜初始值｜简介｜规则）</label><textarea id="s-entities" placeholder="黄铜怀表｜计时工具｜走时总慢七分钟｜完好｜祖辈留下的旧物｜停下时会指向地下"></textarea></div>
-          <div class="field"><label>玩家持续状态（每行：名称｜初始值｜说明）</label><textarea id="s-statuses" placeholder="理智｜50｜见闻超自然事物时下降"></textarea></div>
-          <div class="field"><label>循环事件（每行：频率｜标题｜说明）</label><textarea id="s-loops" placeholder="每天 23:00｜钟声｜全城都能听见"></textarea></div>
-          <div class="field"><label>剧情点（每行：标题｜说明｜触发时间）</label><textarea id="s-plots" placeholder="第一封信｜信从门缝塞进来｜第1天 20:00"></textarea></div>
-          <div class="field"><label>词条库（每行：词条｜解释）</label><textarea id="s-lexicon" placeholder="交界地｜黄金树与法环维系的世界"></textarea></div>
-          <div class="field"><label>预设行动（每行：按钮名｜行动文本）</label><textarea id="s-actions" placeholder="观察四周｜我先观察四周，确认环境和出口。"></textarea></div>
-        </div>
-        <div class="grid3" style="margin-top:12px">
-          <div class="field"><label>开局第几天</label><input id="s-day" value="1"></div>
-          <div class="field"><label>开局时间（时:分）</label><input id="s-time" value="18:00"></div>
-          <div class="field"><label>随身钱</label><input id="s-money" value="100"></div>
-        </div>
-        <div class="field" style="margin-top:12px"><label>随身物品（用逗号分隔）</label><input id="s-items" placeholder="怀表, 折叠伞, 一封信"></div>
-        <div class="field" style="margin-top:12px">
-          <label>参考资料链接（每行一个，会随剧本保存）</label>
-          <textarea id="s-links" placeholder="https://example.com/worldbuilding&#10;https://example.com/timeline"></textarea>
-          <div class="start-bar" style="margin-top:8px">
-            <button class="ghost" id="btn-fetch-scenario-links">抓取链接内容</button>
-            <span class="hint" id="s-links-note">抓回来的正文会作为设定依据交给 GM</span>
+      <div class="custom scenario-workspace hidden" id="custom-box">
+        <header class="editor-top">
+          <div class="editor-title-block">
+            <div class="editor-kicker">SCENARIO WORKSPACE · 分层创作台</div>
+            <h3>剧本设定与推演规则</h3>
+            <p>从骨架、人物与属性，到事件链、词条和随机机制，每个层级独立维护。</p>
           </div>
-          <div class="links-list" id="s-links-list"></div>
+          <div class="editor-top-actions">
+            <div class="editor-health"><span>完成度</span><b id="scenario-edit-progress">0%</b></div>
+            <button type="button" class="ghost editor-compact-btn" id="btn-editor-expand">展开全部</button>
+            <button type="button" class="ghost editor-compact-btn" id="btn-cancel-scenario">退出编辑</button>
+          </div>
+        </header>
+
+        <div class="scn-preview" id="scn-preview"></div>
+
+        <div class="editor-workspace">
+          <nav class="editor-rail" id="scenario-editor-nav" aria-label="剧本编辑分区">
+            <div class="editor-rail-label">编辑层级</div>
+            <button type="button" data-editor-target="editor-basic" class="on"><b>01</b><span>基本信息</span></button>
+            <button type="button" data-editor-target="editor-world"><b>02</b><span>世界与开局</span></button>
+            <button type="button" data-editor-target="editor-rules"><b>03</b><span>规则配置</span></button>
+            <button type="button" data-editor-target="editor-entities"><b>04</b><span>实体与属性</span></button>
+            <button type="button" data-editor-target="editor-relations"><b>05</b><span>人物与关系</span></button>
+            <button type="button" data-editor-target="editor-timeline"><b>06</b><span>时间与事件</span></button>
+            <button type="button" data-editor-target="editor-story"><b>07</b><span>剧情与结局</span></button>
+            <button type="button" data-editor-target="editor-lexicon"><b>08</b><span>词条与行动</span></button>
+            <button type="button" data-editor-target="editor-random"><b>09</b><span>随机机制</span></button>
+            <button type="button" data-editor-target="editor-resources"><b>10</b><span>资料与导入</span></button>
+            <div class="editor-rail-help">旧版 JSON 剧本可直接导入，字段会自动映射到对应层级。</div>
+          </nav>
+
+          <div class="editor-main" id="scenario-editor-sections">
+            <details class="editor-section" id="editor-basic" data-editor-section="basic" open>
+              <summary>
+                <span class="editor-section-index">01</span>
+                <span class="editor-section-title"><b>基本信息</b><small>决定作品在剧本库与社区里的第一印象</small></span>
+                <span class="editor-section-state" data-section-state>已开启</span>
+              </summary>
+              <div class="editor-section-body">
+                <div class="editor-block">
+                  <div class="editor-block-head"><b>作品标识</b><span>名称、分类、标签与简介</span></div>
+                  <div class="editor-field-grid editor-grid-2">
+                    <label class="editor-field"><span>剧本标题 <em>必填</em></span><input id="s-title" maxlength="60" placeholder="例如：雪夜来客"></label>
+                    <label class="editor-field"><span>类型 / 分类</span><input id="s-genre" maxlength="40" placeholder="例如：民国 · 密室"></label>
+                    <label class="editor-field editor-span-2"><span>一句话简介</span><input id="s-blurb" maxlength="200" placeholder="剧本卡片上显示的故事引子"></label>
+                    <label class="editor-field"><span>叙事基调</span><input id="s-tone" maxlength="200" placeholder="例如：冷、克制、压抑"></label>
+                    <label class="editor-field"><span>标签</span><input id="s-tags" placeholder="悬疑, 民国, 单人（逗号分隔）"></label>
+                  </div>
+                </div>
+                <div class="editor-block">
+                  <div class="editor-block-head"><b>版本信息</b><span>让玩家知道当前稿件处于哪一版</span></div>
+                  <div class="editor-field-grid editor-grid-3">
+                    <label class="editor-field"><span>版本号</span><input id="s-version" value="1.0" maxlength="20"></label>
+                    <label class="editor-field editor-span-2"><span>版本描述</span><input id="s-version-note" maxlength="500" placeholder="这一版新增、修正或平衡了什么"></label>
+                  </div>
+                </div>
+              </div>
+            </details>
+
+            <details class="editor-section" id="editor-world" data-editor-section="world" open>
+              <summary>
+                <span class="editor-section-index">02</span>
+                <span class="editor-section-title"><b>世界与开局</b><small>世界怎样运转，玩家第一眼看到什么</small></span>
+                <span class="editor-section-state" data-section-state>已开启</span>
+              </summary>
+              <div class="editor-section-body">
+                <div class="editor-block">
+                  <div class="editor-block-head"><b>世界框架</b><span>时代、地点、势力、规则与行动边界</span></div>
+                  <div class="editor-field-grid editor-grid-2">
+                    <label class="editor-field editor-span-2"><span>世界设定</span><textarea id="s-world" placeholder="世界怎样运转、有哪些地点与势力、什么能做或不能做"></textarea></label>
+                    <label class="editor-field"><span>故事背景 <em>必填</em></span><textarea id="s-background" placeholder="这是个什么地方、什么时候、发生了什么、玩家为什么在这里"></textarea></label>
+                    <label class="editor-field"><span>幕后真相</span><textarea id="s-truth" placeholder="GM 知道但不会直接说破的内幕；留空则由 GM 建立并保持一致"></textarea></label>
+                  </div>
+                </div>
+                <div class="editor-block">
+                  <div class="editor-block-head"><b>开局位置</b><span>时间、地点、随身资源与玩家所处局面</span></div>
+                  <div class="editor-field-grid editor-grid-3">
+                    <label class="editor-field"><span>开局第几天</span><input id="s-day" type="number" min="1" value="1"></label>
+                    <label class="editor-field"><span>开局时间</span><input id="s-time" type="time" value="18:00"></label>
+                    <label class="editor-field"><span>随身钱</span><input id="s-money" type="number" min="0" value="100"></label>
+                    <label class="editor-field editor-span-2"><span>开局地点</span><input id="s-location" maxlength="120" placeholder="例如：雨夜中的陆宅前厅"></label>
+                    <label class="editor-field"><span>随身物品</span><input id="s-items" placeholder="怀表, 折叠伞, 一封信"></label>
+                    <label class="editor-field editor-span-2"><span>玩家初始处境</span><textarea id="s-hook" placeholder="开局那一刻，玩家站在哪、手上有什么、正在面对什么"></textarea></label>
+                    <label class="editor-field"><span>固定开局描述</span><textarea id="s-fixed-desc" placeholder="启用固定开局时，玩家只能从哪些起始选项中选择"></textarea></label>
+                  </div>
+                </div>
+                <div class="editor-block">
+                  <div class="editor-block-head"><b>开场白</b><span>留空则由 GM 根据世界和初始处境生成</span></div>
+                  <label class="editor-field"><span>原样呈现的开场文字</span><textarea id="s-opening" class="editor-tall-text" placeholder="想把开场写死，就把完整文字放在这里"></textarea></label>
+                </div>
+                <div class="editor-subsection">
+                  <div class="editor-subhead"><div><b>固定开局选项</b><span>每个选项对应一种开局走向或既定后果</span></div><span class="editor-count" id="count-opening-options">0 项</span></div>
+                  <div class="editor-repeat-list" id="editor-opening-options"></div>
+                  <button type="button" class="editor-add" data-add-row="openingOption">＋ 添加固定开局选项</button>
+                </div>
+              </div>
+            </details>
+
+            <details class="editor-section" id="editor-rules" data-editor-section="rules">
+              <summary>
+                <span class="editor-section-index">03</span>
+                <span class="editor-section-title"><b>规则配置</b><small>骰子、固定开局与玩家可调整范围</small></span>
+                <span class="editor-section-state" data-section-state>已收起</span>
+              </summary>
+              <div class="editor-section-body">
+                <div class="editor-rule-grid">
+                  <label class="editor-rule-card"><input type="checkbox" id="s-rule-dice" checked><span><b>默认开启骰子检定</b><small>遇到有风险且结果不确定的行动时触发</small></span></label>
+                  <label class="editor-rule-card"><input type="checkbox" id="s-rule-dice-toggle" checked><span><b>允许玩家切换骰子</b><small>玩家可以在对局中自主开关检定</small></span></label>
+                  <label class="editor-rule-card"><input type="checkbox" id="s-rule-fixed"><span><b>固定开局默认开启</b><small>开局按预设选项进行，减少随机偏离</small></span></label>
+                  <label class="editor-rule-card"><input type="checkbox" id="s-rule-fixed-toggle" checked><span><b>允许玩家切换固定开局</b><small>玩家可以改用自由开局</small></span></label>
+                  <label class="editor-rule-card"><input type="checkbox" id="s-rule-random" checked><span><b>启用随机机制</b><small>使用下方随机表和引擎掷骰结果</small></span></label>
+                </div>
+                <div class="editor-note">规则是剧本的默认状态；玩家的可调整范围由这些开关控制。</div>
+              </div>
+            </details>
+
+            <details class="editor-section" id="editor-entities" data-editor-section="entities">
+              <summary>
+                <span class="editor-section-index">04</span>
+                <span class="editor-section-title"><b>实体与属性</b><small>实体组 → 实体 → 属性组 → 具体属性</small></span>
+                <span class="editor-section-state" data-section-state>已收起</span>
+              </summary>
+              <div class="editor-section-body">
+                <div class="editor-note">实体可以是玩家、NPC、物品、地点或势力。展开实体后，可继续添加任意数量的属性组和属性字段。</div>
+                <div class="editor-subsection">
+                  <div class="editor-subhead"><div><b>实体名录</b><span>用“实体组”归类，用“属性组”继续细分</span></div><span class="editor-count" id="count-entities">0 个实体</span></div>
+                  <div class="editor-repeat-list" id="editor-entity-list"></div>
+                  <button type="button" class="editor-add" data-add-row="entity">＋ 添加实体</button>
+                </div>
+                <div class="editor-subsection">
+                  <div class="editor-subhead"><div><b>持续状态</b><span>中毒、追踪、祝福、警戒等跨回合状态</span></div><span class="editor-count" id="count-statuses">0 项</span></div>
+                  <div class="editor-repeat-list" id="editor-statuses"></div>
+                  <button type="button" class="editor-add" data-add-row="status">＋ 添加持续状态</button>
+                </div>
+              </div>
+            </details>
+
+            <details class="editor-section" id="editor-relations" data-editor-section="relations">
+              <summary>
+                <span class="editor-section-index">05</span>
+                <span class="editor-section-title"><b>人物与关系</b><small>NPC 的身份、立场、态度与隐藏内情</small></span>
+                <span class="editor-section-state" data-section-state>已收起</span>
+              </summary>
+              <div class="editor-section-body">
+                <div class="editor-subsection">
+                  <div class="editor-subhead"><div><b>相关人物</b><span>关系会随对局中的互动而更新</span></div><span class="editor-count" id="count-npcs">0 人</span></div>
+                  <div class="editor-repeat-list" id="editor-npcs"></div>
+                  <button type="button" class="editor-add" data-add-row="npc">＋ 添加人物</button>
+                </div>
+              </div>
+            </details>
+
+            <details class="editor-section" id="editor-timeline" data-editor-section="timeline">
+              <summary>
+                <span class="editor-section-index">06</span>
+                <span class="editor-section-title"><b>时间与事件</b><small>按天推进的时间表，以及循环发生的事件</small></span>
+                <span class="editor-section-state" data-section-state>已收起</span>
+              </summary>
+              <div class="editor-section-body">
+                <div class="editor-subsection">
+                  <div class="editor-subhead"><div><b>时间表</b><span>触发后进入对局事件流，并同步到右侧状态栏</span></div><span class="editor-count" id="count-schedule">0 个节点</span></div>
+                  <div class="editor-repeat-list" id="editor-schedule"></div>
+                  <button type="button" class="editor-add" data-add-row="schedule">＋ 添加时间节点</button>
+                </div>
+                <div class="editor-subsection">
+                  <div class="editor-subhead"><div><b>循环事件</b><span>按天、周或月重复的钟声、潮汐、巡逻或仪式</span></div><span class="editor-count" id="count-loops">0 项</span></div>
+                  <div class="editor-repeat-list" id="editor-loops"></div>
+                  <button type="button" class="editor-add" data-add-row="loop">＋ 添加循环事件</button>
+                </div>
+              </div>
+            </details>
+
+            <details class="editor-section" id="editor-story" data-editor-section="story">
+              <summary>
+                <span class="editor-section-index">07</span>
+                <span class="editor-section-title"><b>剧情与结局</b><small>一次性剧情点、线索池与可抵达的收束方式</small></span>
+                <span class="editor-section-state" data-section-state>已收起</span>
+              </summary>
+              <div class="editor-section-body">
+                <div class="editor-subsection">
+                  <div class="editor-subhead"><div><b>剧情点</b><span>在特定时间或条件下触发的一次性节点</span></div><span class="editor-count" id="count-plots">0 个节点</span></div>
+                  <div class="editor-repeat-list" id="editor-plots"></div>
+                  <button type="button" class="editor-add" data-add-row="plot">＋ 添加剧情点</button>
+                </div>
+                <div class="editor-subsection">
+                  <div class="editor-subhead"><div><b>线索池</b><span>GM 只能通过场景和对话逐步放出</span></div><span class="editor-count" id="count-clues">0 条</span></div>
+                  <div class="editor-repeat-list" id="editor-clues"></div>
+                  <button type="button" class="editor-add" data-add-row="clue">＋ 添加线索</button>
+                </div>
+                <div class="editor-subsection">
+                  <div class="editor-subhead"><div><b>结局方向</b><span>写出达成条件，避免故事无逻辑地突然结束</span></div><span class="editor-count" id="count-endings">0 个结局</span></div>
+                  <div class="editor-repeat-list" id="editor-endings"></div>
+                  <button type="button" class="editor-add" data-add-row="ending">＋ 添加结局</button>
+                </div>
+              </div>
+            </details>
+
+            <details class="editor-section" id="editor-lexicon" data-editor-section="lexicon">
+              <summary>
+                <span class="editor-section-index">08</span>
+                <span class="editor-section-title"><b>词条与预设行动</b><small>可检索的世界资料，以及一键填入的行动模板</small></span>
+                <span class="editor-section-state" data-section-state>已收起</span>
+              </summary>
+              <div class="editor-section-body">
+                <div class="editor-subsection">
+                  <div class="editor-subhead"><div><b>词条库</b><span>用“层级路径”组织世界、势力、人物、地点和物品</span></div><span class="editor-count" id="count-lexicon">0 条</span></div>
+                  <div class="editor-repeat-list" id="editor-lexicon-list"></div>
+                  <button type="button" class="editor-add" data-add-row="lexicon">＋ 添加词条</button>
+                </div>
+                <div class="editor-subsection">
+                  <div class="editor-subhead"><div><b>预设行动</b><span>玩家可以直接点选，也可以自由输入</span></div><span class="editor-count" id="count-actions">0 个</span></div>
+                  <div class="editor-repeat-list" id="editor-actions"></div>
+                  <button type="button" class="editor-add" data-add-row="action">＋ 添加预设行动</button>
+                </div>
+              </div>
+            </details>
+
+            <details class="editor-section" id="editor-random" data-editor-section="random">
+              <summary>
+                <span class="editor-section-index">09</span>
+                <span class="editor-section-title"><b>随机机制</b><small>骰池、修正值与分段结果，交给引擎执行</small></span>
+                <span class="editor-section-state" data-section-state>已收起</span>
+              </summary>
+              <div class="editor-section-body">
+                <div class="editor-note">GM 只负责叙述，不得自行编造随机结果。每个随机项可继续添加多个结果区间。</div>
+                <div class="editor-subsection">
+                  <div class="editor-subhead"><div><b>随机项</b><span>名称 → 触发条件 → 骰池 → 结果区间</span></div><span class="editor-count" id="count-randoms">0 项</span></div>
+                  <div class="editor-repeat-list" id="editor-randoms"></div>
+                  <button type="button" class="editor-add" data-add-row="random">＋ 添加随机项</button>
+                </div>
+              </div>
+            </details>
+
+            <details class="editor-section" id="editor-resources" data-editor-section="resources">
+              <summary>
+                <span class="editor-section-index">10</span>
+                <span class="editor-section-title"><b>资料与导入</b><small>外部链接、正文抓取与旧剧本迁移</small></span>
+                <span class="editor-section-state" data-section-state>已收起</span>
+              </summary>
+              <div class="editor-section-body">
+                <div class="editor-block">
+                  <div class="editor-block-head"><b>参考资料链接</b><span>链接正文会随剧本保存，并作为 GM 的设定依据</span></div>
+                  <label class="editor-field"><span>每行一个公开链接</span><textarea id="s-links" placeholder="https://example.com/worldbuilding&#10;https://example.com/timeline"></textarea></label>
+                  <div class="editor-inline-actions">
+                    <button type="button" class="ghost editor-compact-btn" id="btn-fetch-scenario-links">抓取链接内容</button>
+                    <span class="hint" id="s-links-note">抓回来的正文会作为设定依据交给 GM</span>
+                  </div>
+                  <div class="links-list" id="s-links-list"></div>
+                </div>
+                <div class="editor-block">
+                  <div class="editor-block-head"><b>迁入旧剧本</b><span>导入后会自动映射到新的分层字段</span></div>
+                  <label class="editor-field"><span>选择 JSON 文件</span><input id="s-import-file" type="file" accept="application/json,.json"></label>
+                </div>
+              </div>
+            </details>
+          </div>
         </div>
-        <div class="field" style="margin-top:12px">
-          <label>导入已有剧本文件（.json）：会直接存进你的剧本库</label>
-          <input id="s-import-file" type="file" accept="application/json,.json">
-        </div>
-        <div class="start-bar">
-          <button class="primary" id="btn-save-scenario">保存剧本</button>
-          <button class="ghost" id="btn-cancel-scenario">收起</button>
-          <span class="hint">保存后会出现在上面的剧本列表里，下次也能用。</span>
-        </div>
+
+        <footer class="editor-footer">
+          <div class="editor-footer-copy"><b>保存前会检查标题和故事背景。</b><span>保存后可直接在剧本库中开始游玩，已发布版本不会被自动覆盖。</span></div>
+          <div class="editor-inline-actions">
+            <button type="button" class="ghost" id="btn-cancel-scenario-bottom">收起</button>
+            <button type="button" class="primary" id="btn-save-scenario">保存剧本</button>
+          </div>
+        </footer>
       </div>
     </div>
 

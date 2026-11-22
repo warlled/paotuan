@@ -1815,6 +1815,489 @@ function timeToMinute(text) {
   return h * 60 + mi;
 }
 
+const SCENARIO_ROW_META = {
+  npc: { container: "editor-npcs", count: "count-npcs", empty: "未添加人物", noun: "人物" },
+  clue: { container: "editor-clues", count: "count-clues", empty: "未添加线索", noun: "线索" },
+  schedule: { container: "editor-schedule", count: "count-schedule", empty: "未添加时间节点", noun: "节点" },
+  ending: { container: "editor-endings", count: "count-endings", empty: "未添加结局", noun: "结局" },
+  entity: { container: "editor-entity-list", count: "count-entities", empty: "未添加实体", noun: "实体" },
+  status: { container: "editor-statuses", count: "count-statuses", empty: "未添加状态", noun: "状态" },
+  loop: { container: "editor-loops", count: "count-loops", empty: "未添加循环事件", noun: "事件" },
+  plot: { container: "editor-plots", count: "count-plots", empty: "未添加剧情点", noun: "剧情点" },
+  lexicon: { container: "editor-lexicon-list", count: "count-lexicon", empty: "未添加词条", noun: "词条" },
+  action: { container: "editor-actions", count: "count-actions", empty: "未添加预设行动", noun: "行动" },
+  random: { container: "editor-randoms", count: "count-randoms", empty: "未添加随机项", noun: "随机项" },
+  openingOption: { container: "editor-opening-options", count: "count-opening-options", empty: "未添加开局选项", noun: "选项" },
+};
+
+function minuteToTime(minute) {
+  const n = Math.max(0, Math.min(1439, Number(minute) || 0));
+  return `${String(Math.floor(n / 60)).padStart(2, "0")}:${String(n % 60).padStart(2, "0")}`;
+}
+
+function makeScenarioField(label, field, value, options = {}) {
+  const wrap = el("label", "editor-field");
+  wrap.appendChild(el("span", "", label));
+  let control;
+  if (options.select) {
+    control = document.createElement("select");
+    for (const item of options.select) {
+      const option = document.createElement("option");
+      option.value = typeof item === "string" ? item : item.value;
+      option.textContent = typeof item === "string" ? item : item.label;
+      control.appendChild(option);
+    }
+  } else if (options.multiline) {
+    control = document.createElement("textarea");
+  } else {
+    control = document.createElement("input");
+    control.type = options.type || "text";
+    if (options.min != null) control.min = options.min;
+    if (options.max != null) control.max = options.max;
+  }
+  control.dataset.field = field;
+  control.value = value == null ? "" : String(value);
+  if (options.placeholder) control.placeholder = options.placeholder;
+  if (options.maxlength) control.maxLength = options.maxlength;
+  wrap.appendChild(control);
+  return wrap;
+}
+
+function makeScenarioCheck(label, field, checked) {
+  const wrap = el("label", "editor-field editor-check-field");
+  const line = el("span", "editor-check-inline");
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.dataset.field = field;
+  input.checked = Boolean(checked);
+  line.appendChild(input);
+  line.appendChild(document.createTextNode(label));
+  wrap.appendChild(line);
+  return wrap;
+}
+
+function scenarioGrid(className, nodes) {
+  const grid = el("div", `editor-field-grid ${className || ""}`.trim());
+  for (const node of nodes) if (node) grid.appendChild(node);
+  return grid;
+}
+
+function scenarioRowTitle(type, data) {
+  const value = (...keys) => {
+    for (const key of keys) if (String(data[key] || "").trim()) return String(data[key]).trim();
+    return "";
+  };
+  if (type === "npc") return value("name") || "新人物";
+  if (type === "clue") return value("text") || "新线索";
+  if (type === "schedule") return value("title") || "新时间节点";
+  if (type === "ending") return value("name") || "新结局";
+  if (type === "entity") return value("name") || "新实体";
+  if (type === "status") return value("name") || "新持续状态";
+  if (type === "loop") return value("title") || "新循环事件";
+  if (type === "plot") return value("title") || "新剧情点";
+  if (type === "lexicon") return value("term") || "新词条";
+  if (type === "action") return value("label") || "新预设行动";
+  if (type === "random") return value("name") || "新随机项";
+  return value("text") || "新开局选项";
+}
+
+function scenarioRowMeta(type, data) {
+  if (type === "npc") return [data.faction, data.role].filter(Boolean).join(" · ");
+  if (type === "clue") return data.category || "";
+  if (type === "schedule") return `第${Number(data.day) || 1}天 ${minuteToTime(data.minute)}`;
+  if (type === "entity") return [data.group, data.kind].filter(Boolean).join(" · ");
+  if (type === "status") return data.initial ? `初始 ${data.initial}` : "";
+  if (type === "loop") return data.every || "";
+  if (type === "plot") return data.at || "";
+  if (type === "lexicon") return data.path || "";
+  if (type === "action") return data.kind || "";
+  if (type === "random") return `${Number(data.diceCount) || 1}d${Number(data.diceSides) || 100}`;
+  return "";
+}
+
+function refreshScenarioRowHead(card, type) {
+  const data = {};
+  card.querySelectorAll("[data-field]").forEach((field) => {
+    if (field.closest(".editor-nested")) return;
+    data[field.dataset.field] = field.type === "checkbox" ? field.checked : field.value;
+  });
+  const title = card.querySelector(".editor-repeat-title");
+  const meta = card.querySelector(".editor-repeat-meta");
+  if (title) title.textContent = scenarioRowTitle(type, data);
+  if (meta) meta.textContent = scenarioRowMeta(type, data);
+}
+
+function makeRowTool(label, action, title) {
+  const button = el("button", "", label);
+  button.type = "button";
+  button.dataset.rowAction = action;
+  button.title = title;
+  return button;
+}
+
+function appendEntityAttribute(container, data = {}) {
+  const row = el("div", "editor-nested-row attribute-row");
+  row.dataset.nestedRow = "entityAttr";
+  row.appendChild(makeScenarioField("属性组", "group", data.group || "基础属性", { placeholder: "基础属性" }));
+  row.appendChild(makeScenarioField("属性名称", "name", data.name || "", { placeholder: "生命" }));
+  row.appendChild(makeScenarioField("初始值", "initial", data.initial || "", { placeholder: "100" }));
+  row.appendChild(makeScenarioField("属性规则", "rule", data.rule || "", { placeholder: "降至 0 时……" }));
+  const remove = el("button", "editor-nested-remove", "×");
+  remove.type = "button";
+  remove.dataset.nestedRemove = "true";
+  remove.title = "删除这条属性";
+  row.appendChild(remove);
+  container.appendChild(row);
+}
+
+function appendRandomRange(container, data = {}) {
+  const row = el("div", "editor-nested-row range-row");
+  row.dataset.nestedRow = "randomRange";
+  row.appendChild(makeScenarioField("最小值", "min", data.min ?? "", { type: "number", placeholder: "1" }));
+  row.appendChild(makeScenarioField("最大值", "max", data.max ?? "", { type: "number", placeholder: "30" }));
+  row.appendChild(makeScenarioField("命中结果", "hit", data.hit || "", { placeholder: "大失败 / 成功但有代价" }));
+  const remove = el("button", "editor-nested-remove", "×");
+  remove.type = "button";
+  remove.dataset.nestedRemove = "true";
+  remove.title = "删除这个结果区间";
+  row.appendChild(remove);
+  container.appendChild(row);
+}
+
+function buildScenarioRow(type, data = {}, collapsed = true) {
+  const card = el("div", "editor-repeat-card");
+  card.dataset.rowType = type;
+  if (collapsed) card.classList.add("is-collapsed");
+  const head = el("div", "editor-repeat-head");
+  const toggle = el("button", "editor-repeat-toggle");
+  toggle.type = "button";
+  toggle.dataset.rowAction = "toggle";
+  const title = el("span", "editor-repeat-title", scenarioRowTitle(type, data));
+  const meta = el("span", "editor-repeat-meta", scenarioRowMeta(type, data));
+  toggle.appendChild(title);
+  toggle.appendChild(meta);
+  head.appendChild(toggle);
+  const tools = el("div", "editor-row-tools");
+  tools.appendChild(makeRowTool("↑", "up", "上移"));
+  tools.appendChild(makeRowTool("↓", "down", "下移"));
+  tools.appendChild(makeRowTool("⧉", "copy", "复制"));
+  tools.appendChild(makeRowTool("×", "remove", "删除"));
+  head.appendChild(tools);
+  card.appendChild(head);
+
+  const body = el("div", "editor-repeat-body");
+  if (type === "npc") {
+    body.appendChild(scenarioGrid("editor-grid-3", [
+      makeScenarioField("姓名", "name", data.name || "", { placeholder: "陆守仁" }),
+      makeScenarioField("所属势力", "faction", data.faction || "", { placeholder: "陆家 / 调查局" }),
+      makeScenarioField("身份", "role", data.role || "", { placeholder: "当家 / 联络人" }),
+      makeScenarioField("初始态度", "attitude", data.attitude || "", { placeholder: "戒备 / 友好 / 中立" }),
+      makeScenarioField("公开描述", "desc", data.desc || "", { multiline: true, placeholder: "玩家第一眼能观察到什么" }),
+      makeScenarioField("隐藏内情", "secret", data.secret || "", { multiline: true, placeholder: "GM 知道但不会直接说出的信息" }),
+    ]));
+  } else if (type === "clue") {
+    body.appendChild(scenarioGrid("editor-grid-2", [
+      makeScenarioField("分类", "category", data.category || "", { placeholder: "物证 / 传闻 / 地点" }),
+      makeScenarioField("线索正文", "text", data.text || "", { placeholder: "药渣里有乌头的苦味" }),
+    ]));
+  } else if (type === "schedule") {
+    body.appendChild(scenarioGrid("editor-grid-4", [
+      makeScenarioField("第几天", "day", data.day || 1, { type: "number", min: 1 }),
+      makeScenarioField("时间", "time", minuteToTime(data.minute), { type: "time" }),
+      makeScenarioField("事件标题", "title", data.title || "", { placeholder: "后厅开宴" }),
+      makeScenarioField("说明", "note", data.note || "", { placeholder: "所有人必须到场" }),
+    ]));
+  } else if (type === "ending") {
+    body.appendChild(scenarioGrid("editor-grid-2", [
+      makeScenarioField("结局名称", "name", data.name || "", { placeholder: "当众揭破" }),
+      makeScenarioField("达成条件", "condition", data.condition || "", { multiline: true, placeholder: "在老爷死前把凶手与旧案一并揭出" }),
+    ]));
+  } else if (type === "entity") {
+    body.appendChild(scenarioGrid("editor-grid-3", [
+      makeScenarioField("实体组", "group", data.group || "人物", { placeholder: "人物 / 物品 / 地点 / 势力" }),
+      makeScenarioField("实体名称", "name", data.name || "", { placeholder: "黄铜怀表" }),
+      makeScenarioField("实体类型", "kind", data.kind || "", { placeholder: "玩家 / NPC / 物品" }),
+      makeScenarioField("信息", "info", data.info || "", { placeholder: "用途或类型" }),
+      makeScenarioField("初始值", "initial", data.initial || "", { placeholder: "完好 / 100" }),
+      makeScenarioField("简介", "summary", data.summary || "", { placeholder: "一句话说明它是什么" }),
+      makeScenarioField("设定", "setting", data.setting || "", { multiline: true, placeholder: "来历、隐藏性质与在世界中的位置" }),
+      makeScenarioField("规则", "rules", data.rules || "", { multiline: true, placeholder: "如何使用、何时变化、会触发什么" }),
+      makeScenarioCheck("玩家实体", "isPlayer", data.isPlayer),
+    ]));
+    const flags = el("div", "editor-field-grid editor-grid-3");
+    flags.appendChild(makeScenarioCheck("默认隐藏", "hidden", data.hidden));
+    flags.appendChild(makeScenarioCheck("初始可见", "visible", data.visible !== false));
+    body.appendChild(flags);
+    const nested = el("div", "editor-nested");
+    const nestedHead = el("div", "editor-nested-head");
+    nestedHead.appendChild(el("b", "", "属性组 / 属性字段"));
+    nestedHead.appendChild(el("span", "", "可继续细分属性与初始值"));
+    nested.appendChild(nestedHead);
+    const list = el("div", "editor-nested-list");
+    list.dataset.nestedList = "entityAttr";
+    nested.appendChild(list);
+    for (const attr of data.attributes || []) appendEntityAttribute(list, attr);
+    const add = el("button", "editor-add-small", "＋ 添加属性");
+    add.type = "button";
+    add.dataset.entityAddAttr = "true";
+    nested.appendChild(add);
+    body.appendChild(nested);
+  } else if (type === "status") {
+    body.appendChild(scenarioGrid("editor-grid-3", [
+      makeScenarioField("状态名称", "name", data.name || "", { placeholder: "中毒" }),
+      makeScenarioField("初始值", "initial", data.initial || "", { placeholder: "1 层 / 50" }),
+      makeScenarioField("过期时间", "expiresAt", data.expiresAt || "", { placeholder: "第 2 天后 / 治疗时结束" }),
+      makeScenarioField("说明", "desc", data.desc || "", { multiline: true, placeholder: "每回合产生什么效果，如何解除" }),
+    ]));
+  } else if (type === "loop") {
+    body.appendChild(scenarioGrid("editor-grid-3", [
+      makeScenarioField("频率", "every", data.every || "每天", { placeholder: "每天 23:00 / 每周一次" }),
+      makeScenarioField("事件标题", "title", data.title || "", { placeholder: "钟声" }),
+      makeScenarioField("下次触发", "nextAt", data.nextAt || "", { placeholder: "第1天 23:00" }),
+      makeScenarioField("过期时间", "expiresAt", data.expiresAt || "", { placeholder: "留空表示长期循环" }),
+      makeScenarioField("说明", "note", data.note || "", { multiline: true, placeholder: "全城都能听见，听到后会……" }),
+    ]));
+  } else if (type === "plot") {
+    body.appendChild(scenarioGrid("editor-grid-3", [
+      makeScenarioField("剧情点标题", "title", data.title || "", { placeholder: "第一封信" }),
+      makeScenarioField("触发时间", "at", data.at || "", { placeholder: "第1天 20:00" }),
+      makeScenarioField("生效效果", "effect", data.effect || "", { placeholder: "解锁线索 / 改变关系 / 推进时间" }),
+      makeScenarioField("内容", "note", data.note || "", { multiline: true, placeholder: "信从门缝里塞进来……" }),
+    ]));
+  } else if (type === "lexicon") {
+    body.appendChild(scenarioGrid("editor-grid-3", [
+      makeScenarioField("层级路径", "path", data.path || "", { placeholder: "世界 / 势力 / 教会" }),
+      makeScenarioField("词条标题", "term", data.term || "", { placeholder: "交界地" }),
+      makeScenarioField("解释", "def", data.def || "", { multiline: true, placeholder: "词条在世界观中的准确含义" }),
+      makeScenarioCheck("初始可见", "visible", data.visible !== false),
+    ]));
+  } else if (type === "action") {
+    body.appendChild(scenarioGrid("editor-grid-3", [
+      makeScenarioField("按钮名称", "label", data.label || "", { placeholder: "观察四周" }),
+      makeScenarioField("行动类型", "kind", data.kind || "text", { select: ["text", "explore", "social", "investigate", "combat"] }),
+      makeScenarioField("补充说明", "note", data.note || "", { placeholder: "选择后会附带哪些意图" }),
+      makeScenarioField("行动文本", "text", data.text || "", { multiline: true, placeholder: "我先观察四周，确认环境和出口。" }),
+    ]));
+  } else if (type === "random") {
+    body.appendChild(scenarioGrid("editor-grid-3", [
+      makeScenarioField("随机项名称", "name", data.name || "", { placeholder: "遭遇检定" }),
+      makeScenarioField("生效时机", "trigger", data.trigger || "", { placeholder: "夜间探索时" }),
+      makeScenarioField("骰子数量", "diceCount", data.diceCount || 1, { type: "number", min: 1, max: 20 }),
+      makeScenarioField("骰子面数", "diceSides", data.diceSides || 100, { type: "number", min: 2, max: 1000 }),
+      makeScenarioField("修正值", "modifier", data.modifier || 0, { type: "number" }),
+      makeScenarioField("补充说明", "note", data.note || "", { multiline: true, placeholder: "这个随机项用于什么情况" }),
+    ]));
+    const nested = el("div", "editor-nested");
+    const nestedHead = el("div", "editor-nested-head");
+    nestedHead.appendChild(el("b", "", "随机项结果区间"));
+    nestedHead.appendChild(el("span", "", "按掷骰总值判断结果"));
+    nested.appendChild(nestedHead);
+    const list = el("div", "editor-nested-list");
+    list.dataset.nestedList = "randomRange";
+    nested.appendChild(list);
+    for (const range of data.ranges || []) appendRandomRange(list, range);
+    const add = el("button", "editor-add-small", "＋ 添加结果区间");
+    add.type = "button";
+    add.dataset.randomAddRange = "true";
+    nested.appendChild(add);
+    body.appendChild(nested);
+  } else {
+    body.appendChild(scenarioGrid("editor-grid-2", [
+      makeScenarioField("选项文字", "text", data.text || "", { placeholder: "从后门潜入" }),
+      makeScenarioField("既定后果", "result", data.result || "", { multiline: true, placeholder: "进入后门场景，并触发……" }),
+    ]));
+  }
+  card.appendChild(body);
+  return card;
+}
+
+function addScenarioRow(type, data = {}, collapsed = false) {
+  const meta = SCENARIO_ROW_META[type];
+  const container = meta && $(meta.container);
+  if (!container) return null;
+  const card = buildScenarioRow(type, data, collapsed);
+  container.appendChild(card);
+  updateScenarioEditorCounts();
+  refreshScenarioRowHead(card, type);
+  return card;
+}
+
+function renderScenarioRows(type, rows) {
+  const meta = SCENARIO_ROW_META[type];
+  const container = meta && $(meta.container);
+  if (!container) return;
+  container.innerHTML = "";
+  for (const row of rows || []) container.appendChild(buildScenarioRow(type, row, true));
+  updateScenarioEditorCounts();
+}
+
+function getRowField(card, name) {
+  return card.querySelector(`[data-field="${name}"]`);
+}
+
+function rowValue(card, name) {
+  const field = getRowField(card, name);
+  return field ? field.value : "";
+}
+
+function rowChecked(card, name) {
+  const field = getRowField(card, name);
+  return Boolean(field && field.checked);
+}
+
+function collectNested(card, type) {
+  const list = card.querySelector(`[data-nested-list="${type}"]`);
+  if (!list) return [];
+  return [...list.querySelectorAll(":scope > [data-nested-row]")].map((row) => {
+    const item = {};
+    row.querySelectorAll("[data-field]").forEach((field) => {
+      if (field.type === "checkbox") item[field.dataset.field] = field.checked;
+      else if (field.type === "number") item[field.dataset.field] = Number(field.value) || 0;
+      else item[field.dataset.field] = field.value;
+    });
+    return item;
+  });
+}
+
+function collectScenarioRows(type) {
+  const meta = SCENARIO_ROW_META[type];
+  const container = meta && $(meta.container);
+  if (!container) return [];
+  return [...container.querySelectorAll(":scope > .editor-repeat-card")].map((card) => {
+    if (type === "npc") {
+      return {
+        name: rowValue(card, "name"),
+        faction: rowValue(card, "faction"),
+        role: rowValue(card, "role"),
+        attitude: rowValue(card, "attitude"),
+        desc: rowValue(card, "desc"),
+        secret: rowValue(card, "secret"),
+      };
+    }
+    if (type === "clue") return { category: rowValue(card, "category"), text: rowValue(card, "text") };
+    if (type === "schedule") {
+      return {
+        day: Number(rowValue(card, "day")) || 1,
+        minute: timeToMinute(rowValue(card, "time")),
+        title: rowValue(card, "title"),
+        note: rowValue(card, "note"),
+      };
+    }
+    if (type === "ending") return { name: rowValue(card, "name"), condition: rowValue(card, "condition") };
+    if (type === "entity") {
+      return {
+        group: rowValue(card, "group"),
+        name: rowValue(card, "name"),
+        kind: rowValue(card, "kind"),
+        info: rowValue(card, "info"),
+        initial: rowValue(card, "initial"),
+        summary: rowValue(card, "summary"),
+        setting: rowValue(card, "setting"),
+        rules: rowValue(card, "rules"),
+        isPlayer: rowChecked(card, "isPlayer"),
+        hidden: rowChecked(card, "hidden"),
+        visible: rowChecked(card, "visible"),
+        attributes: collectNested(card, "entityAttr"),
+      };
+    }
+    if (type === "status") {
+      return {
+        name: rowValue(card, "name"),
+        initial: rowValue(card, "initial"),
+        expiresAt: rowValue(card, "expiresAt"),
+        desc: rowValue(card, "desc"),
+      };
+    }
+    if (type === "loop") {
+      return {
+        every: rowValue(card, "every"),
+        title: rowValue(card, "title"),
+        nextAt: rowValue(card, "nextAt"),
+        expiresAt: rowValue(card, "expiresAt"),
+        note: rowValue(card, "note"),
+      };
+    }
+    if (type === "plot") {
+      return {
+        title: rowValue(card, "title"),
+        at: rowValue(card, "at"),
+        effect: rowValue(card, "effect"),
+        note: rowValue(card, "note"),
+      };
+    }
+    if (type === "lexicon") {
+      return {
+        path: rowValue(card, "path"),
+        term: rowValue(card, "term"),
+        def: rowValue(card, "def"),
+        visible: rowChecked(card, "visible"),
+      };
+    }
+    if (type === "action") {
+      return {
+        label: rowValue(card, "label"),
+        kind: rowValue(card, "kind"),
+        note: rowValue(card, "note"),
+        text: rowValue(card, "text"),
+      };
+    }
+    if (type === "random") {
+      return {
+        name: rowValue(card, "name"),
+        trigger: rowValue(card, "trigger"),
+        note: rowValue(card, "note"),
+        diceCount: Number(rowValue(card, "diceCount")) || 1,
+        diceSides: Number(rowValue(card, "diceSides")) || 100,
+        modifier: Number(rowValue(card, "modifier")) || 0,
+        ranges: collectNested(card, "randomRange"),
+      };
+    }
+    return { text: rowValue(card, "text"), result: rowValue(card, "result") };
+  });
+}
+
+function updateScenarioEditorCounts() {
+  for (const [type, meta] of Object.entries(SCENARIO_ROW_META)) {
+    const box = $(meta.container);
+    const label = $(meta.count);
+    if (!box || !label) continue;
+    const count = box.querySelectorAll(":scope > .editor-repeat-card").length;
+    label.textContent = `${count} ${meta.noun}`;
+  }
+  updateScenarioEditorProgress();
+}
+
+function updateScenarioEditorProgress() {
+  const totalRows = Object.keys(SCENARIO_ROW_META).reduce((sum, type) => sum + collectScenarioRows(type).length, 0);
+  const checks = [
+    Boolean($("s-title").value.trim()),
+    Boolean($("s-genre").value.trim()),
+    Boolean($("s-blurb").value.trim()),
+    Boolean($("s-background").value.trim()),
+    Boolean($("s-world").value.trim()),
+    Boolean($("s-opening").value.trim()) || Boolean($("s-hook").value.trim()),
+    $("s-rule-dice").checked || $("s-rule-random").checked,
+    totalRows > 0,
+  ];
+  const percent = Math.round((checks.filter(Boolean).length / checks.length) * 100);
+  if ($("scenario-edit-progress")) $("scenario-edit-progress").textContent = `${percent}%`;
+}
+
+function moveScenarioRow(button, direction) {
+  const card = button.closest(".editor-repeat-card");
+  if (!card) return;
+  if (direction < 0 && card.previousElementSibling) card.parentNode.insertBefore(card, card.previousElementSibling);
+  if (direction > 0 && card.nextElementSibling) card.parentNode.insertBefore(card.nextElementSibling, card);
+}
+
+function copyScenarioRow(card) {
+  if (!card) return;
+  const copy = card.cloneNode(true);
+  copy.classList.remove("is-collapsed");
+  card.parentNode.insertBefore(copy, card.nextElementSibling);
+  updateScenarioEditorCounts();
+}
+
 function fillScenarioForm(s) {
   $("s-title").value = s.title || "";
   $("s-genre").value = s.genre || "";
@@ -1822,7 +2305,6 @@ function fillScenarioForm(s) {
   $("s-tone").value = s.tone || "";
   $("s-version").value = s.version || "1.0";
   $("s-tags").value = (s.tags || []).join(", ");
-  $("s-genre2").value = s.genre || "";
   $("s-version-note").value = s.versionNote || "";
   $("s-world").value = s.world || "";
   const rules = s.rules || {};
@@ -1831,42 +2313,42 @@ function fillScenarioForm(s) {
   $("s-rule-fixed").checked = Boolean(rules.fixedOpeningDefault);
   $("s-rule-fixed-toggle").checked = rules.allowOpeningToggle !== false;
   $("s-rule-random").checked = rules.randomMode !== false;
-  $("s-entities").value = (s.entities || []).map((e) => [e.name, e.info, e.setting, e.initial, e.summary, e.rules].join("｜")).join("\n");
-  $("s-statuses").value = (s.statuses || []).map((x) => [x.name, x.initial, x.desc].join("｜")).join("\n");
-  $("s-loops").value = (s.loopEvents || []).map((x) => [x.every, x.title, x.note].join("｜")).join("\n");
-  $("s-plots").value = (s.plotPoints || []).map((x) => [x.title, x.note, x.at].join("｜")).join("\n");
-  $("s-lexicon").value = (s.lexicon || []).map((x) => [x.term, x.def].join("｜")).join("\n");
-  $("s-actions").value = (s.actions || []).map((x) => [x.label, x.text].join("｜")).join("\n");
   $("s-background").value = s.background || "";
   $("s-hook").value = s.hook || "";
   $("s-opening").value = s.opening || "";
   $("s-truth").value = s.truth || "";
-  $("s-npcs").value = (s.npcs || []).map((n) => [n.name, n.desc, n.secret].filter(Boolean).join("｜")).join("\n");
-  $("s-clues").value = (s.clues || []).join("\n");
-  $("s-schedule").value = (s.schedule || [])
-    .map((ev) => {
-      const h = String(Math.floor(ev.minute / 60)).padStart(2, "0");
-      const m = String(ev.minute % 60).padStart(2, "0");
-      return [ev.day, `${h}:${m}`, ev.title, ev.note || ""].join("｜");
-    })
-    .join("\n");
-  $("s-endings").value = (s.endings || []).map((e) => [e.name, e.condition].filter(Boolean).join("｜")).join("\n");
+  $("s-fixed-desc").value = rules.fixedOpeningDesc || s.fixedOpeningDesc || s.fixedOpening?.desc || "";
   $("s-day").value = s.startDay || 1;
-  const h = String(Math.floor((s.startMinute ?? 540) / 60)).padStart(2, "0");
-  const m = String((s.startMinute ?? 540) % 60).padStart(2, "0");
-  $("s-time").value = `${h}:${m}`;
+  $("s-time").value = minuteToTime(s.startMinute ?? 540);
   $("s-money").value = s.startMoney ?? 0;
+  $("s-location").value = s.startLocation || "";
   $("s-items").value = (s.startItems || []).join(", ");
+
+  renderScenarioRows("openingOption", s.openingOptions || s.fixedOpening?.options || []);
+  renderScenarioRows("entity", s.entities || []);
+  renderScenarioRows("status", s.statuses || []);
+  renderScenarioRows("npc", s.npcs || []);
+  renderScenarioRows("schedule", s.schedule || []);
+  renderScenarioRows("loop", s.loopEvents || []);
+  renderScenarioRows("plot", s.plotPoints || []);
+  renderScenarioRows("clue", (s.clues || []).map((clue) => (typeof clue === "string" ? { text: clue } : clue)));
+  renderScenarioRows("ending", s.endings || []);
+  renderScenarioRows("lexicon", s.lexicon || []);
+  renderScenarioRows("action", s.actions || []);
+  renderScenarioRows("random", s.randomTables || []);
+
   scenarioLinks = (s.links || []).slice();
   $("s-links").value = "";
   $("s-links-note").textContent = "抓回来的正文会作为设定依据交给 GM";
   renderLinkList("s-links-list", scenarioLinks, "s-links-note");
+  updateScenarioEditorCounts();
+  updateScenarioPreview();
 }
 
 function readScenarioForm() {
   return {
     title: $("s-title").value,
-    genre: $("s-genre").value || $("s-genre2").value,
+    genre: $("s-genre").value,
     blurb: $("s-blurb").value,
     tone: $("s-tone").value,
     version: $("s-version").value,
@@ -1879,55 +2361,32 @@ function readScenarioForm() {
       fixedOpeningDefault: $("s-rule-fixed").checked,
       allowOpeningToggle: $("s-rule-fixed-toggle").checked,
       randomMode: $("s-rule-random").checked,
+      fixedOpeningDesc: $("s-fixed-desc").value,
     },
     background: $("s-background").value,
     hook: $("s-hook").value,
     opening: $("s-opening").value,
     truth: $("s-truth").value,
-    npcs: splitLines($("s-npcs").value).map((l) => {
-      const [name, desc, secret] = splitCols(l, 3);
-      return { name, desc, secret };
-    }),
-    clues: splitLines($("s-clues").value),
-    schedule: splitLines($("s-schedule").value).map((l) => {
-      const [day, time, title, note] = splitCols(l, 4);
-      return { day: Number(day) || 1, minute: timeToMinute(time), title, note };
-    }),
-    endings: splitLines($("s-endings").value).map((l) => {
-      const [name, condition] = splitCols(l, 2);
-      return { name, condition };
-    }),
+    openingOptions: collectScenarioRows("openingOption"),
+    entities: collectScenarioRows("entity"),
+    statuses: collectScenarioRows("status"),
+    npcs: collectScenarioRows("npc"),
+    schedule: collectScenarioRows("schedule"),
+    loopEvents: collectScenarioRows("loop"),
+    plotPoints: collectScenarioRows("plot"),
+    clues: collectScenarioRows("clue"),
+    endings: collectScenarioRows("ending"),
+    lexicon: collectScenarioRows("lexicon"),
+    actions: collectScenarioRows("action"),
+    randomTables: collectScenarioRows("random"),
     startDay: Number($("s-day").value) || 1,
     startMinute: timeToMinute($("s-time").value),
     startMoney: Number($("s-money").value) || 0,
+    startLocation: $("s-location").value,
     startItems: String($("s-items").value || "")
       .split(/[,，、]/)
       .map((s) => s.trim())
       .filter(Boolean),
-    entities: splitLines($("s-entities").value).map((line) => {
-      const [name, info, setting, initial, summary, rules] = splitCols(line, 6);
-      return { name, info, setting, initial, summary, rules };
-    }),
-    statuses: splitLines($("s-statuses").value).map((line) => {
-      const [name, initial, desc] = splitCols(line, 3);
-      return { name, initial, desc };
-    }),
-    loopEvents: splitLines($("s-loops").value).map((line) => {
-      const [every, title, note] = splitCols(line, 3);
-      return { every, title, note };
-    }),
-    plotPoints: splitLines($("s-plots").value).map((line) => {
-      const [title, note, at] = splitCols(line, 3);
-      return { title, note, at };
-    }),
-    lexicon: splitLines($("s-lexicon").value).map((line) => {
-      const [term, def] = splitCols(line, 2);
-      return { term, def };
-    }),
-    actions: splitLines($("s-actions").value).map((line) => {
-      const [label, text] = splitCols(line, 2);
-      return { label, text };
-    }),
     links: scenarioLinks.slice(),
   };
 }
@@ -1999,21 +2458,61 @@ $("btn-fetch-setting-links").addEventListener("click", () =>
   fetchLinksInto("set-links", "set-links-note", "set-links-list", settingLinks)
 );
 
-$("btn-custom-scenario").addEventListener("click", () => {
-  if ($("custom-box").classList.contains("hidden")) {
-    for (const id of ["s-title", "s-genre", "s-blurb", "s-tone", "s-background", "s-hook", "s-opening", "s-truth", "s-npcs", "s-clues", "s-schedule", "s-endings", "s-items", "s-links"]) {
-      $(id).value = "";
-    }
-    $("s-day").value = "1";
-    $("s-time").value = "18:00";
-    $("s-money").value = "100";
-    setupState.editingId = null;
-    scenarioLinks = [];
-    renderLinkList("s-links-list", scenarioLinks, "s-links-note");
+function resetScenarioEditor() {
+  for (const id of ["s-title", "s-genre", "s-blurb", "s-tone", "s-version-note", "s-background", "s-hook", "s-opening", "s-truth", "s-world", "s-fixed-desc", "s-location", "s-items", "s-links"]) {
+    $(id).value = "";
   }
-  $("custom-box").classList.remove("hidden");
-  $("scenario-note").textContent = "在下面填好，保存后会出现在上面的剧本列表里。";
+  $("s-version").value = "1.0";
+  $("s-tags").value = "";
+  $("s-day").value = "1";
+  $("s-time").value = "18:00";
+  $("s-money").value = "100";
+  $("s-rule-dice").checked = true;
+  $("s-rule-dice-toggle").checked = true;
+  $("s-rule-fixed").checked = false;
+  $("s-rule-fixed-toggle").checked = true;
+  $("s-rule-random").checked = true;
+  for (const type of Object.keys(SCENARIO_ROW_META)) renderScenarioRows(type, []);
+  addScenarioRow("entity", {
+    group: "人物",
+    name: "玩家角色",
+    kind: "玩家",
+    info: "由玩家在开局阶段设定的主角",
+    initial: "正常",
+    summary: "剧本世界的行动中心",
+    setting: "身份、背景和动机由玩家角色卡确定。",
+    rules: "行动会改变状态、关系和剧情进度。",
+    isPlayer: true,
+    visible: true,
+    attributes: [
+      { group: "基础属性", name: "生命", initial: "100", rule: "降至 0 时进入濒危或结局判定" },
+      { group: "基础属性", name: "意志", initial: "50", rule: "受到精神冲击时下降" },
+    ],
+  }, false).classList.remove("is-collapsed");
+  addScenarioRow("action", { label: "观察四周", kind: "investigate", note: "确认环境、人物和可用线索", text: "我先观察四周，确认环境、人物和出口。" }, true);
+  scenarioLinks = [];
+  renderLinkList("s-links-list", scenarioLinks, "s-links-note");
+  updateScenarioEditorCounts();
   updateScenarioPreview();
+}
+
+function openScenarioEditor() {
+  $("custom-box").classList.remove("hidden");
+  $("editor-main")?.scrollTo?.({ top: 0 });
+  $("scenario-editor-sections").scrollTop = 0;
+  updateScenarioPreview();
+}
+
+function closeScenarioEditor() {
+  $("custom-box").classList.add("hidden");
+  $("scenario-note").textContent = "";
+}
+
+$("btn-custom-scenario").addEventListener("click", () => {
+  setupState.editingId = null;
+  resetScenarioEditor();
+  openScenarioEditor();
+  $("scenario-note").textContent = "分层创作台已打开；保存后会出现在上面的剧本列表里。";
 });
 
 function escHtml(value) {
@@ -2028,33 +2527,118 @@ function updateScenarioPreview() {
   const blurb = $("s-blurb").value.trim() || "还没有一句话简介";
   const version = $("s-version").value.trim() || "1.0";
   const tags = $("s-tags").value.trim();
-  const npcs = splitLines($("s-npcs").value).length;
-  const clues = splitLines($("s-clues").value).length;
-  const schedule = splitLines($("s-schedule").value).length;
-  const endings = splitLines($("s-endings").value).length;
-  const entities = splitLines($("s-entities").value).length;
-  const statuses = splitLines($("s-statuses").value).length;
-  const loops = splitLines($("s-loops").value).length;
-  const plots = splitLines($("s-plots").value).length;
-  const lexicon = splitLines($("s-lexicon").value).length;
-  const actions = splitLines($("s-actions").value).length;
+  const npcs = collectScenarioRows("npc").length;
+  const clues = collectScenarioRows("clue").length;
+  const schedule = collectScenarioRows("schedule").length;
+  const endings = collectScenarioRows("ending").length;
+  const entities = collectScenarioRows("entity").length;
+  const statuses = collectScenarioRows("status").length;
+  const loops = collectScenarioRows("loop").length;
+  const plots = collectScenarioRows("plot").length;
+  const lexicon = collectScenarioRows("lexicon").length;
+  const actions = collectScenarioRows("action").length;
+  const randoms = collectScenarioRows("random").length;
   box.innerHTML =
     `<div class="sp-title">${escHtml(title)}</div>` +
     `<div class="sp-genre">v${escHtml(version)} · ${escHtml(genre)}${tags ? " · " + escHtml(tags) : ""}</div>` +
     `<div class="sp-blurb">${escHtml(blurb)}</div>` +
     `<div class="sp-meta">人物 ${npcs} · 实体 ${entities} · 状态 ${statuses} · 线索 ${clues}</div>` +
     `<div class="sp-meta">时间节点 ${schedule} · 循环事件 ${loops} · 剧情点 ${plots} · 结局 ${endings}</div>` +
-    `<div class="sp-meta">词条 ${lexicon} · 预设行动 ${actions} · 参考链接 ${scenarioLinks.length}</div>`;
+    `<div class="sp-meta">词条 ${lexicon} · 预设行动 ${actions} · 随机项 ${randoms} · 参考链接 ${scenarioLinks.length}</div>`;
 }
 
-for (const id of ["s-title", "s-genre", "s-blurb", "s-version", "s-tags", "s-npcs", "s-clues", "s-schedule", "s-endings", "s-entities", "s-statuses", "s-loops", "s-plots", "s-lexicon", "s-actions"]) {
-  $(id).addEventListener("input", updateScenarioPreview);
+for (const section of document.querySelectorAll(".editor-section")) {
+  section.addEventListener("toggle", () => {
+    const state = section.querySelector("[data-section-state]");
+    if (state) state.textContent = section.open ? "已开启" : "已收起";
+  });
 }
 
-$("btn-cancel-scenario").addEventListener("click", () => {
-  $("custom-box").classList.add("hidden");
-  $("scenario-note").textContent = "";
+const scenarioEditorSections = $("scenario-editor-sections");
+scenarioEditorSections.addEventListener("click", (event) => {
+  const add = event.target.closest("[data-add-row]");
+  if (add) {
+    addScenarioRow(add.dataset.addRow, {}, false);
+    return;
+  }
+  const remove = event.target.closest("[data-nested-remove]");
+  if (remove) {
+    const nested = remove.closest("[data-nested-row]");
+    if (nested) nested.remove();
+    updateScenarioEditorCounts();
+    updateScenarioPreview();
+    return;
+  }
+  const attrAdd = event.target.closest("[data-entity-add-attr]");
+  if (attrAdd) {
+    const list = attrAdd.closest(".editor-nested")?.querySelector('[data-nested-list="entityAttr"]');
+    if (list) appendEntityAttribute(list);
+    return;
+  }
+  const rangeAdd = event.target.closest("[data-random-add-range]");
+  if (rangeAdd) {
+    const list = rangeAdd.closest(".editor-nested")?.querySelector('[data-nested-list="randomRange"]');
+    if (list) appendRandomRange(list);
+    return;
+  }
+  const rowAction = event.target.closest("[data-row-action]");
+  if (!rowAction) return;
+  const card = rowAction.closest(".editor-repeat-card");
+  if (!card) return;
+  const action = rowAction.dataset.rowAction;
+  if (action === "toggle") {
+    card.classList.toggle("is-collapsed");
+    rowAction.closest(".editor-repeat-head")?.classList.toggle("is-collapsed", card.classList.contains("is-collapsed"));
+    return;
+  }
+  if (action === "up" || action === "down") {
+    moveScenarioRow(rowAction, action === "up" ? -1 : 1);
+    updateScenarioPreview();
+    return;
+  }
+  if (action === "copy") {
+    copyScenarioRow(card);
+    updateScenarioPreview();
+    return;
+  }
+  if (action === "remove") {
+    card.remove();
+    updateScenarioEditorCounts();
+    updateScenarioPreview();
+  }
 });
+
+function handleScenarioEditorInput(event) {
+  const field = event.target.closest("[data-field]");
+  if (!field) return;
+  const card = field.closest(".editor-repeat-card");
+  if (card) refreshScenarioRowHead(card, card.dataset.rowType);
+  updateScenarioEditorCounts();
+  updateScenarioPreview();
+}
+scenarioEditorSections.addEventListener("input", handleScenarioEditorInput);
+scenarioEditorSections.addEventListener("change", handleScenarioEditorInput);
+
+for (const button of document.querySelectorAll("#scenario-editor-nav [data-editor-target]")) {
+  button.addEventListener("click", () => {
+    const target = $(button.dataset.editorTarget);
+    if (!target) return;
+    target.open = true;
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+    document.querySelectorAll("#scenario-editor-nav button").forEach((item) => item.classList.remove("on"));
+    button.classList.add("on");
+  });
+}
+
+$("btn-editor-expand").addEventListener("click", () => {
+  const sections = [...document.querySelectorAll(".editor-section")];
+  const shouldOpen = sections.some((section) => !section.open);
+  for (const section of sections) section.open = shouldOpen;
+  $("btn-editor-expand").textContent = shouldOpen ? "收起全部" : "展开全部";
+});
+
+$("btn-cancel-scenario").addEventListener("click", closeScenarioEditor);
+$("btn-cancel-scenario-bottom").addEventListener("click", closeScenarioEditor);
 
 $("quick-new-scenario").addEventListener("click", () => $("btn-custom-scenario").click());
 $("quick-community").addEventListener("click", () => $("cm-open").click());
@@ -2068,7 +2652,7 @@ $("btn-edit-scenario").addEventListener("click", async () => {
     return;
   }
   fillScenarioForm(data.scenario);
-  $("custom-box").classList.remove("hidden");
+  openScenarioEditor();
   $("scenario-note").textContent = `正在编辑「${data.scenario.title}」，保存会覆盖它。`;
 });
 
