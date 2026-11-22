@@ -99,6 +99,11 @@
       <h2>创作社区</h2>
       <button data-close="cm-modal" title="关闭">✕</button>
     </div>
+    <div class="cm-search">
+      <input id="cm-search" maxlength="40" placeholder="搜索剧本标题、类型或玩家昵称…">
+      <button id="cm-search-btn">搜索</button>
+    </div>
+    <div id="cm-search-results" class="cm-search-results"></div>
     <div class="cm-form">
       <input id="cm-title" maxlength="60" placeholder="作品标题">
       <textarea id="cm-text" maxlength="1000" placeholder="写下你的设定、剧本片段、角色故事，或分享一张跑团截图……"></textarea>
@@ -133,6 +138,7 @@
         <button class="ghost" id="btn-custom-scenario">＋ 自己写一个剧本</button>
         <button class="ghost hidden" id="btn-edit-scenario">编辑选中的自定义剧本</button>
         <button class="ghost hidden" id="btn-del-scenario">删除选中的自定义剧本</button>
+<button class="ghost hidden" id="btn-share-scenario">分享到社区</button>
         <span class="hint" id="scenario-note"></span>
       </div>
       <div class="custom hidden" id="custom-box">

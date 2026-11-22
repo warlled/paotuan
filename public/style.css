@@ -217,6 +217,42 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent2); }
   border-radius: 999px; padding: 3px 10px; font-size: 12px; color: var(--muted); cursor: pointer;
 }
 .cm-like.on { color: #8fd8ac; border-color: #2f6a4a; }
+.cm-search { display: flex; gap: 8px; margin-bottom: 10px; }
+.cm-search input {
+  flex: 1; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line);
+  background: var(--input-bg); color: var(--text); font: inherit; outline: none;
+}
+.cm-search button {
+  border: 1px solid var(--line); background: var(--panel2); color: var(--text);
+  border-radius: 9px; padding: 7px 14px; cursor: pointer;
+}
+.cm-search-results { display: grid; gap: 6px; margin-bottom: 10px; }
+.cm-search-results:empty { display: none; }
+.cm-search-title { color: var(--muted); font-size: 11.5px; letter-spacing: 1px; margin-top: 4px; }
+.cm-chip {
+  display: inline-flex; align-items: center; gap: 6px; width: max-content;
+  border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px 3px 4px;
+  color: var(--text); text-decoration: none; font-size: 12.5px;
+}
+.cm-chip img { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; }
+.cm-search-item {
+  display: flex; align-items: center; gap: 10px;
+  border: 1px solid var(--line); border-radius: 10px; padding: 7px 10px;
+}
+.cm-search-item > div:first-child { flex: 1; }
+.cm-head a { color: var(--text); text-decoration: none; }
+.cm-head a:hover { color: var(--accent); text-decoration: underline; }
+.cm-scenario { border: 1px dashed var(--line); border-radius: 10px; padding: 8px 10px; margin-top: 6px; }
+.cm-scenario-head { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
+.cm-badge {
+  background: var(--panel2); border: 1px solid var(--line); border-radius: 6px;
+  padding: 1px 7px; font-size: 11px; color: var(--accent);
+}
+.cm-genre { color: var(--muted); font-size: 11.5px; }
+.cm-import {
+  margin-top: 8px; background: var(--accent); color: #1a1408; border: 0;
+  border-radius: 8px; padding: 5px 12px; font-size: 12px; font-weight: 600; cursor: pointer;
+}
 .theme-picker { display: flex; gap: 6px; flex-wrap: wrap; }
 .sw {
   border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px;

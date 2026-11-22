@@ -91,6 +91,7 @@ function renderScenarios(selectId) {
       const editable = Boolean(s.editable);
       $("btn-edit-scenario").classList.toggle("hidden", !editable);
       $("btn-del-scenario").classList.toggle("hidden", !editable);
+      $("btn-share-scenario").classList.toggle("hidden", !editable);
     });
     box.appendChild(card);
   }
@@ -104,6 +105,7 @@ function renderScenarios(selectId) {
     setupState.scenarioId = null;
     $("btn-edit-scenario").classList.add("hidden");
     $("btn-del-scenario").classList.add("hidden");
+    $("btn-share-scenario").classList.add("hidden");
   }
 
   $("sc-page").textContent = `第 ${scPage + 1} / ${pages} 页`;
@@ -908,9 +910,14 @@ function renderCommunity(posts) {
       img.alt = "";
       head.appendChild(img);
     }
-    const n = document.createElement("span");
+    const n = document.createElement(post.pid ? "a" : "span");
     n.className = "n";
     n.textContent = post.author || "匿名旅人";
+    if (post.pid) {
+      n.href = "/space?u=" + encodeURIComponent(post.pid);
+      n.target = "_blank";
+      n.rel = "noopener";
+    }
     const t = document.createElement("span");
     t.className = "t";
     try {
@@ -924,7 +931,28 @@ function renderCommunity(posts) {
       h.textContent = post.title;
       card.appendChild(h);
     }
-    if (post.text) {
+    if (post.type === "scenario") {
+      const badge = document.createElement("div");
+      badge.className = "cm-scenario";
+      const head2 = document.createElement("div");
+      head2.className = "cm-scenario-head";
+      const tag = document.createElement("span");
+      tag.className = "cm-badge";
+      tag.textContent = "剧本";
+      const g = document.createElement("span");
+      g.className = "cm-genre";
+      g.textContent = post.genre || "";
+      head2.append(tag, g);
+      const blurb = document.createElement("div");
+      blurb.className = "cm-text";
+      blurb.textContent = post.blurb || post.text || "";
+      const imp = document.createElement("button");
+      imp.className = "cm-import";
+      imp.textContent = "导入到我的剧本";
+      imp.addEventListener("click", () => importScenario(post.id, post.title));
+      badge.append(head2, blurb, imp);
+      card.appendChild(badge);
+    } else if (post.text) {
       const p = document.createElement("div");
       p.className = "cm-text";
       p.textContent = post.text;
@@ -1032,6 +1060,97 @@ $("cm-post").addEventListener("click", async () => {
   $("cm-media-name").textContent = "";
   $("cm-status").textContent = "已发布";
   loadCommunity();
+});
+
+async function importScenario(postId, title) {
+  const r = await fetch("/api/community/import", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ postId }),
+  });
+  const data = await r.json();
+  if (!r.ok) {
+    alert(data.error || "导入失败");
+    return;
+  }
+  try {
+    const m = await (await fetch("/api/meta")).json();
+    meta = m;
+    renderScenarios(data.id);
+  } catch {}
+  const setupVisible = !$("setup").classList.contains("hidden");
+  alert(`已导入「${data.title || title}」到你的剧本库${setupVisible ? "，已为你选中。" : "，下次开局时可以选它。"}`);
+}
+
+async function runSearch() {
+  const q = $("cm-search").value.trim();
+  const box = $("cm-search-results");
+  box.innerHTML = "";
+  if (!q) return;
+  try {
+    const r = await fetch("/api/search?q=" + encodeURIComponent(q));
+    if (!r.ok) return;
+    const data = await r.json();
+    if (!data.players.length && !data.scenarios.length) {
+      box.innerHTML = '<div class="hint" style="padding:8px 2px">没有找到匹配的玩家或剧本。</div>';
+      return;
+    }
+    if (data.players.length) {
+      const title = document.createElement("div");
+      title.className = "cm-search-title";
+      title.textContent = "玩家";
+      box.appendChild(title);
+      for (const p of data.players) {
+        const chip = document.createElement("a");
+        chip.className = "cm-chip";
+        chip.href = "/space?u=" + encodeURIComponent(p.pid);
+        chip.target = "_blank";
+        chip.rel = "noopener";
+        if (p.avatar) {
+          const img = document.createElement("img");
+          img.src = p.avatar;
+          img.alt = "";
+          chip.appendChild(img);
+        }
+        const n = document.createElement("span");
+        n.textContent = p.name || "匿名旅人";
+        chip.appendChild(n);
+        box.appendChild(chip);
+      }
+    }
+    if (data.scenarios.length) {
+      const title = document.createElement("div");
+      title.className = "cm-search-title";
+      title.textContent = "剧本";
+      box.appendChild(title);
+      for (const s of data.scenarios) {
+        const row = document.createElement("div");
+        row.className = "cm-search-item";
+        const info = document.createElement("div");
+        const t = document.createElement("div");
+        t.className = "cm-title";
+        t.textContent = s.title;
+        const m = document.createElement("div");
+        m.className = "hint";
+        m.textContent = [s.genre, "作者：" + (s.author || "匿名旅人")].filter(Boolean).join(" · ");
+        info.append(t, m);
+        const imp = document.createElement("button");
+        imp.className = "cm-import";
+        imp.textContent = "导入";
+        imp.addEventListener("click", () => importScenario(s.id, s.title));
+        row.append(info, imp);
+        box.appendChild(row);
+      }
+    }
+  } catch {}
+}
+
+$("cm-search-btn").addEventListener("click", runSearch);
+$("cm-search").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    runSearch();
+  }
 });
 
 document.querySelectorAll("[data-close]").forEach((btn) => {
@@ -1372,6 +1491,22 @@ $("btn-del-scenario").addEventListener("click", async () => {
     renderScenarios();
     $("scenario-note").textContent = "剧本已删除。";
   }
+});
+
+$("btn-share-scenario").addEventListener("click", async () => {
+  if (!setupState.editingId) return;
+  if (!confirm("把这个剧本分享到创作社区？其他玩家可以导入并游玩。")) return;
+  const r = await fetch("/api/scenario/share", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ id: setupState.editingId }),
+  });
+  const data = await r.json();
+  if (!r.ok) {
+    alert(data.error || "分享失败");
+    return;
+  }
+  alert("已分享到创作社区。");
 });
 
 $("btn-save-scenario").addEventListener("click", async () => {

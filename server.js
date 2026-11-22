@@ -45,6 +45,7 @@ function userFile(sid) {
 function loadProfileFor(sid) {
   const p = readJsonFile(userFile(sid), null);
   return {
+    pid: p?.pid || "",
     name: p?.name || "",
     bio: p?.bio || "",
     avatar: p?.avatar || "",
@@ -57,6 +58,7 @@ function loadProfileFor(sid) {
 
 function saveProfileFor(sid, patch) {
   const current = loadProfileFor(sid);
+  const pid = current.pid || crypto.randomBytes(4).toString("hex");
   const name = String(patch.name ?? current.name).trim().slice(0, 24);
   const bio = String(patch.bio ?? current.bio).trim().slice(0, 200);
   const theme = /^#[0-9a-f]{6}$/i.test(String(patch.theme || "")) ? String(patch.theme) : current.theme;
@@ -64,7 +66,7 @@ function saveProfileFor(sid, patch) {
   const notes = String(patch.notes ?? current.notes).slice(0, 2000);
   let avatar = String(patch.avatar ?? current.avatar);
   if (avatar && !/^\/uploads\/[a-z0-9]+\.[a-z0-9]+$/i.test(avatar)) avatar = current.avatar;
-  const next = { name, bio, avatar, theme, siteTheme, notes, updatedAt: Date.now() };
+  const next = { sid, pid, name, bio, avatar, theme, siteTheme, notes, updatedAt: Date.now() };
   writeJsonFile(userFile(sid), next);
   return next;
 }
@@ -101,15 +103,59 @@ if (!Array.isArray(community)) community = [];
 function communityView(post, sid) {
   return {
     id: post.id,
+    type: post.type || "post",
     author: post.author,
+    pid: post.pid || "",
     avatar: post.avatar || "",
     title: post.title,
     text: post.text,
+    genre: post.scenario?.genre || "",
+    blurb: post.scenario?.blurb || "",
     media: post.media || null,
     at: post.at,
     likes: (post.likes || []).length,
     liked: (post.likes || []).includes(sid),
   };
+}
+
+function ownScenarioDir(entry) {
+  return entry.owner ? engine.USER_SCENARIO_DIR : guestDir(entry);
+}
+
+function listOwnScenarios(entry) {
+  const dir = ownScenarioDir(entry);
+  if (!dir || !fs.existsSync(dir)) return [];
+  return fs
+    .readdirSync(dir)
+    .filter((f) => f.endsWith(".json"))
+    .map((f) => {
+      try {
+        const data = JSON.parse(fs.readFileSync(path.join(dir, f), "utf8"));
+        return data.custom ? data : null;
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+}
+
+function ownScenario(entry, id) {
+  return listOwnScenarios(entry).find((s) => s.id === id) || null;
+}
+
+function allProfiles() {
+  if (!fs.existsSync(USERS_DIR)) return [];
+  return fs
+    .readdirSync(USERS_DIR)
+    .filter((f) => f.endsWith(".json"))
+    .map((f) => {
+      try {
+        return JSON.parse(fs.readFileSync(path.join(USERS_DIR, f), "utf8"));
+      } catch {
+        return null;
+      }
+    })
+    .filter((p) => p && p.pid && p.sid);
 }
 
 /* ---------- 在线人数 / 好评差评 / 留言板 ---------- */
@@ -1004,6 +1050,110 @@ const server = http.createServer(async (req, res) => {
     else post.likes.push(entry.sid);
     writeJsonFile(COMMUNITY_FILE, community);
     return send(res, 200, communityView(post, entry.sid));
+  }
+
+  if (req.method === "POST" && p === "/api/scenario/share") {
+    const body = await readBody(req);
+    const sc = ownScenario(entry, String(body.id || ""));
+    if (!sc) return send(res, 400, { error: "只能分享你自己创作的剧本。" });
+    const last = communityLast.get(entry.sid) || 0;
+    if (Date.now() - last < 30000) return send(res, 429, { error: "发得太快了，歇一会儿再分享。" });
+    communityLast.set(entry.sid, Date.now());
+    const profile = loadProfileFor(entry.sid);
+    const post = {
+      id: crypto.randomUUID(),
+      type: "scenario",
+      sid: entry.sid,
+      pid: profile.pid || "",
+      author: profile.name || "匿名旅人",
+      avatar: profile.avatar || "",
+      title: sc.title,
+      text: sc.blurb || "",
+      scenario: sc,
+      media: null,
+      at: new Date().toISOString(),
+      likes: [],
+    };
+    community.push(post);
+    while (community.length > 200) community.shift();
+    writeJsonFile(COMMUNITY_FILE, community);
+    return send(res, 200, { ok: true, post: communityView(post, entry.sid) });
+  }
+
+  if (req.method === "POST" && p === "/api/community/import") {
+    const body = await readBody(req);
+    const post = community.find((x) => x.id === String(body.postId || "") && x.type === "scenario");
+    if (!post || !post.scenario) return send(res, 404, { error: "剧本不存在" });
+    const dir = ownScenarioDir(entry);
+    fs.mkdirSync(dir, { recursive: true });
+    const id = `imp-${crypto.randomBytes(3).toString("hex")}-${Date.now().toString(36)}`;
+    const data = { ...post.scenario, id, custom: true, importedFrom: post.pid || "" };
+    fs.writeFileSync(path.join(dir, `${id}.json`), JSON.stringify(data, null, 2));
+    return send(res, 200, { ok: true, id, title: data.title });
+  }
+
+  if (p === "/api/my-scenarios") {
+    const list = listOwnScenarios(entry).map((s) => ({
+      id: s.id,
+      title: s.title,
+      genre: s.genre || "",
+      blurb: s.blurb || "",
+      scheduleCount: (s.schedule || []).length,
+      npcs: (s.npcs || []).length,
+    }));
+    return send(res, 200, { scenarios: list.sort((a, b) => a.title.localeCompare(b.title, "zh")) });
+  }
+
+  if (p === "/api/players") {
+    const q = String(url.searchParams.get("q") || "").trim().toLowerCase();
+    const list = allProfiles()
+      .filter((x) => !q || String(x.name || "").toLowerCase().includes(q) || String(x.bio || "").toLowerCase().includes(q))
+      .slice(0, 30)
+      .map((x) => ({
+        pid: x.pid,
+        name: x.name || "匿名旅人",
+        avatar: x.avatar || "",
+        bio: x.bio || "",
+        posts: community.filter((c) => c.sid === x.sid).length,
+      }));
+    return send(res, 200, { players: list });
+  }
+
+  if (p === "/api/player") {
+    const pid = String(url.searchParams.get("pid") || "");
+    const prof = allProfiles().find((x) => x.pid === pid);
+    if (!prof) return send(res, 404, { error: "找不到这位玩家" });
+    const posts = community
+      .filter((c) => c.sid === prof.sid)
+      .slice(-50)
+      .reverse()
+      .map((c) => communityView(c, entry.sid));
+    return send(res, 200, {
+      pid: prof.pid,
+      name: prof.name || "匿名旅人",
+      avatar: prof.avatar || "",
+      bio: prof.bio || "",
+      posts,
+    });
+  }
+
+  if (p === "/api/search") {
+    const q = String(url.searchParams.get("q") || "").trim().toLowerCase();
+    if (!q) return send(res, 200, { players: [], scenarios: [] });
+    const players = allProfiles()
+      .filter((x) => String(x.name || "").toLowerCase().includes(q) || String(x.bio || "").toLowerCase().includes(q))
+      .slice(0, 10)
+      .map((x) => ({ pid: x.pid, name: x.name || "匿名旅人", avatar: x.avatar || "", bio: x.bio || "" }));
+    const scenarios = community
+      .filter(
+        (c) =>
+          c.type === "scenario" &&
+          [c.title, c.text, c.scenario?.genre, c.scenario?.blurb].some((v) => String(v || "").toLowerCase().includes(q))
+      )
+      .slice(-20)
+      .reverse()
+      .map((c) => communityView(c, entry.sid));
+    return send(res, 200, { players, scenarios });
   }
 
   if (req.method === "POST" && p === "/api/quit") {

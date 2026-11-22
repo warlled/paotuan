@@ -12,6 +12,7 @@
   .top { display:flex; align-items:center; gap:12px; margin-bottom:18px; }
   .top h1 { font-size:18px; margin:0; letter-spacing:2px; }
   .top a { margin-left:auto; color:var(--accent); text-decoration:none; font-size:13px; }
+  .top a + a { margin-left: 14px; }
   .grid { display:grid; grid-template-columns: 320px 1fr; gap:16px; }
   @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
   .card { background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:18px; }
@@ -39,12 +40,20 @@
   .post p { margin:4px 0 0; font-size:13.5px; white-space:pre-wrap; word-break:break-word; }
   .post img, .post video { max-width:100%; max-height:220px; border-radius:10px; margin-top:8px; display:block; }
   .empty { color:var(--muted); font-size:13px; padding:10px; text-align:center; }
+  .scn { display:flex; align-items:center; gap:8px; border:1px solid var(--line); border-radius:10px; padding:6px 10px; }
+  .scn .t { flex:1; font-size:13px; }
+  .scn .m { color:var(--muted); font-size:11.5px; }
+  .scn button {
+    background:transparent; border:1px solid var(--line); border-radius:7px;
+    padding:3px 9px; font-size:11.5px; color:var(--muted); cursor:pointer;
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="top">
     <h1>我的私人空间</h1>
+    <a id="public-link" href="#" target="_blank" rel="noopener" style="display:none">我的公开主页</a>
     <a href="/">← 回到游戏</a>
   </div>
   <div class="grid">
@@ -56,19 +65,21 @@
         </div>
         <div class="name" id="name">匿名旅人</div>
         <div class="bio" id="bio"></div>
-        <label>昵称</label>
-        <input id="in-name" maxlength="24" placeholder="你的昵称">
-        <label>个人简介</label>
-        <input id="in-bio" maxlength="200" placeholder="一句话介绍自己">
-        <label>主题色</label>
-        <input id="in-theme" type="color" value="#c8a06a" style="width:52px;height:30px;padding:0">
-        <div class="row">
-          <label class="file">上传头像<input id="in-avatar" type="file" accept="image/*" hidden></label>
-          <button class="primary" id="save">保存资料</button>
+        <div id="owner-tools">
+          <label>昵称</label>
+          <input id="in-name" maxlength="24" placeholder="你的昵称">
+          <label>个人简介</label>
+          <input id="in-bio" maxlength="200" placeholder="一句话介绍自己">
+          <label>主题色</label>
+          <input id="in-theme" type="color" value="#c8a06a" style="width:52px;height:30px;padding:0">
+          <div class="row">
+            <label class="file">上传头像<input id="in-avatar" type="file" accept="image/*" hidden></label>
+            <button class="primary" id="save">保存资料</button>
+          </div>
+          <div class="hint" id="status" style="margin-top:8px"></div>
         </div>
-        <div class="hint" id="status" style="margin-top:8px"></div>
       </div>
-      <div class="card" style="margin-top:16px">
+      <div class="card" id="notes-card" style="margin-top:16px">
         <h2>私人笔记</h2>
         <textarea id="notes" class="notes" maxlength="2000" placeholder="只有你自己能看到的内容"></textarea>
         <div class="row">
@@ -80,6 +91,10 @@
     <div class="card">
       <h2>我的作品</h2>
       <div id="posts" class="posts"><div class="empty">还没有发布过作品</div></div>
+      <div class="card" id="scenarios-card" style="margin-top:16px; padding:12px">
+        <h2>我的剧本</h2>
+        <div id="my-scenarios" class="posts"><div class="empty">还没有创作剧本</div></div>
+      </div>
     </div>
   </div>
 </div>
@@ -106,6 +121,63 @@ async function load() {
   applyTheme(me.theme);
   const posts = await (await fetch("/api/community?mine=1")).json();
   render(posts.posts || []);
+  $("public-link").href = "/space?u=" + encodeURIComponent(me.pid || "");
+  $("public-link").style.display = me.pid ? "inline" : "none";
+  const mine = await (await fetch("/api/my-scenarios")).json();
+  renderScenarios(mine.scenarios || []);
+}
+
+function renderScenarios(list) {
+  const box = $("my-scenarios");
+  box.innerHTML = "";
+  if (!list.length) {
+    box.innerHTML = '<div class="empty">还没有创作剧本</div>';
+    return;
+  }
+  for (const s of list) {
+    const row = document.createElement("div");
+    row.className = "scn";
+    const t = document.createElement("span");
+    t.className = "t";
+    t.textContent = s.title;
+    const m = document.createElement("span");
+    m.className = "m";
+    m.textContent = s.genre || "";
+    const btn = document.createElement("button");
+    btn.textContent = "分享到社区";
+    btn.addEventListener("click", async () => {
+      const r = await fetch("/api/scenario/share", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: s.id }),
+      });
+      const data = await r.json();
+      alert(r.ok ? "已分享到创作社区。" : data.error || "分享失败");
+    });
+    row.append(t, m, btn);
+    box.appendChild(row);
+  }
+}
+
+async function loadPublic(pid) {
+  document.getElementById("owner-tools").style.display = "none";
+  document.getElementById("notes-card").style.display = "none";
+  document.getElementById("scenarios-card").style.display = "none";
+  document.getElementById("public-link").style.display = "none";
+  const r = await fetch("/api/player?pid=" + encodeURIComponent(pid));
+  if (!r.ok) {
+    document.querySelector(".top h1").textContent = "找不到这位玩家";
+    return;
+  }
+  const p = await r.json();
+  document.querySelector(".top h1").textContent = (p.name || "匿名旅人") + " 的空间";
+  $("name").textContent = p.name || "匿名旅人";
+  $("bio").textContent = p.bio || "";
+  if (p.avatar) {
+    $("avatar").src = p.avatar;
+    $("avatar").classList.add("on");
+  }
+  render(p.posts || []);
 }
 
 function render(posts) {
@@ -209,7 +281,9 @@ $("in-avatar").addEventListener("change", async (e) => {
   $("status").textContent = "头像已上传，记得保存资料";
 });
 
-load();
+const publicPid = new URLSearchParams(location.search).get("u");
+if (publicPid) loadPublic(publicPid);
+else load();
 </script>
 </body>
 </html>

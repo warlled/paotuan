@@ -1299,7 +1299,7 @@ function loadSession(file) {
 }
 
 module.exports = {
-  ROOT, WORK, SCENARIO_DIR, PRESET_DIR, config, ATTRS, SKILLS, DIFFICULTY, ATTR_POINTS, ATTR_MIN, ATTR_MAX,
+  ROOT, WORK, SCENARIO_DIR, PRESET_DIR, USER_SCENARIO_DIR, config, ATTRS, SKILLS, DIFFICULTY, ATTR_POINTS, ATTR_MIN, ATTR_MAX,
   NARRATIVE_LENGTH, DEFAULT_SETTINGS,
   listScenarios, loadScenario, clockText, upcomingEvents, humanDuration,
   advanceTime, applyState, parseModelTurn, buildPrompt, buildContinuePrompt,
