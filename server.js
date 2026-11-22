@@ -123,6 +123,7 @@ function makeRoomCode() {
 function newRoomState() {
   return {
     time: { day: 1, minute: 18 * 60 },
+    location: "",
     firedEvents: [],
     status: {},
     items: {},
@@ -131,6 +132,8 @@ function newRoomState() {
     plot: [],
     codex: [],
     objectives: [],
+    quests: [],
+    npcs: [],
     growth: {},
   };
 }
@@ -219,17 +222,32 @@ function applyRoomState(room, st) {
   for (const o of st.objectives || []) {
     if (o && !state.objectives.includes(String(o))) state.objectives.push(String(o));
   }
+  if (st.location) state.location = String(st.location).slice(0, 60);
+  for (const q of st.quests_add || []) {
+    const text = String(q || "").trim().slice(0, 80);
+    if (text && !state.quests.some((x) => x.text === text)) state.quests.push({ text, done: false });
+  }
+  for (const q of st.quests_done || []) {
+    const text = String(q || "").trim();
+    const hit = state.quests.find((x) => !x.done && (x.text === text || x.text.includes(text) || text.includes(x.text)));
+    if (hit) hit.done = true;
+  }
+  for (const n of st.npcs_add || []) {
+    const name = String(n || "").trim().slice(0, 30);
+    if (name && !state.npcs.includes(name)) state.npcs.push(name);
+  }
   while (state.events.length > 60) state.events.shift();
   while (state.plot.length > 40) state.plot.shift();
   while (state.codex.length > 80) state.codex.shift();
   while (state.objectives.length > 12) state.objectives.shift();
+  while (state.quests.length > 12) state.quests.shift();
 }
 
 function roomPrompt(room) {
   const sc = room.scenario;
   const modeLine =
     room.mode === "free"
-      ? "【模式】自由叙事：不掷骰、不做数值判定，玩家写什么就顺着推演，保证世界一致与因果即可。"
+      ? "【模式】自由探索（ARPG）：有骨架的开放世界。玩家可探索、交谈、交易、战斗、成长；不做掷骰判定，但结果必须符合因果、时间、人物能力与设定。NPC 有自己的目标与作息，会主动行动；每次推进要给出具体地点、可交互人物与下一步钩子（任务/传闻/异常）。"
       : "【模式】跑团：保留难度与代价，按玩家人数缩放挑战强度。";
   const count = room.players.length;
   const diffLine = {
@@ -270,10 +288,13 @@ function roomPrompt(room) {
     `【线索/图鉴】${room.state.codex.join("、") || "无"}`,
     `【情节线】${room.state.plot.join("、") || "无"}`,
     `【当前目标】${room.state.objectives.join("、") || "无"}`,
+    `【当前位置】${room.state.location || "未记录"}`,
+    `【任务】${room.state.quests.map((q) => q.text + (q.done ? "（已完成）" : "")).join("、") || "无"}`,
+    `【已认识】${room.state.npcs.join("、") || "无"}`,
     `【最近发生】\n${recent || "（刚开始）"}`,
     `【本轮玩家行动】\n${actions}`,
     "请写一段照顾到所有玩家行动的叙述（每人都有戏份），结尾输出状态块：",
-    '<state>{"advance_minutes":15,"players":{"玩家pid":{"hp":0,"san":-1,"money":0,"items_add":[],"items_remove":[],"xp":2,"attrs_add":{}}},"events":["..."],"relations":{"NPC":"态度"},"plot":["..."],"codex":["..."],"objectives":["下一步目标"]}</state>',
+    '<state>{"advance_minutes":15,"location":"新地点","players":{"玩家pid":{"hp":0,"san":-1,"money":0,"items_add":[],"items_remove":[],"xp":2,"attrs_add":{}}},"events":["..."],"relations":{"NPC":"态度"},"plot":["..."],"codex":["..."],"objectives":["下一步目标"],"quests_add":["新任务"],"quests_done":["已完成任务"],"npcs_add":["新认识的人"]}</state>',
     "不要输出任何其他标签。",
   ].join("\n");
 }

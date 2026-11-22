@@ -388,6 +388,19 @@ function renderSession() {
     skillBox.appendChild(el("span", "tag", `${s.name} ${c.attrs[s.attr]}`));
   }
 
+  const g0 = session.growth || { xp: 0, level: 1 };
+  $("p-location").textContent = session.location || "未记录";
+  $("p-level").textContent = String(g0.level || 1);
+  $("p-xp").textContent = String(g0.xp || 0);
+  const qbox = $("p-quests");
+  qbox.innerHTML = "";
+  for (const q of session.quests || []) {
+    qbox.appendChild(el("span", "tag" + (q.done ? " done" : ""), q.text));
+  }
+  const nbox = $("p-npcs");
+  nbox.innerHTML = "";
+  for (const n of session.npcsKnown || []) nbox.appendChild(el("span", "tag", n));
+
   const inv = $("inventory");
   inv.innerHTML = "";
   (session.inventory.length ? session.inventory : ["（空）"]).forEach((i) => inv.appendChild(el("span", "tag", i)));
@@ -663,6 +676,7 @@ function showOpening() {
     `<div>${escHtml(c.name || "无名旅人")}${c.role ? " · " + escHtml(c.role) : ""}</div>` +
     `<div class="op-attrs">${attrs}</div>` +
     `<div class="op-meta">随身：${(session.inventory || []).map(escHtml).join("、") || "空"}　生命 ${session.status?.hp}/${session.status?.hpMax}　理智 ${session.status?.san}/${session.status?.sanMax}</div>` +
+    `<div class="op-meta">位置：${escHtml(session.location || "未记录")}　等级 ${session.growth?.level || 1}（${session.growth?.xp || 0} XP）</div>` +
     `<div class="op-sec">开场</div>` +
     `<div class="op-story">${escHtml(opening)}</div>`;
   $("opening-modal").classList.remove("hidden");

@@ -161,6 +161,7 @@
         <div class="card" style="margin-top:14px">
           <h2>世界状态</h2>
           <div class="meta">时间：<span id="r-clock"></span></div>
+          <div class="meta">位置：<span id="r-location"></span></div>
           <div class="tabs" id="r-tabs">
             <button data-tab="events" class="on">事件</button>
             <button data-tab="plot">情节</button>
@@ -172,6 +173,10 @@
         <div class="card" style="margin-top:14px">
           <h2>下一步</h2>
           <div class="list" id="r-objectives"></div>
+          <div class="meta" style="margin-top:8px">任务</div>
+          <div class="list" id="r-quests"></div>
+          <div class="meta" style="margin-top:8px">已认识</div>
+          <div class="mini" id="r-npcs"></div>
           <div class="meta" style="margin-top:8px">即将发生</div>
           <div class="list" id="r-upcoming"></div>
         </div>
@@ -325,7 +330,7 @@ function render() {
   const r = room;
   $("r-code").textContent = r.code;
   $("r-scenario").textContent = r.scenario.title;
-  $("r-mode").textContent = (r.mode === "free" ? "自由叙事" : "跑团") + " · " + ({ easy:"轻松", normal:"标准", hard:"硬核" }[r.difficulty] || "");
+  $("r-mode").textContent = (r.mode === "free" ? "自由探索" : "跑团") + " · " + ({ easy:"轻松", normal:"标准", hard:"硬核" }[r.difficulty] || "");
   $("r-turn").textContent = "第 " + r.turn + " 回合 · " + r.state.clock;
   $("btn-start").style.display = r.isHost && r.status === "lobby" ? "inline-block" : "none";
   $("btn-advance").style.display = r.isHost && r.status === "playing" ? "inline-block" : "none";
@@ -355,6 +360,7 @@ function render() {
   }
 
   $("r-clock").textContent = r.state.clock;
+  $("r-location").textContent = r.state.location || "未记录";
   renderTab();
 
   const objBox = $("r-objectives");
@@ -365,6 +371,13 @@ function render() {
   upBox.innerHTML = ups.length
     ? ups.map((e) => `<div class="item"><b>${esc(e.title)}</b> · ${e.minutesAway > 0 ? `还有 ${human(e.minutesAway)}` : "已到点"}</div>`).join("")
     : '<div class="hint">暂无后续日程</div>';
+  const qBox = $("r-quests");
+  const qs = r.state.quests || [];
+  qBox.innerHTML = qs.length
+    ? qs.map((q) => `<div class="item"${q.done ? ' style="opacity:.5;text-decoration:line-through"' : ""}>${esc(q.text)}</div>`).join("")
+    : '<div class="hint">暂无任务</div>';
+  const nBox = $("r-npcs");
+  nBox.innerHTML = (r.state.npcs || []).map((n) => `<span class="tag">${esc(n)}</span>`).join("") || '<span class="tag">还没有认识的人</span>';
 
   if (r.status === "playing" && !sessionStorage.getItem("ro-" + r.code)) {
     sessionStorage.setItem("ro-" + r.code, "1");

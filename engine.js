@@ -816,13 +816,26 @@ const FORMAT_REMINDER = [
 function modeBlock(session) {
   if (session && session.mode === "free") {
     return [
-      "【本局模式：自由叙事】",
-      "不掷骰、不做数值判定。玩家的选择直接推动剧情，你负责让世界保持自洽、因果成立。",
-      "不要输出 <checks> 标签；危险与机会通过叙述呈现，而不是通过难度数字。",
-      "时间与事件照常推进，但不要用规则术语解释过程。",
+      "【本局模式：自由探索（ARPG）】",
+      "这是一个有骨架的开放世界：地点、NPC、任务、道具、成长、时间线都由引擎记录，你负责让世界活着。",
+      "1) 玩家可以自由探索、交谈、交易、战斗、休息、调查。你要描述环境、在场人物和此刻可做的事，让玩家有可交互的对象。",
+      "2) NPC 有自己的目标、作息、立场和记忆，会主动行动、记得玩家做过的事；不要让玩家凭空发明世界。",
+      "3) 每当玩家进入新地点或取得进展，给出具体的下一步钩子：一个任务、一条传闻、一个异常、一次 NPC 请求，而不是空白等待。",
+      "4) 不做掷骰判定，但结果必须符合因果、距离、时间、人物能力与世界观；不要无理由地成功或失败。",
+      "5) 在 state 中更新 location、npcs_add、quests_add/quests_done、items_add/items_remove、relations、xp、codex 等字段。",
+      "6) 不要输出 <checks> 标签，也不要使用规则术语解释过程。",
     ].join("\n");
   }
   return "【本局模式：跑团规则】按判定规则与难度进行。";
+}
+
+function worldBlock(session) {
+  const quests = (session.quests || [])
+    .map((q) => `${q.text}${q.done ? "（已完成）" : ""}`)
+    .join("、") || "无";
+  const npcs = (session.npcsKnown || []).join("、") || "无";
+  const g = session.growth || { xp: 0, level: 1 };
+  return `【世界状态】地点：${session.location || "未记录"}｜等级 ${g.level || 1}（${g.xp || 0} XP）｜已认识：${npcs}｜任务：${quests}`;
 }
 
 function buildPrompt(session, scenario, playerAction, settings) {
@@ -839,7 +852,7 @@ function buildPrompt(session, scenario, playerAction, settings) {
     "",
     timeBlock(session, scenario),
     "",
-    joinBlocks(relationsBlock(session), objectivesBlock(session), eventLogBlock(session)),
+    joinBlocks(worldBlock(session), relationsBlock(session), objectivesBlock(session), eventLogBlock(session)),
     "",
     "【最近发生了什么】",
     recentLog(session, 14) || "（游戏刚开始）",
@@ -872,7 +885,7 @@ function buildContinuePrompt(session, scenario, playerAction, opening, rolls, ev
     "",
     timeBlock(session, scenario),
     "",
-    joinBlocks(relationsBlock(session), objectivesBlock(session), eventLogBlock(session)),
+    joinBlocks(worldBlock(session), relationsBlock(session), objectivesBlock(session), eventLogBlock(session)),
     "",
     "【最近发生了什么】",
     recentLog(session, 10) || "（游戏刚开始）",
@@ -1031,6 +1044,52 @@ function applyState(session, scenario, state) {
   }
   while (session.objectives.length > 10) session.objectives.shift();
 
+  if (state.location) {
+    const next = clip(state.location, 60);
+    if (next && next !== session.location) {
+      session.location = next;
+      changes.push(`地点：${next}`);
+    }
+  }
+  if (!Array.isArray(session.quests)) session.quests = [];
+  for (const item of (Array.isArray(state.quests_add) ? state.quests_add : []).slice(0, 4)) {
+    const text = clip(item, 80);
+    if (text && !session.quests.some((q) => q.text === text)) {
+      session.quests.push({ text, done: false, turn: session.turns || 0 });
+      changes.push(`接取任务：${text}`);
+    }
+  }
+  for (const item of (Array.isArray(state.quests_done) ? state.quests_done : []).slice(0, 4)) {
+    const text = clip(item, 80);
+    if (!text) continue;
+    const hit = session.quests.find((q) => !q.done && (q.text === text || q.text.includes(text) || text.includes(q.text)));
+    if (hit) {
+      hit.done = true;
+      changes.push(`完成任务：${hit.text}`);
+    }
+  }
+  while (session.quests.length > 12) session.quests.shift();
+  if (!Array.isArray(session.npcsKnown)) session.npcsKnown = [];
+  for (const n of (Array.isArray(state.npcs_add) ? state.npcs_add : []).slice(0, 4)) {
+    const name = clip(n, 30);
+    if (name && !session.npcsKnown.includes(name)) {
+      session.npcsKnown.push(name);
+      changes.push(`结识：${name}`);
+    }
+  }
+  if (!session.growth) session.growth = { xp: 0, level: 1, attrs: {} };
+  if (Number.isFinite(Number(state.xp))) {
+    session.growth.xp += Number(state.xp);
+    session.growth.level = 1 + Math.floor(session.growth.xp / 10);
+    changes.push(`经验 +${Number(state.xp)}（Lv.${session.growth.level}）`);
+  }
+  if (state.attrs_add && typeof state.attrs_add === "object") {
+    session.growth.attrs = session.growth.attrs || {};
+    for (const [k, v] of Object.entries(state.attrs_add)) {
+      if (Number.isFinite(Number(v))) session.growth.attrs[k] = (session.growth.attrs[k] || 0) + Number(v);
+    }
+  }
+
   // 人物关系条目上限，防止长局里越记越多（保留最近更新过的 40 个）
   const relKeys = Object.keys(session.relations || {});
   if (relKeys.length > 40) {
@@ -1164,6 +1223,8 @@ async function runOpening(session, scenario) {
     "",
     timeBlock(session, scenario),
     "",
+    worldBlock(session),
+    "",
     customOpening
       ? "【这是游戏的第一幕】开场白已经给过了，请顺着它往前推一小步：描写此刻正在发生的一件事、一个人的出现或一个细微的变化，把玩家推到一个需要做决定的位置。不要复述开场白。"
       : "【这是游戏的第一幕】请写出开场：把玩家放进场景里，交代他在哪、此刻看到听到什么、眼前最值得注意的东西是什么。3 到 5 段，节奏稳一点，不要急着抛出全部悬念。",
@@ -1236,9 +1297,13 @@ function createSession({ character, scenarioId, difficulty, mode, scenarioDir })
     },
     status: { hp: d2.hpMax, hpMax: d2.hpMax, san: d2.sanMax, sanMax: d2.sanMax, money: d2.money },
     time: { day: scenario.startDay || 1, minute: scenario.startMinute ?? 9 * 60 },
+    location: scenario.startLocation || "",
     inventory: [...(scenario.startItems || [])],
     clues: [],
     relations: {},
+    npcsKnown: [],
+    quests: [],
+    growth: { xp: 0, level: 1, attrs: {} },
     objectives: [],
     flags: {},
     firedEvents: [],
