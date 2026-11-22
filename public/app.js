@@ -971,6 +971,7 @@ $("me-open").addEventListener("click", () => {
 const MODEL_CATALOG = [
   { id:"deepseek", name:"DeepSeek", color:"#4D6BFE", icon:"DS", baseUrl:"https://api.deepseek.com", models:["deepseek-chat","deepseek-reasoner","deepseek-v4-flash"] },
   { id:"openai", name:"ChatGPT / OpenAI", color:"#E8E4DA", icon:"GPT", baseUrl:"https://api.openai.com/v1", models:["gpt-4o","gpt-4o-mini","gpt-4.1","gpt-4.1-mini","o3","o4-mini"] },
+  { id:"anthropic", name:"Anthropic Claude", color:"#D97757", icon:"C", baseUrl:"https://api.anthropic.com/v1", models:["claude-sonnet-4-20250514","claude-opus-4-20250514","claude-3-7-sonnet-20250219","claude-3-5-haiku-20241022"] },
   { id:"doubao", name:"豆包 Doubao", color:"#1664FF", icon:"豆", baseUrl:"https://ark.cn-beijing.volces.com/api/v3", models:["doubao-1-5-pro-32k","doubao-1-5-lite-32k","doubao-pro-32k","doubao-lite-32k"] },
   { id:"qwen", name:"通义千问 Qwen", color:"#615CED", icon:"Q", baseUrl:"https://dashscope.aliyuncs.com/compatible-mode/v1", models:["qwen-max","qwen-plus","qwen-turbo"] },
   { id:"kimi", name:"Kimi / Moonshot", color:"#1E1E1E", icon:"K", baseUrl:"https://api.moonshot.cn/v1", models:["moonshot-v1-8k","moonshot-v1-32k","moonshot-v1-128k"] },
@@ -982,7 +983,7 @@ const MODEL_CATALOG = [
   { id:"step", name:"阶跃星辰 Step", color:"#7B61FF", icon:"S", baseUrl:"https://api.stepfun.com/v1", models:["step-1-8k","step-1-32k"] },
   { id:"yi", name:"零一万物 Yi", color:"#00A3FF", icon:"Y", baseUrl:"https://api.lingyiwanwu.com/v1", models:["yi-large","yi-medium"] },
   { id:"siliconflow", name:"硅基流动 SiliconFlow", color:"#6E56CF", icon:"SF", baseUrl:"https://api.siliconflow.cn/v1", models:["Qwen/Qwen2.5-72B-Instruct","deepseek-ai/DeepSeek-V3"] },
-  { id:"openrouter", name:"OpenRouter 聚合", color:"#6467F2", icon:"OR", baseUrl:"https://openrouter.ai/api/v1", models:["openai/gpt-4o","anthropic/claude-3.5-sonnet","google/gemini-2.0-flash-001","meta-llama/llama-3.3-70b-instruct"] },
+  { id:"openrouter", name:"OpenRouter 聚合", color:"#6467F2", icon:"OR", baseUrl:"https://openrouter.ai/api/v1", models:["openai/gpt-4o","anthropic/claude-sonnet-4","anthropic/claude-3.7-sonnet","google/gemini-2.0-flash-001","meta-llama/llama-3.3-70b-instruct"] },
   { id:"gemini", name:"Google Gemini", color:"#4285F4", icon:"G", baseUrl:"https://generativelanguage.googleapis.com/v1beta/openai", models:["gemini-2.0-flash","gemini-1.5-pro"] },
   { id:"grok", name:"xAI Grok", color:"#111111", icon:"X", baseUrl:"https://api.x.ai/v1", models:["grok-2-latest","grok-beta"] },
   { id:"mistral", name:"Mistral", color:"#FF7000", icon:"M", baseUrl:"https://api.mistral.ai/v1", models:["mistral-large-latest","mistral-small-latest"] },

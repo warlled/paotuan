@@ -707,28 +707,44 @@ function askCompatible(prompt, cfg) {
       reject(new Error("Base URL 必须是 http 或 https"));
       return;
     }
-    const endpoint = String(cfg.baseUrl).replace(/\/+$/, "") + "/chat/completions";
-    const payload = JSON.stringify({
-      model: String(cfg.model || ""),
-      messages: [
-        { role: "system", content: "你是一位跑团主持人（GM），严格按用户消息中的格式输出。" },
-        { role: "user", content: prompt },
-      ],
-      temperature: 0.9,
-      max_tokens: 2000,
-      stream: false,
-    });
+    const anthropic = /anthropic\.com/i.test(String(cfg.baseUrl)) || cfg.provider === "anthropic";
+    const baseUrl = String(cfg.baseUrl).replace(/\/+$/, "");
+    const endpoint = anthropic ? baseUrl + "/messages" : baseUrl + "/chat/completions";
+    const payload = anthropic
+      ? JSON.stringify({
+          model: String(cfg.model || ""),
+          max_tokens: 2000,
+          system: "你是一位跑团主持人（GM），严格按用户消息中的格式输出。",
+          messages: [{ role: "user", content: prompt }],
+        })
+      : JSON.stringify({
+          model: String(cfg.model || ""),
+          messages: [
+            { role: "system", content: "你是一位跑团主持人（GM），严格按用户消息中的格式输出。" },
+            { role: "user", content: prompt },
+          ],
+          temperature: 0.9,
+          max_tokens: 2000,
+          stream: false,
+        });
     const mod = base.protocol === "https:" ? https : require("node:http");
     const req = mod.request(
       endpoint,
       {
         method: "POST",
         timeout: 150000,
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${cfg.apiKey}`,
-          "content-length": Buffer.byteLength(payload),
-        },
+        headers: anthropic
+          ? {
+              "content-type": "application/json",
+              "x-api-key": cfg.apiKey,
+              "anthropic-version": "2023-06-01",
+              "content-length": Buffer.byteLength(payload),
+            }
+          : {
+              "content-type": "application/json",
+              authorization: `Bearer ${cfg.apiKey}`,
+              "content-length": Buffer.byteLength(payload),
+            },
       },
       (res) => {
         let raw = "";
@@ -749,7 +765,9 @@ function askCompatible(prompt, cfg) {
             reject(new Error("模型返回的不是合法 JSON"));
             return;
           }
-          const text = String(data.choices?.[0]?.message?.content || "").trim();
+          const text = anthropic
+            ? String((data.content || []).map((c) => c.text || "").join("\n")).trim()
+            : String(data.choices?.[0]?.message?.content || "").trim();
           if (!text) {
             reject(new Error("模型返回了空内容"));
             return;
@@ -758,8 +776,8 @@ function askCompatible(prompt, cfg) {
           resolve({
             text,
             usage: {
-              input_tokens: u.prompt_tokens || 0,
-              output_tokens: u.completion_tokens || 0,
+              input_tokens: u.prompt_tokens || u.input_tokens || 0,
+              output_tokens: u.completion_tokens || u.output_tokens || 0,
               cached_input_tokens: 0,
             },
           });
