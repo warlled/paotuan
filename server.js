@@ -130,6 +130,7 @@ function newRoomState() {
     relations: {},
     plot: [],
     codex: [],
+    objectives: [],
     growth: {},
   };
 }
@@ -156,6 +157,8 @@ function publicRoom(room, sid) {
       ...room.state,
       clock: engine.clockText(room.state.time),
     },
+    opening: room.opening || room.scenario.hook || "",
+    upcoming: engine.upcomingEvents({ time: room.state.time, firedEvents: room.state.firedEvents || [] }, room.scenario).slice(0, 3),
     myActionSubmitted: Boolean(room.actions[sid]),
     busy: Boolean(room.busy),
   };
@@ -213,9 +216,13 @@ function applyRoomState(room, st) {
   for (const p of st.plot || []) {
     if (p && !state.plot.includes(String(p))) state.plot.push(String(p));
   }
+  for (const o of st.objectives || []) {
+    if (o && !state.objectives.includes(String(o))) state.objectives.push(String(o));
+  }
   while (state.events.length > 60) state.events.shift();
   while (state.plot.length > 40) state.plot.shift();
   while (state.codex.length > 80) state.codex.shift();
+  while (state.objectives.length > 12) state.objectives.shift();
 }
 
 function roomPrompt(room) {
@@ -262,10 +269,11 @@ function roomPrompt(room) {
     `【已有事件】${room.state.events.map((e) => e.title).join("、") || "无"}`,
     `【线索/图鉴】${room.state.codex.join("、") || "无"}`,
     `【情节线】${room.state.plot.join("、") || "无"}`,
+    `【当前目标】${room.state.objectives.join("、") || "无"}`,
     `【最近发生】\n${recent || "（刚开始）"}`,
     `【本轮玩家行动】\n${actions}`,
     "请写一段照顾到所有玩家行动的叙述（每人都有戏份），结尾输出状态块：",
-    '<state>{"advance_minutes":15,"players":{"玩家pid":{"hp":0,"san":-1,"money":0,"items_add":[],"items_remove":[],"xp":2,"attrs_add":{}}},"events":["..."],"relations":{"NPC":"态度"},"plot":["..."],"codex":["..."]}</state>',
+    '<state>{"advance_minutes":15,"players":{"玩家pid":{"hp":0,"san":-1,"money":0,"items_add":[],"items_remove":[],"xp":2,"attrs_add":{}}},"events":["..."],"relations":{"NPC":"态度"},"plot":["..."],"codex":["..."],"objectives":["下一步目标"]}</state>',
     "不要输出任何其他标签。",
   ].join("\n");
 }
@@ -1574,6 +1582,7 @@ const server = http.createServer(async (req, res) => {
     if (!room) return send(res, 404, { error: "房间不存在" });
     if (room.hostSid !== entry.sid) return send(res, 403, { error: "只有房主可以开始" });
     room.status = "playing";
+    room.opening = room.opening || room.scenario.hook || "";
     if (room.opening) {
       room.log.push({ type: "gm", text: room.opening, at: Date.now() });
     }
@@ -1702,6 +1711,8 @@ const server = http.createServer(async (req, res) => {
     if (!entry.owner) addGuestCalls(1);
     try {
       const opening = await engine.runOpening(entry.session, scenario);
+      const firstGm = entry.session.log.find((e) => e.type === "gm");
+      if (firstGm) entry.session.opening = firstGm.text;
       saveEntry(entry);
       return send(res, 200, { session: publicSession(entry), segments: opening.segments });
     } catch (err) {

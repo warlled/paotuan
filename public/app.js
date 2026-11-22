@@ -302,6 +302,7 @@ async function startGame() {
     appendSegment({ type: "sys", text: `${session.scenario.title} · ${meta.difficulty[session.difficulty].label}难度 · 游戏开始` }, true);
     (data.segments || []).forEach(appendSegment);
     scrollLog();
+    showOpening();
   } catch (e) {
     $("err").textContent = "启动失败：" + e.message;
   } finally {
@@ -637,6 +638,40 @@ $("save-file-input").addEventListener("change", async (e) => {
   } catch {
     alert("读档请求失败。");
   }
+});
+
+/* ---------- 开局面板 ---------- */
+
+function showOpening() {
+  if (!session) {
+    alert("还没有开始游戏。");
+    return;
+  }
+  const c = session.character || {};
+  const sc = session.scenario || {};
+  const attrs = [
+    ["str", "力量"], ["dex", "敏捷"], ["con", "体质"],
+    ["int", "智力"], ["per", "感知"], ["cha", "魅力"],
+  ].map(([k, label]) => `<span class="op-attr">${label} ${c.attrs?.[k] ?? "-"}</span>`).join("");
+  const opening = session.opening || (session.log || []).find((e) => e.type === "gm")?.text || "（还没有开场白）";
+  const diff = meta?.difficulty?.[session.difficulty]?.label || "标准";
+  $("op-title").textContent = `${sc.title || "剧本"} · 开场`;
+  $("op-body").innerHTML =
+    `<div class="op-meta">${escHtml(sc.genre || "")} · ${diff}难度 · ${session.mode === "free" ? "自由叙事" : "跑团规则"} · ${escHtml(session.clock || "")}</div>` +
+    (sc.blurb ? `<div class="op-meta">${escHtml(sc.blurb)}</div>` : "") +
+    `<div class="op-sec">你的角色</div>` +
+    `<div>${escHtml(c.name || "无名旅人")}${c.role ? " · " + escHtml(c.role) : ""}</div>` +
+    `<div class="op-attrs">${attrs}</div>` +
+    `<div class="op-meta">随身：${(session.inventory || []).map(escHtml).join("、") || "空"}　生命 ${session.status?.hp}/${session.status?.hpMax}　理智 ${session.status?.san}/${session.status?.sanMax}</div>` +
+    `<div class="op-sec">开场</div>` +
+    `<div class="op-story">${escHtml(opening)}</div>`;
+  $("opening-modal").classList.remove("hidden");
+}
+
+$("btn-opening").addEventListener("click", showOpening);
+$("op-start").addEventListener("click", () => {
+  $("opening-modal").classList.add("hidden");
+  $("input")?.focus();
 });
 
 /* ---------- 顶部 HUD：在线人数 / 好评差评 / 留言板 ---------- */

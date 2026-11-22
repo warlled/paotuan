@@ -262,6 +262,12 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent2); }
 .sw.cream { background: #f4ecd8; color: #6b5a35; }
 .sw.dark { background: #1b1f2c; color: #e7e8ee; }
 .sw.on { outline: 2px solid var(--accent); outline-offset: 1px; }
+.op-body { max-height: 46vh; overflow-y: auto; font-size: 14px; line-height: 1.85; margin-bottom: 12px; }
+.op-meta { color: var(--muted); font-size: 12.5px; margin-bottom: 8px; }
+.op-story { white-space: pre-wrap; }
+.op-sec { color: var(--accent); font-size: 12px; letter-spacing: 1px; margin: 14px 0 6px; }
+.op-attrs { display: flex; gap: 6px; flex-wrap: wrap; }
+.op-attr { border: 1px solid var(--line); border-radius: 8px; padding: 3px 9px; font-size: 12px; background: var(--panel2); }
 
 .owner-closed-banner {
   position: fixed; top: 0; left: 0; right: 0; z-index: 50;

@@ -119,6 +119,20 @@
   </div>
 </div>
 
+<div id="opening-modal" class="hidden modal2">
+  <div class="panel2 wide">
+    <div class="fb-head">
+      <h2 id="op-title">开场</h2>
+      <button data-close="opening-modal" title="关闭">✕</button>
+    </div>
+    <div id="op-body" class="op-body"></div>
+    <div class="row2">
+      <button id="op-start" class="primary2">开始行动</button>
+      <span class="hint" id="op-hint"></span>
+    </div>
+  </div>
+</div>
+
 <section id="setup">
   <div class="setup-wrap">
     <h1>玩家自由创作游玩<span>社区网站平台</span></h1>
@@ -359,6 +373,7 @@
       <span class="clock" id="tb-clock"></span>
       <span class="spacer"></span>
       <span class="hint" id="tb-save">自动存档</span>
+      <button id="btn-opening">开场</button>
       <button id="btn-save-file">存档</button>
       <button id="btn-load-file">读档</button>
       <input id="save-file-input" type="file" accept="application/json,.json" hidden>

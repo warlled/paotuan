@@ -65,6 +65,20 @@
   .seg.sys { background:transparent; color:var(--muted); font-size:12px; text-align:center; }
   #actionRow { display:flex; gap:8px; align-items:flex-end; }
   #actionRow textarea { flex:1; min-height:56px; }
+  .room-modal {
+    position:fixed; inset:0; z-index:90; background:rgba(0,0,0,.6);
+    display:flex; align-items:center; justify-content:center; padding:18px;
+  }
+  .room-modal-panel {
+    width:min(640px,100%); max-height:86vh; overflow-y:auto; background:var(--panel);
+    border:1px solid var(--line); border-radius:16px; padding:18px;
+  }
+  .room-modal-head { display:flex; align-items:center; margin-bottom:10px; }
+  .room-modal-head h2 { margin:0; }
+  .room-modal-head button { margin-left:auto; background:transparent; border:0; color:var(--muted); font-size:16px; cursor:pointer; }
+  .ro-story { white-space:pre-wrap; font-size:14px; line-height:1.85; margin:8px 0 14px; }
+  .ro-sec { color:var(--accent); font-size:12px; letter-spacing:1px; margin:12px 0 4px; }
+  .hidden { display:none !important; }
 </style>
 </head>
 <body>
@@ -129,6 +143,7 @@
       <span class="meta" id="r-mode"></span>
       <span class="meta" id="r-turn"></span>
       <button class="ghost" id="btn-copy">复制邀请</button>
+      <button class="ghost" id="btn-opening-room">开场</button>
       <button class="ghost" id="btn-export">导出日志</button>
       <button class="ghost" id="btn-leave" style="margin-left:auto">离开房间</button>
     </div>
@@ -154,16 +169,42 @@
           </div>
           <div class="tab-body" id="r-tab-body"></div>
         </div>
+        <div class="card" style="margin-top:14px">
+          <h2>下一步</h2>
+          <div class="list" id="r-objectives"></div>
+          <div class="meta" style="margin-top:8px">即将发生</div>
+          <div class="list" id="r-upcoming"></div>
+        </div>
       </div>
       <div class="card">
         <h2>剧情记录</h2>
         <div id="log"></div>
+        <div class="row" id="quickActions" style="margin-top:6px">
+          <button class="ghost" data-q="我先观察四周，确认环境和出口。">观察四周</button>
+          <button class="ghost" data-q="我找在场的人搭话，试探他知道什么。">找人搭话</button>
+          <button class="ghost" data-q="我检查身边的线索和物品。">检查线索</button>
+          <button class="ghost" data-q="我原地等待，留意接下来会发生什么。">原地等待</button>
+        </div>
         <div id="actionRow">
           <textarea id="r-action" placeholder="写下这一轮你的角色要做什么…"></textarea>
           <button class="primary" id="btn-action">提交行动</button>
         </div>
         <div class="hint" id="r-status"></div>
       </div>
+    </div>
+  </div>
+</div>
+
+<div id="roomOpening" class="room-modal hidden">
+  <div class="room-modal-panel">
+    <div class="room-modal-head">
+      <h2 id="ro-title">开场</h2>
+      <button id="ro-close">✕</button>
+    </div>
+    <div id="ro-body"></div>
+    <div class="row">
+      <button class="primary" id="ro-start">进入剧情</button>
+      <span class="meta">关闭后随时可以点顶部「开场」再看</span>
     </div>
   </div>
 </div>
@@ -311,6 +352,20 @@ function render() {
   $("r-clock").textContent = r.state.clock;
   renderTab();
 
+  const objBox = $("r-objectives");
+  const objs = r.state.objectives || [];
+  objBox.innerHTML = objs.length ? objs.map((o) => `<div class="item">${esc(o)}</div>`).join("") : '<div class="hint">还没有明确目标</div>';
+  const upBox = $("r-upcoming");
+  const ups = r.upcoming || [];
+  upBox.innerHTML = ups.length
+    ? ups.map((e) => `<div class="item"><b>${esc(e.title)}</b> · ${e.minutesAway > 0 ? `还有 ${human(e.minutesAway)}` : "已到点"}</div>`).join("")
+    : '<div class="hint">暂无后续日程</div>';
+
+  if (r.status === "playing" && !sessionStorage.getItem("ro-" + r.code)) {
+    sessionStorage.setItem("ro-" + r.code, "1");
+    showRoomOpening();
+  }
+
   const log = $("log");
   log.innerHTML = "";
   for (const e of r.log) {
@@ -342,6 +397,30 @@ function renderTab() {
 
 function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+function human(minutes) {
+  if (minutes <= 0) return "就是现在";
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (!h) return m + " 分钟";
+  return m ? `${h} 小时 ${m} 分` : `${h} 小时`;
+}
+
+function showRoomOpening() {
+  if (!room) return;
+  const firstGm = room.log.find((e) => e.type === "gm");
+  const opening = room.opening || (firstGm && firstGm.text) || room.scenario.blurb || "（暂无开场）";
+  const players = room.players
+    .map((p) => `<div class="item"><b>${esc(p.character.name)}</b> · ${esc(p.character.role || "")}${p.character.bio ? " · " + esc(p.character.bio) : ""}</div>`)
+    .join("");
+  $("ro-title").textContent = room.scenario.title + " · 开场";
+  $("ro-body").innerHTML =
+    `<div class="meta">${esc(room.scenario.genre || "")} · ${room.mode === "free" ? "自由叙事" : "跑团"} · ${({ easy:"轻松", normal:"标准", hard:"硬核" }[room.difficulty]) || ""} · ${esc(room.state.clock)}</div>` +
+    (room.scenario.blurb ? `<div class="meta">${esc(room.scenario.blurb)}</div>` : "") +
+    `<div class="ro-sec">玩家角色</div>${players || '<div class="hint">暂无</div>'}` +
+    `<div class="ro-sec">开场</div><div class="ro-story">${esc(opening)}</div>`;
+  $("roomOpening").classList.remove("hidden");
 }
 
 async function start() {
@@ -386,6 +465,15 @@ $("btn-action").onclick = action;
 $("btn-advance").onclick = advance;
 $("btn-leave").onclick = leave;
 $("btn-export").onclick = exportLog;
+$("btn-opening-room").onclick = showRoomOpening;
+$("ro-close").onclick = () => $("roomOpening").classList.add("hidden");
+$("ro-start").onclick = () => $("roomOpening").classList.add("hidden");
+document.querySelectorAll("#quickActions button").forEach((b) => {
+  b.addEventListener("click", () => {
+    $("r-action").value = b.dataset.q || "";
+    $("r-action").focus();
+  });
+});
 $("btn-copy").onclick = () => {
   const link = location.origin + "/room?k=" + encodeURIComponent(inviteKey) + "&code=" + encodeURIComponent(code);
   if (navigator.clipboard) navigator.clipboard.writeText(link);
