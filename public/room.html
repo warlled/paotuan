@@ -3,70 +3,86 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>多人联机 · 故事工坊</title>
+<title>多人联机 · 玩家自由创作游玩社区网站平台</title>
 <style>
-  :root { --bg:#0d0f15; --panel:#151823; --line:#262b3a; --text:#e7e8ee; --muted:#8b90a0; --accent:#c8a06a; }
+  :root { --bg:#0d0f15; --panel:#151823; --panel2:#1b1f2c; --line:#262b3a; --text:#e7e8ee; --muted:#8b90a0; --accent:#c8a06a; --ok:#6fbf8f; --bad:#d9607a; }
   * { box-sizing: border-box; }
-  body { margin:0; min-height:100vh; background:var(--bg); color:var(--text); font:15px/1.7 "Microsoft YaHei",system-ui,sans-serif; padding:24px 16px 60px; }
-  .wrap { max-width: 1000px; margin: 0 auto; }
+  body { margin:0; min-height:100vh; background:var(--bg); color:var(--text); font:15px/1.7 "Microsoft YaHei",system-ui,sans-serif; padding:22px 16px 60px; }
+  .wrap { max-width: 1180px; margin: 0 auto; }
   .top { display:flex; align-items:center; gap:12px; margin-bottom:16px; }
-  .top h1 { font-size:18px; margin:0; letter-spacing:2px; }
+  .top h1 { font-size:18px; margin:0; letter-spacing:1px; }
   .top a { margin-left:auto; color:var(--accent); text-decoration:none; font-size:13px; }
-  .grid { display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
-  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+  .grid2 { display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
+  .room-grid { display:grid; grid-template-columns: 300px 1fr; gap:14px; }
+  @media (max-width: 900px) { .grid2, .room-grid { grid-template-columns: 1fr; } }
   .card { background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:16px; }
-  h2 { font-size:14px; letter-spacing:2px; color:var(--accent); margin:0 0 10px; }
-  label { display:block; font-size:12px; color:var(--muted); margin:10px 0 4px; }
+  h2 { font-size:13px; letter-spacing:2px; color:var(--accent); margin:0 0 10px; }
+  label { display:block; font-size:12px; color:var(--muted); margin:9px 0 4px; }
   input, select, textarea {
     width:100%; padding:8px 10px; border-radius:9px; border:1px solid var(--line);
     background:#10131b; color:var(--text); font:inherit; outline:none;
   }
   input:focus, select:focus, textarea:focus { border-color:var(--accent); }
   textarea { resize:vertical; }
-  button.primary { background:var(--accent); color:#1a1408; border:0; border-radius:9px; padding:8px 18px; font-weight:600; cursor:pointer; }
-  button.ghost { background:transparent; border:1px solid var(--line); color:var(--text); border-radius:9px; padding:6px 12px; cursor:pointer; }
+  button { font:inherit; cursor:pointer; }
+  .primary { background:var(--accent); color:#1a1408; border:0; border-radius:9px; padding:8px 18px; font-weight:600; }
+  .ghost { background:transparent; border:1px solid var(--line); color:var(--text); border-radius:9px; padding:6px 12px; }
   .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:10px; }
   .hint { color:var(--muted); font-size:12px; }
-  #roomView { display:none; }
-  .room-head { display:flex; align-items:center; gap:10px; margin-bottom:12px; flex-wrap:wrap; }
-  .code {
-    font:600 16px/1 ui-monospace,monospace; letter-spacing:3px; color:var(--accent);
-    border:1px dashed var(--line); border-radius:8px; padding:6px 10px;
-  }
-  .players { display:grid; gap:6px; }
-  .p { display:flex; align-items:center; gap:8px; border:1px solid var(--line); border-radius:10px; padding:6px 9px; font-size:13px; }
-  .p img { width:24px; height:24px; border-radius:50%; object-fit:cover; }
-  .p .st { margin-left:auto; color:var(--muted); font-size:11.5px; }
-  .p .dot { width:7px; height:7px; border-radius:50%; background:#3c4356; }
-  .p.ready .dot { background:#4ade80; }
-  #log { max-height:46vh; overflow-y:auto; display:grid; gap:8px; padding-right:4px; margin:10px 0; }
+  .err { color:var(--bad); font-size:12.5px; min-height:18px; }
+  .attrs { display:grid; grid-template-columns: repeat(3, 1fr); gap:6px; margin-top:6px; }
+  .attrs label { margin:0; font-size:11.5px; display:flex; align-items:center; gap:6px; }
+  .attrs input { width:52px; padding:4px 6px; text-align:center; }
+  .pool { font-size:12px; color:var(--muted); margin-top:6px; }
+  .pool b { color:var(--accent); }
+  .pool.over b { color:var(--bad); }
+  .room-head { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
+  .code { font:600 16px/1 ui-monospace,monospace; letter-spacing:3px; color:var(--accent); border:1px dashed var(--line); border-radius:8px; padding:6px 10px; }
+  .meta { color:var(--muted); font-size:12.5px; }
+  .players { display:grid; gap:8px; }
+  .player { border:1px solid var(--line); border-radius:12px; padding:8px 10px; background:var(--panel2); }
+  .player .n { display:flex; align-items:center; gap:6px; font-size:13.5px; }
+  .player img { width:22px; height:22px; border-radius:50%; object-fit:cover; }
+  .bars { display:grid; gap:4px; margin-top:6px; }
+  .bar { height:6px; border-radius:4px; background:#0f121a; overflow:hidden; }
+  .bar i { display:block; height:100%; }
+  .bar.hp i { background:linear-gradient(90deg,#8f3f52,#d9607a); }
+  .bar.san i { background:linear-gradient(90deg,#3f5a8f,#7a9ee0); }
+  .mini { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
+  .tag { border:1px solid var(--line); border-radius:6px; padding:1px 7px; font-size:11px; color:var(--muted); }
+  .tag.on { color:var(--ok); border-color:#2f6a4a; }
+  .tabs { display:flex; gap:6px; margin:4px 0 8px; flex-wrap:wrap; }
+  .tabs button { background:transparent; border:1px solid var(--line); color:var(--muted); border-radius:999px; padding:3px 12px; font-size:12px; }
+  .tabs button.on { color:#1a1408; background:var(--accent); border-color:var(--accent); font-weight:600; }
+  .tab-body { min-height: 86px; font-size:13px; }
+  .list { display:grid; gap:6px; }
+  .list .item { border-left:2px solid var(--line); padding:2px 0 2px 8px; color:var(--muted); }
+  .list .item b { color:var(--text); font-weight:500; }
+  #log { max-height:40vh; overflow-y:auto; display:grid; gap:8px; padding-right:4px; margin:8px 0; }
   .seg { border-radius:10px; padding:7px 11px; font-size:13.5px; white-space:pre-wrap; }
   .seg.gm { background:#12151e; border:1px solid var(--line); }
   .seg.player { background:#1d2432; border:1px solid #2f4664; }
   .seg.sys { background:transparent; color:var(--muted); font-size:12px; text-align:center; }
-  .kv { display:flex; justify-content:space-between; font-size:12.5px; padding:3px 0; border-bottom:1px dotted #232838; }
-  .kv span:last-child { color:var(--accent); }
-  .tags { display:flex; gap:6px; flex-wrap:wrap; }
-  .tag { border:1px solid var(--line); border-radius:7px; padding:2px 8px; font-size:12px; }
-  .err { color:#f0a3b4; font-size:12.5px; min-height:18px; }
+  #actionRow { display:flex; gap:8px; align-items:flex-end; }
+  #actionRow textarea { flex:1; min-height:56px; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="top">
-    <h1>多人联机 · 故事工坊</h1>
+    <h1>多人联机 · 创作游玩</h1>
     <a href="/">← 回到单机</a>
   </div>
 
-  <div id="lobby" class="grid">
+  <div id="lobby" class="grid2">
     <div class="card">
       <h2>创建房间</h2>
-      <label>选择剧本</label>
+      <label>剧本</label>
       <select id="c-scenario"></select>
       <label>玩法</label>
       <select id="c-mode">
-        <option value="trpg">跑团模式（有难度与代价）</option>
-        <option value="free">自由叙事（不掷骰，顺着玩家推演）</option>
+        <option value="trpg">跑团模式（判定与代价）</option>
+        <option value="free">自由叙事（不掷骰，随选择推进）</option>
       </select>
       <label>难度</label>
       <select id="c-diff">
@@ -75,38 +91,51 @@
         <option value="hard">硬核</option>
       </select>
       <label>开局设定（可选）</label>
-      <textarea id="c-opening" rows="2" placeholder="例如：所有人都是同一艘船上的乘客"></textarea>
-      <label>你的角色名</label>
+      <textarea id="c-opening" rows="2" placeholder="所有人怎么聚到一起、开场从哪一刻开始"></textarea>
+
+      <h2 style="margin-top:14px">你的角色</h2>
+      <label>角色名</label>
       <input id="c-name" maxlength="24" placeholder="例如：沈聿">
       <label>身份 / 职业</label>
       <input id="c-role" maxlength="40" placeholder="例如：报社记者">
+      <label>一句话背景</label>
+      <input id="c-bio" maxlength="200" placeholder="例如：见过几桩不了了之的案子">
+      <div class="attrs" id="c-attrs"></div>
+      <div class="pool" id="c-pool"></div>
       <div class="row"><button class="primary" id="btn-create">创建房间</button><span class="err" id="c-err"></span></div>
     </div>
+
     <div class="card">
       <h2>加入房间</h2>
       <label>房间码</label>
       <input id="j-code" maxlength="8" placeholder="例如：K7M2Q" style="text-transform:uppercase;letter-spacing:3px">
-      <label>你的角色名</label>
+      <label>角色名</label>
       <input id="j-name" maxlength="24" placeholder="例如：阿棠">
       <label>身份 / 职业</label>
       <input id="j-role" maxlength="40" placeholder="例如：学徒">
+      <label>一句话背景</label>
+      <input id="j-bio" maxlength="200" placeholder="让别人快速认识你的角色">
+      <div class="attrs" id="j-attrs"></div>
+      <div class="pool" id="j-pool"></div>
       <div class="row"><button class="primary" id="btn-join">加入房间</button><span class="err" id="j-err"></span></div>
-      <div class="hint" style="margin-top:12px">最多 6 人。房主开始后，每人写自己的行动，房主点“推进剧情”后统一结算。</div>
+      <div class="hint" style="margin-top:12px">2–6 人。房主开始后，每人写自己的行动，房主统一推进。角色属性会影响 HP / SAN 与叙事中的能力表现。</div>
     </div>
   </div>
 
-  <div id="roomView">
-    <div class="card">
-      <div class="room-head">
-        <span class="code" id="r-code"></span>
-        <span class="hint" id="r-scenario"></span>
-        <span class="hint" id="r-mode"></span>
-        <button class="ghost" id="btn-copy">复制房间码</button>
-        <button class="ghost" id="btn-leave" style="margin-left:auto">离开</button>
-      </div>
-      <div class="grid" style="gap:12px">
-        <div>
-          <h2>玩家</h2>
+  <div id="roomView" style="display:none">
+    <div class="room-head">
+      <span class="code" id="r-code"></span>
+      <span class="meta" id="r-scenario"></span>
+      <span class="meta" id="r-mode"></span>
+      <span class="meta" id="r-turn"></span>
+      <button class="ghost" id="btn-copy">复制邀请</button>
+      <button class="ghost" id="btn-export">导出日志</button>
+      <button class="ghost" id="btn-leave" style="margin-left:auto">离开房间</button>
+    </div>
+    <div class="room-grid">
+      <div>
+        <div class="card">
+          <h2>玩家席位</h2>
           <div class="players" id="r-players"></div>
           <div class="row">
             <button class="primary" id="btn-start">开始游戏</button>
@@ -114,28 +143,36 @@
           </div>
           <div class="err" id="r-err"></div>
         </div>
-        <div>
+        <div class="card" style="margin-top:14px">
           <h2>世界状态</h2>
-          <div class="kv"><span>时间</span><span id="r-clock"></span></div>
-          <div class="tags" id="r-events" style="margin-top:6px"></div>
-          <div class="tags" id="r-plot" style="margin-top:6px"></div>
-          <div class="tags" id="r-codex" style="margin-top:6px"></div>
+          <div class="meta">时间：<span id="r-clock"></span></div>
+          <div class="tabs" id="r-tabs">
+            <button data-tab="events" class="on">事件</button>
+            <button data-tab="plot">情节</button>
+            <button data-tab="codex">图鉴</button>
+            <button data-tab="relations">关系</button>
+          </div>
+          <div class="tab-body" id="r-tab-body"></div>
         </div>
       </div>
-      <h2 style="margin-top:14px">剧情</h2>
-      <div id="log"></div>
-      <div class="row">
-        <textarea id="r-action" rows="2" placeholder="写下这一轮你要做的事…"></textarea>
-        <button class="primary" id="btn-action">提交行动</button>
+      <div class="card">
+        <h2>剧情记录</h2>
+        <div id="log"></div>
+        <div id="actionRow">
+          <textarea id="r-action" placeholder="写下这一轮你的角色要做什么…"></textarea>
+          <button class="primary" id="btn-action">提交行动</button>
+        </div>
+        <div class="hint" id="r-status"></div>
       </div>
-      <div class="hint" id="r-status"></div>
     </div>
   </div>
 </div>
 <script>
 const $ = (id) => document.getElementById(id);
+const ATTR_DEFS = [["str","力量"],["dex","敏捷"],["con","体质"],["int","智力"],["per","感知"],["cha","魅力"]];
 let room = null;
 let code = "";
+let tab = "events";
 const params = new URLSearchParams(location.search);
 const inviteKey = params.get("k") || (document.cookie.match(/(?:^|;\s*)rk=([^;]+)/) || [])[1] || "";
 
@@ -143,44 +180,69 @@ function withKey(path) {
   if (!inviteKey) return path;
   return path + (path.includes("?") ? "&" : "?") + "k=" + encodeURIComponent(inviteKey);
 }
-
-if (inviteKey) {
-  const home = document.querySelector(".top a");
-  if (home) home.href = "/?k=" + encodeURIComponent(inviteKey);
-}
-
 async function api(path, opts = {}) {
   const r = await fetch(withKey(path), opts);
   let body = null;
   try { body = await r.json(); } catch {}
   return { status: r.status, ok: r.ok, body };
 }
-const post = (path, obj) => api(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(obj) });
+const post = (p, o) => api(p, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(o) });
+
+function buildAttrs(containerId, poolId) {
+  const box = $(containerId);
+  box.innerHTML = "";
+  for (const [key, label] of ATTR_DEFS) {
+    const lab = document.createElement("label");
+    lab.textContent = label;
+    const inp = document.createElement("input");
+    inp.type = "number"; inp.min = "1"; inp.max = "10"; inp.value = "5"; inp.dataset.attr = key;
+    inp.addEventListener("input", () => updatePool(containerId, poolId));
+    lab.appendChild(inp);
+    box.appendChild(lab);
+  }
+  updatePool(containerId, poolId);
+}
+function readAttrs(containerId) {
+  const out = {};
+  for (const inp of $(containerId).querySelectorAll("input[data-attr]")) {
+    out[inp.dataset.attr] = Math.max(1, Math.min(10, Number(inp.value) || 5));
+  }
+  return out;
+}
+function updatePool(containerId, poolId) {
+  const a = readAttrs(containerId);
+  const total = Object.values(a).reduce((x, y) => x + y, 0);
+  const el = $(poolId);
+  el.innerHTML = `已分配 <b>${total}</b> / 30 点`;
+  el.classList.toggle("over", total > 30);
+}
+function validAttrs(containerId) {
+  const total = Object.values(readAttrs(containerId)).reduce((x, y) => x + y, 0);
+  return total >= 24 && total <= 30;
+}
 
 async function loadScenarios() {
   const r = await api("/api/meta");
-  const list = r.body.scenarios || [];
+  const list = (r.body && r.body.scenarios) || [];
   $("c-scenario").innerHTML = list.map((s) => `<option value="${s.id}">${s.title}（${s.genre}）</option>`).join("");
   if (!list.length) {
-    $("c-scenario").innerHTML = '<option value="">（剧本加载失败，请从首页进入联机）</option>';
+    $("c-scenario").innerHTML = '<option value="">（剧本加载失败，请从首页进入）</option>';
     $("c-err").textContent = "剧本列表没加载出来，点右上角“回到单机”重新进入。";
   }
 }
 
 async function createRoom() {
   $("c-err").textContent = "";
-  if (!$("c-scenario").value) {
-    $("c-err").textContent = "剧本还没加载好，请稍等或从首页重新进入。";
-    return;
-  }
+  if (!$("c-scenario").value) { $("c-err").textContent = "剧本还没加载好。"; return; }
+  if (!validAttrs("c-attrs")) { $("c-err").textContent = "属性点需要在 24–30 之间。"; return; }
   const r = await post("/api/rooms/create", {
     scenarioId: $("c-scenario").value,
     mode: $("c-mode").value,
     difficulty: $("c-diff").value,
     opening: $("c-opening").value,
-    character: { name: $("c-name").value, role: $("c-role").value },
+    character: { name: $("c-name").value, role: $("c-role").value, bio: $("c-bio").value, attrs: readAttrs("c-attrs") },
   });
-  if (!r.ok) { $("c-err").textContent = r.body.error || "创建失败"; return; }
+  if (!r.ok) { $("c-err").textContent = r.body?.error || "创建失败"; return; }
   enter(r.body.code);
 }
 
@@ -188,8 +250,12 @@ async function joinRoom() {
   $("j-err").textContent = "";
   const c = $("j-code").value.trim().toUpperCase();
   if (!c) { $("j-err").textContent = "先填房间码"; return; }
-  const r = await post("/api/rooms/join", { code: c, character: { name: $("j-name").value, role: $("j-role").value } });
-  if (!r.ok) { $("j-err").textContent = r.body.error || "加入失败"; return; }
+  if (!validAttrs("j-attrs")) { $("j-err").textContent = "属性点需要在 24–30 之间。"; return; }
+  const r = await post("/api/rooms/join", {
+    code: c,
+    character: { name: $("j-name").value, role: $("j-role").value, bio: $("j-bio").value, attrs: readAttrs("j-attrs") },
+  });
+  if (!r.ok) { $("j-err").textContent = r.body?.error || "加入失败"; return; }
   enter(c);
 }
 
@@ -209,33 +275,41 @@ async function poll() {
   render();
 }
 
+function bar(v, max, cls) {
+  const pct = Math.max(0, Math.min(100, (v / Math.max(1, max)) * 100));
+  return `<div class="bar ${cls}"><i style="width:${pct}%"></i></div>`;
+}
+
 function render() {
   const r = room;
   $("r-code").textContent = r.code;
   $("r-scenario").textContent = r.scenario.title;
-  $("r-mode").textContent = (r.mode === "free" ? "自由叙事" : "跑团") + " · " + { easy: "轻松", normal: "标准", hard: "硬核" }[r.difficulty];
-  $("r-clock").textContent = r.state.clock;
+  $("r-mode").textContent = (r.mode === "free" ? "自由叙事" : "跑团") + " · " + ({ easy:"轻松", normal:"标准", hard:"硬核" }[r.difficulty] || "");
+  $("r-turn").textContent = "第 " + r.turn + " 回合 · " + r.state.clock;
   $("btn-start").style.display = r.isHost && r.status === "lobby" ? "inline-block" : "none";
   $("btn-advance").style.display = r.isHost && r.status === "playing" ? "inline-block" : "none";
   $("btn-action").disabled = r.status !== "playing";
-  $("r-status").textContent = r.status === "lobby" ? "等待房主开始…" : (r.myActionSubmitted ? "你已提交行动，等待其他玩家。" : "写下你这一轮的行动。");
+  $("r-status").textContent = r.status === "lobby" ? "等待房主开始…" : (r.myActionSubmitted ? "你已提交行动，等待其他玩家或房主推进。" : "写下你这一轮的行动。");
 
   $("r-players").innerHTML = "";
   for (const p of r.players) {
+    const s = r.state.status[p.pid] || { hp: 0, hpMax: 10, san: 0, sanMax: 10 };
+    const g = r.state.growth[p.pid] || { level: 1, xp: 0 };
+    const items = (r.state.items[p.pid] || []).map((i) => `<span class="tag">${esc(i)}</span>`).join("");
     const el = document.createElement("div");
-    el.className = "p" + (p.ready ? " ready" : "");
-    if (p.avatar) { const img = document.createElement("img"); img.src = p.avatar; el.appendChild(img); }
-    const n = document.createElement("span");
-    n.textContent = p.character.name + (p.character.role ? " · " + p.character.role : "");
-    const st = document.createElement("span");
-    st.className = "st";
-    const s = r.state.status[p.pid] || {};
-    st.textContent = "HP " + (s.hp ?? "-") + " / SAN " + (s.san ?? "-");
-    const dot = document.createElement("span");
-    dot.className = "dot";
-    el.append(n, st, dot);
+    el.className = "player";
+    el.innerHTML =
+      `<div class="n">${p.avatar ? `<img src="${esc(p.avatar)}" alt="">` : ""}<b>${esc(p.character.name)}</b><span class="meta">${esc(p.character.role || "")}</span>` +
+      `<span class="tag ${p.ready ? "on" : ""}" style="margin-left:auto">${r.status === "lobby" ? (p.ready ? "已准备" : "等待") : (p.ready ? "已行动" : "待行动")}</span></div>` +
+      (p.character.bio ? `<div class="meta">${esc(p.character.bio)}</div>` : "") +
+      `<div class="bars">${bar(s.hp, s.hpMax, "hp")}${bar(s.san, s.sanMax, "san")}</div>` +
+      `<div class="meta">HP ${s.hp}/${s.hpMax} · SAN ${s.san}/${s.sanMax} · Lv.${g.level} (${g.xp || 0} XP)</div>` +
+      `<div class="mini">${items || '<span class="tag">背包空</span>'}</div>`;
     $("r-players").appendChild(el);
   }
+
+  $("r-clock").textContent = r.state.clock;
+  renderTab();
 
   const log = $("log");
   log.innerHTML = "";
@@ -246,38 +320,63 @@ function render() {
     log.appendChild(el);
   }
   log.scrollTop = log.scrollHeight;
+}
 
-  const ev = $("r-events"); ev.innerHTML = "";
-  for (const e of (r.state.events || []).slice(-6)) { const t = document.createElement("span"); t.className = "tag"; t.textContent = e.title; ev.appendChild(t); }
-  const pl = $("r-plot"); pl.innerHTML = "";
-  for (const p of (r.state.plot || []).slice(-6)) { const t = document.createElement("span"); t.className = "tag"; t.textContent = p; pl.appendChild(t); }
-  const cx = $("r-codex"); cx.innerHTML = "";
-  for (const c of (r.state.codex || []).slice(-6)) { const t = document.createElement("span"); t.className = "tag"; t.textContent = c; cx.appendChild(t); }
+function renderTab() {
+  const body = $("r-tab-body");
+  const st = room.state;
+  const list = (arr) => `<div class="list">${arr.length ? arr.map((x) => `<div class="item">${esc(x)}</div>`).join("") : '<div class="hint">暂无</div>'}</div>`;
+  if (tab === "events") {
+    body.innerHTML = list((st.events || []).map((e) => `<b>${esc(e.title)}</b>${e.note ? " · " + esc(e.note) : ""} <span class="meta">${esc(e.at || "")}</span>`));
+  } else if (tab === "plot") {
+    body.innerHTML = list(st.plot || []);
+  } else if (tab === "codex") {
+    body.innerHTML = list(st.codex || []);
+  } else {
+    const rel = Object.entries(st.relations || {});
+    body.innerHTML = rel.length
+      ? `<div class="list">${rel.map(([k, v]) => `<div class="item"><b>${esc(k)}</b> · ${esc(v)}</div>`).join("")}</div>`
+      : '<div class="hint">还没有建立人物关系</div>';
+  }
+}
+
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
 
 async function start() {
   const r = await post("/api/rooms/start", { code });
-  if (!r.ok) { $("r-err").textContent = r.body.error || "开始失败"; return; }
+  if (!r.ok) { $("r-err").textContent = r.body?.error || "开始失败"; return; }
   room = r.body.room; render();
 }
 async function action() {
   const text = $("r-action").value.trim();
   if (!text) return;
   const r = await post("/api/rooms/action", { code, text });
-  if (!r.ok) { $("r-err").textContent = r.body.error || "提交失败"; return; }
+  if (!r.ok) { $("r-err").textContent = r.body?.error || "提交失败"; return; }
   $("r-action").value = "";
   room = r.body.room; render();
 }
 async function advance() {
   $("r-err").textContent = "正在推演…";
   const r = await post("/api/rooms/advance", { code });
-  if (!r.ok) { $("r-err").textContent = r.body.error || "推进失败"; return; }
+  if (!r.ok) { $("r-err").textContent = r.body?.error || "推进失败"; return; }
   $("r-err").textContent = "";
   room = r.body.room; render();
 }
 async function leave() {
   await post("/api/rooms/leave", { code });
   code = ""; location.reload();
+}
+function exportLog() {
+  if (!room) return;
+  const lines = [`房间 ${room.code} · ${room.scenario.title}`, `模式：${room.mode === "free" ? "自由叙事" : "跑团"} · 难度：${room.difficulty}`, ""];
+  for (const e of room.log) lines.push(e.type === "player" ? `${e.who}：${e.text}` : e.text);
+  const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `联机日志-${room.code}.txt`;
+  a.click();
 }
 
 $("btn-create").onclick = createRoom;
@@ -286,7 +385,24 @@ $("btn-start").onclick = start;
 $("btn-action").onclick = action;
 $("btn-advance").onclick = advance;
 $("btn-leave").onclick = leave;
-$("btn-copy").onclick = () => navigator.clipboard?.writeText(code);
+$("btn-export").onclick = exportLog;
+$("btn-copy").onclick = () => {
+  const link = location.origin + "/room?k=" + encodeURIComponent(inviteKey) + "&code=" + encodeURIComponent(code);
+  if (navigator.clipboard) navigator.clipboard.writeText(link);
+  $("r-err").textContent = "邀请链接已复制";
+};
+document.querySelectorAll("#r-tabs button").forEach((b) => {
+  b.addEventListener("click", () => {
+    tab = b.dataset.tab;
+    document.querySelectorAll("#r-tabs button").forEach((x) => x.classList.toggle("on", x === b));
+    renderTab();
+  });
+});
+
+buildAttrs("c-attrs", "c-pool");
+buildAttrs("j-attrs", "j-pool");
+const preCode = params.get("code");
+if (preCode) $("j-code").value = preCode.toUpperCase();
 loadScenarios();
 </script>
 </body>

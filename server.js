@@ -235,7 +235,9 @@ function roomPrompt(room) {
       const st = room.state.status[p.pid] || {};
       const items = (room.state.items[p.pid] || []).join("、") || "空";
       const g = room.state.growth[p.pid] || {};
-      return `- ${p.character.name}（玩家 ${p.name}）：${p.character.role || "旅人"}｜HP ${st.hp ?? "?"} / SAN ${st.san ?? "?"}｜等级 ${g.level || 1}｜物品：${items}`;
+      const a = p.character.attrs || {};
+      const attrText = `力${a.str ?? 5} 敏${a.dex ?? 5} 体${a.con ?? 5} 智${a.int ?? 5} 感${a.per ?? 5} 魅${a.cha ?? 5}`;
+      return `- ${p.character.name}（玩家 ${p.name}）：${p.character.role || "旅人"}${p.character.bio ? "｜" + p.character.bio : ""}｜${attrText}｜HP ${st.hp ?? "?"} / SAN ${st.san ?? "?"}｜等级 ${g.level || 1}｜物品：${items}`;
     })
     .join("\n");
   const actions = room.players
@@ -278,8 +280,16 @@ function sanitizeRoomCharacter(input, fallbackName) {
   return {
     name: String(c.name || fallbackName || "旅人").slice(0, 24),
     role: String(c.role || "旅人").slice(0, 40),
+    bio: String(c.bio || "").slice(0, 200),
     attrs,
   };
+}
+
+function initRoomStatus(character) {
+  const a = character.attrs || {};
+  const hpMax = 18 + (Number(a.con) || 5) * 2;
+  const sanMax = 18 + (Number(a.int) || 5) + (Number(a.per) || 5);
+  return { hp: hpMax, hpMax, san: sanMax, sanMax, money: 20 };
 }
 
 function communityView(post, sid) {
@@ -1521,6 +1531,7 @@ const server = http.createServer(async (req, res) => {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
+    room.state.status[room.players[0].pid] = initRoomStatus(room.players[0].character);
     rooms[code] = room;
     saveRooms();
     return send(res, 200, { ok: true, code, room: publicRoom(room, entry.sid) });
@@ -1536,13 +1547,15 @@ const server = http.createServer(async (req, res) => {
     let prof = loadProfileFor(entry.sid);
     if (!prof.pid) prof = saveProfileFor(entry.sid, {});
     if (!room.players.some((p) => p.sid === entry.sid)) {
+      const character = sanitizeRoomCharacter(body.character, prof.name);
       room.players.push({
         sid: entry.sid,
         pid: prof.pid,
         name: prof.name || "匿名旅人",
         avatar: prof.avatar || "",
-        character: sanitizeRoomCharacter(body.character, prof.name),
+        character,
       });
+      room.state.status[prof.pid] = initRoomStatus(character);
     }
     room.updatedAt = Date.now();
     saveRooms();

@@ -358,6 +358,14 @@ body:has(.owner-closed-banner) #game { padding-top: 28px; }
   margin-top: 14px; padding: 16px; border: 1px dashed #3a4358;
   border-radius: 14px; background: #12141c;
 }
+.scn-preview {
+  border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px;
+  margin-bottom: 14px; background: var(--soft);
+}
+.sp-title { font-size: 15px; font-weight: 600; }
+.sp-genre { color: var(--accent); font-size: 12px; margin: 2px 0 4px; }
+.sp-blurb { color: var(--muted); font-size: 12.5px; }
+.sp-meta { color: var(--muted); font-size: 11.5px; margin-top: 6px; }
 #side .field { margin-bottom: 2px; }
 #side .field select, #side .field input, #side .field textarea { width: 100%; }
 #side .field textarea { min-height: 58px; resize: vertical; }

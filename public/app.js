@@ -1529,7 +1529,33 @@ $("btn-custom-scenario").addEventListener("click", () => {
   }
   $("custom-box").classList.remove("hidden");
   $("scenario-note").textContent = "在下面填好，保存后会出现在上面的剧本列表里。";
+  updateScenarioPreview();
 });
+
+function escHtml(value) {
+  return String(value == null ? "" : value).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+function updateScenarioPreview() {
+  const box = $("scn-preview");
+  if (!box) return;
+  const title = $("s-title").value.trim() || "未命名剧本";
+  const genre = $("s-genre").value.trim() || "未定类型";
+  const blurb = $("s-blurb").value.trim() || "还没有一句话简介";
+  const npcs = splitLines($("s-npcs").value).length;
+  const clues = splitLines($("s-clues").value).length;
+  const schedule = splitLines($("s-schedule").value).length;
+  const endings = splitLines($("s-endings").value).length;
+  box.innerHTML =
+    `<div class="sp-title">${escHtml(title)}</div>` +
+    `<div class="sp-genre">${escHtml(genre)}</div>` +
+    `<div class="sp-blurb">${escHtml(blurb)}</div>` +
+    `<div class="sp-meta">人物 ${npcs} · 线索 ${clues} · 时间节点 ${schedule} · 结局 ${endings} · 参考链接 ${scenarioLinks.length}</div>`;
+}
+
+for (const id of ["s-title", "s-genre", "s-blurb", "s-npcs", "s-clues", "s-schedule", "s-endings"]) {
+  $(id).addEventListener("input", updateScenarioPreview);
+}
 
 $("btn-cancel-scenario").addEventListener("click", () => {
   $("custom-box").classList.add("hidden");
