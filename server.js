@@ -49,6 +49,7 @@ function loadProfileFor(sid) {
     bio: p?.bio || "",
     avatar: p?.avatar || "",
     theme: p?.theme || "#c8a06a",
+    siteTheme: ["dark", "pink", "cream"].includes(p?.siteTheme) ? p.siteTheme : "dark",
     notes: p?.notes || "",
     updatedAt: p?.updatedAt || 0,
   };
@@ -59,10 +60,11 @@ function saveProfileFor(sid, patch) {
   const name = String(patch.name ?? current.name).trim().slice(0, 24);
   const bio = String(patch.bio ?? current.bio).trim().slice(0, 200);
   const theme = /^#[0-9a-f]{6}$/i.test(String(patch.theme || "")) ? String(patch.theme) : current.theme;
+  const siteTheme = ["dark", "pink", "cream"].includes(patch.siteTheme) ? patch.siteTheme : current.siteTheme;
   const notes = String(patch.notes ?? current.notes).slice(0, 2000);
   let avatar = String(patch.avatar ?? current.avatar);
   if (avatar && !/^\/uploads\/[a-z0-9]+\.[a-z0-9]+$/i.test(avatar)) avatar = current.avatar;
-  const next = { name, bio, avatar, theme, notes, updatedAt: Date.now() };
+  const next = { name, bio, avatar, theme, siteTheme, notes, updatedAt: Date.now() };
   writeJsonFile(userFile(sid), next);
   return next;
 }
@@ -849,23 +851,70 @@ const server = http.createServer(async (req, res) => {
 
   if (p === "/api/feedback") {
     if (req.method === "GET") {
-      return send(res, 200, {
-        messages: feedback.slice(-200).reverse(),
-        ...voteSnapshot(entry.sid),
+      const size = Math.min(20, Math.max(4, Number(url.searchParams.get("size")) || 8));
+      const total = feedback.length;
+      const pages = Math.max(1, Math.ceil(total / size));
+      const page = Math.min(pages, Math.max(1, Number(url.searchParams.get("page")) || 1));
+      const slice = feedback
+        .slice()
+        .reverse()
+        .slice((page - 1) * size, page * size);
+      const messages = slice.map((m) => {
+        let prof = null;
+        if (m.sid) {
+          try {
+            prof = loadProfileFor(m.sid);
+          } catch {}
+        }
+        return {
+          id: m.id,
+          name: (prof && prof.name) || m.name || "匿名旅人",
+          avatar: (prof && prof.avatar) || m.avatar || "",
+          text: m.text,
+          at: m.at,
+          editedAt: m.editedAt || null,
+          mine: Boolean(m.sid && m.sid === entry.sid),
+        };
       });
+      return send(res, 200, { messages, total, page, pages, size, ...voteSnapshot(entry.sid) });
     }
     const body = await readBody(req);
     const text = String(body.text || "").trim().slice(0, 500);
-    const name = String(body.name || "").trim().slice(0, 24) || "匿名旅人";
     if (!text) return send(res, 400, { error: "写点什么再发吧。" });
     const last = lastPostAt.get(entry.sid) || 0;
     if (Date.now() - last < 15000) return send(res, 429, { error: "发得太快了，歇一会儿再发。" });
     lastPostAt.set(entry.sid, Date.now());
-    const message = { id: crypto.randomUUID(), name, text, at: new Date().toISOString() };
+    const prof = loadProfileFor(entry.sid);
+    const message = {
+      id: crypto.randomUUID(),
+      sid: entry.sid,
+      name: prof.name || "匿名旅人",
+      avatar: prof.avatar || "",
+      text,
+      at: new Date().toISOString(),
+      editedAt: null,
+    };
     feedback.push(message);
     while (feedback.length > 500) feedback.shift();
     writeJsonFile(FEEDBACK_FILE, feedback);
-    return send(res, 200, { ok: true, message });
+    return send(res, 200, { ok: true, id: message.id });
+  }
+
+  if (req.method === "POST" && (p === "/api/feedback/edit" || p === "/api/feedback/delete")) {
+    const body = await readBody(req);
+    const msg = feedback.find((m) => m.id === String(body.id || ""));
+    if (!msg) return send(res, 404, { error: "留言不存在" });
+    if (msg.sid !== entry.sid) return send(res, 403, { error: "只能操作自己的留言" });
+    if (p.endsWith("/delete")) {
+      feedback = feedback.filter((m) => m.id !== msg.id);
+    } else {
+      const text = String(body.text || "").trim().slice(0, 500);
+      if (!text) return send(res, 400, { error: "内容不能为空" });
+      msg.text = text;
+      msg.editedAt = new Date().toISOString();
+    }
+    writeJsonFile(FEEDBACK_FILE, feedback);
+    return send(res, 200, { ok: true });
   }
 
   if (p === "/api/me") {

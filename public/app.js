@@ -602,13 +602,101 @@ async function castVote(value) {
   } catch {}
 }
 
+let fbPage = 1;
+let fbPages = 1;
+
+function fmtTime(value) {
+  try {
+    return new Date(value).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return "";
+  }
+}
+
+function feedbackItem(m) {
+  const item = document.createElement("div");
+  item.className = "fb-item";
+
+  const meta = document.createElement("div");
+  meta.className = "fb-meta";
+  const left = document.createElement("span");
+  left.className = "fb-author";
+  if (m.avatar) {
+    const img = document.createElement("img");
+    img.className = "fb-avatar";
+    img.src = m.avatar;
+    img.alt = "";
+    left.appendChild(img);
+  } else {
+    const ph = document.createElement("span");
+    ph.className = "fb-avatar ph";
+    ph.textContent = (m.name || "匿").slice(0, 1);
+    left.appendChild(ph);
+  }
+  const name = document.createElement("span");
+  name.textContent = m.name || "匿名旅人";
+  left.appendChild(name);
+  const right = document.createElement("span");
+  right.textContent = fmtTime(m.at) + (m.editedAt ? " · 已编辑" : "");
+  meta.append(left, right);
+
+  const text = document.createElement("div");
+  text.className = "fb-text";
+  text.textContent = m.text;
+  item.append(meta, text);
+
+  if (m.mine) {
+    const tools = document.createElement("div");
+    tools.className = "fb-tools";
+    const edit = document.createElement("button");
+    edit.textContent = "编辑";
+    edit.addEventListener("click", async () => {
+      const next = prompt("修改你的留言：", m.text);
+      if (next == null) return;
+      const value = next.trim();
+      if (!value) return;
+      const r = await fetch("/api/feedback/edit", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: m.id, text: value }),
+      });
+      if (r.ok) loadFeedback();
+      else {
+        const d = await r.json();
+        alert(d.error || "修改失败");
+      }
+    });
+    const del = document.createElement("button");
+    del.textContent = "删除";
+    del.addEventListener("click", async () => {
+      if (!confirm("确定删除这条留言？")) return;
+      const r = await fetch("/api/feedback/delete", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: m.id }),
+      });
+      if (r.ok) loadFeedback();
+      else alert("删除失败");
+    });
+    tools.append(edit, del);
+    item.appendChild(tools);
+  }
+  return item;
+}
+
 async function loadFeedback() {
   try {
-    const r = await fetch("/api/feedback");
+    const r = await fetch(`/api/feedback?page=${fbPage}&size=8`);
     if (!r.ok) return;
     const data = await r.json();
     updateHud(data);
-    $("fb-count").textContent = String((data.messages || []).length);
+    fbPages = data.pages || 1;
+    fbPage = data.page || 1;
+    $("fb-count").textContent = String(data.total || 0);
+    $("fb-page").textContent = `第 ${fbPage} / ${fbPages} 页`;
+    $("fb-prev").disabled = fbPage <= 1;
+    $("fb-next").disabled = fbPage >= fbPages;
+
     const list = $("fb-list");
     list.innerHTML = "";
     if (!data.messages || !data.messages.length) {
@@ -618,31 +706,7 @@ async function loadFeedback() {
       list.appendChild(empty);
       return;
     }
-    for (const m of data.messages) {
-      const item = document.createElement("div");
-      item.className = "fb-item";
-      const meta = document.createElement("div");
-      meta.className = "fb-meta";
-      const name = document.createElement("span");
-      name.textContent = m.name || "匿名旅人";
-      const time = document.createElement("span");
-      try {
-        time.textContent = new Date(m.at).toLocaleString("zh-CN", {
-          month: "2-digit",
-          day: "2-digit",
-          hour: "2-digit",
-          minute: "2-digit",
-        });
-      } catch {
-        time.textContent = "";
-      }
-      meta.append(name, time);
-      const text = document.createElement("div");
-      text.className = "fb-text";
-      text.textContent = m.text;
-      item.append(meta, text);
-      list.appendChild(item);
-    }
+    for (const m of data.messages) list.appendChild(feedbackItem(m));
   } catch {}
 }
 
@@ -677,7 +741,7 @@ $("fb-send").addEventListener("click", async () => {
     const r = await fetch("/api/feedback", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: $("fb-name").value, text }),
+      body: JSON.stringify({ text }),
     });
     const data = await r.json();
     if (!r.ok) {
@@ -686,10 +750,49 @@ $("fb-send").addEventListener("click", async () => {
     }
     $("fb-text").value = "";
     $("fb-status").textContent = "已发布，所有人可见。";
+    fbPage = 1;
     loadFeedback();
   } catch {
     $("fb-status").textContent = "网络不给力，稍后再试。";
   }
+});
+
+$("fb-prev").addEventListener("click", () => {
+  if (fbPage > 1) {
+    fbPage -= 1;
+    loadFeedback();
+  }
+});
+
+$("fb-next").addEventListener("click", () => {
+  if (fbPage < fbPages) {
+    fbPage += 1;
+    loadFeedback();
+  }
+});
+
+/* ---------- 网站主题 ---------- */
+
+function applySiteTheme(value) {
+  if (value === "pink" || value === "cream") document.documentElement.dataset.theme = value;
+  else document.documentElement.removeAttribute("data-theme");
+}
+
+function markThemeButtons() {
+  const current = me?.siteTheme || "dark";
+  document.querySelectorAll("[data-site-theme]").forEach((btn) => {
+    btn.classList.toggle("on", btn.dataset.siteTheme === current);
+  });
+}
+
+document.querySelectorAll("[data-site-theme]").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    const value = btn.dataset.siteTheme;
+    applySiteTheme(value);
+    me = { ...(me || {}), siteTheme: value };
+    markThemeButtons();
+    await saveMe();
+  });
 });
 
 setInterval(beat, 1000);
@@ -716,6 +819,8 @@ async function loadMe() {
       img.classList.remove("on");
       img.removeAttribute("src");
     }
+    applySiteTheme(me.siteTheme);
+    markThemeButtons();
   } catch {}
 }
 
@@ -725,6 +830,7 @@ async function saveMe() {
     bio: $("me-bio").value,
     theme: $("me-theme").value,
     avatar: me?.avatar || "",
+    siteTheme: me?.siteTheme || "dark",
   };
   const r = await fetch("/api/me", {
     method: "POST",
@@ -935,6 +1041,7 @@ document.querySelectorAll("[data-close]").forEach((btn) => {
   });
 });
 
+loadMe();
 loadMeta();
 
 /* ---------- 角色预设 ---------- */
