@@ -559,6 +559,81 @@ $("btn-quit").addEventListener("click", async () => {
   appendSegment({ type: "sys", text: "已经退出了。想继续就再双击一次桌面的跑团快捷方式（进度还在）。" });
 });
 
+/* ---------- 本机存档 / 读档 ---------- */
+
+function showSession(sess) {
+  session = sess;
+  $("setup").classList.add("hidden");
+  $("game").classList.add("on");
+  $("log").innerHTML = "";
+  renderSession();
+  (session.log || []).forEach((entry) => appendSegment(entry, true));
+  stickToBottom = true;
+  scrollLog(true);
+}
+
+$("btn-save-file").addEventListener("click", async () => {
+  try {
+    const r = await fetch("/api/state");
+    const data = await r.json();
+    if (!data.session) {
+      alert("当前还没有进行中的游戏。");
+      return;
+    }
+    const payload = {
+      format: "paotuan-save",
+      version: 1,
+      savedAt: new Date().toISOString(),
+      session: data.session,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const name = data.session.character?.name || "角色";
+    const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+    a.href = url;
+    a.download = `跑团存档-${name}-${stamp}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 3000);
+  } catch {
+    alert("导出存档失败。");
+  }
+});
+
+$("btn-load-file").addEventListener("click", () => $("save-file-input").click());
+
+$("save-file-input").addEventListener("change", async (e) => {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  if (!confirm("读取存档会覆盖当前进行中的进度，继续吗？")) return;
+  let payload;
+  try {
+    payload = JSON.parse(await file.text());
+  } catch {
+    alert("这个文件不是有效的 JSON。");
+    return;
+  }
+  const sess = payload.session || payload;
+  try {
+    const r = await fetch("/api/save/import", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ session: sess }),
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      alert(data.error || "读档失败");
+      return;
+    }
+    showSession(data.session);
+  } catch {
+    alert("读档请求失败。");
+  }
+});
+
 /* ---------- 顶部 HUD：在线人数 / 好评差评 / 留言板 ---------- */
 
 let fbTimer = null;

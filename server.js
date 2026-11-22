@@ -1496,6 +1496,20 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, { ok: true });
   }
 
+  if (req.method === "POST" && p === "/api/save/import") {
+    const body = await readBody(req);
+    const s = body.session || body;
+    if (!s || typeof s !== "object" || !s.character || !s.scenarioId || !Array.isArray(s.log)) {
+      return send(res, 400, { error: "这不是有效的跑团存档文件。" });
+    }
+    const scenario = engine.loadScenario(String(s.scenarioId), guestDir(entry));
+    if (!scenario) return send(res, 400, { error: "存档对应的剧本已经不存在。" });
+    entry.session = s;
+    entry.busy = false;
+    saveEntry(entry);
+    return send(res, 200, { ok: true, session: publicSession(entry) });
+  }
+
   if (req.method === "POST" && p === "/api/quit") {
     if (!entry.owner) return send(res, 403, { error: "访客不能关闭服务。" });
     send(res, 200, { ok: true });
