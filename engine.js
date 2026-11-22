@@ -1309,4 +1309,5 @@ module.exports = {
   getSettings, saveSettings, saveCustomScenario, readScenarioRaw, deleteCustomScenario,
   listPresets, savePreset, loadPreset, deletePreset, archiveOldLog,
   sanitizeLinks, relationsBlock, objectivesBlock, eventLogBlock, linksBlock, joinBlocks,
+  askModel,
 };

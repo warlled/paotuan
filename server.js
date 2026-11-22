@@ -100,6 +100,188 @@ function saveUpload(base64, declaredMime, maxBytes) {
 let community = readJsonFile(COMMUNITY_FILE, []);
 if (!Array.isArray(community)) community = [];
 
+/* ---------- 多人联机房间 ---------- */
+
+const ROOMS_FILE = path.join(engine.WORK, "rooms.json");
+let rooms = readJsonFile(ROOMS_FILE, {});
+if (!rooms || typeof rooms !== "object" || Array.isArray(rooms)) rooms = {};
+const ROOM_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+function saveRooms() {
+  writeJsonFile(ROOMS_FILE, rooms);
+}
+
+function makeRoomCode() {
+  for (let i = 0; i < 50; i += 1) {
+    let code = "";
+    for (let j = 0; j < 5; j += 1) code += ROOM_CHARS[crypto.randomInt(0, ROOM_CHARS.length)];
+    if (!rooms[code]) return code;
+  }
+  return String(Date.now()).slice(-5);
+}
+
+function newRoomState() {
+  return {
+    time: { day: 1, minute: 18 * 60 },
+    firedEvents: [],
+    status: {},
+    items: {},
+    events: [],
+    relations: {},
+    plot: [],
+    codex: [],
+    growth: {},
+  };
+}
+
+function publicRoom(room, sid) {
+  return {
+    code: room.code,
+    status: room.status,
+    mode: room.mode,
+    difficulty: room.difficulty,
+    scenario: { title: room.scenario.title, genre: room.scenario.genre, blurb: room.scenario.blurb },
+    players: room.players.map((p) => ({
+      pid: p.pid,
+      name: p.name,
+      avatar: p.avatar,
+      character: p.character,
+      ready: Boolean(room.actions[p.sid]),
+    })),
+    isHost: room.hostSid === sid,
+    hostPid: room.hostPid,
+    turn: room.turn,
+    log: room.log.slice(-80),
+    state: {
+      ...room.state,
+      clock: engine.clockText(room.state.time),
+    },
+    myActionSubmitted: Boolean(room.actions[sid]),
+    busy: Boolean(room.busy),
+  };
+}
+
+function applyRoomState(room, st) {
+  const state = room.state;
+  if (Number.isFinite(Number(st.advance_minutes))) {
+    const mock = { time: state.time, firedEvents: state.firedEvents || [], eventLog: state.events };
+    const fired = engine.advanceTime(mock, room.scenario, Number(st.advance_minutes));
+    state.time = mock.time;
+    state.firedEvents = mock.firedEvents;
+    for (const ev of fired) {
+      state.events.push({ at: engine.clockText(state.time), title: ev.title, note: ev.note || "" });
+    }
+  }
+  const players = st.players && typeof st.players === "object" ? st.players : {};
+  for (const [pid, upd] of Object.entries(players)) {
+    if (!upd || typeof upd !== "object") continue;
+    const ps = state.status[pid] || (state.status[pid] = { hp: 10, hpMax: 10, san: 10, sanMax: 10, money: 20 });
+    for (const key of ["hp", "san", "money"]) {
+      if (Number.isFinite(Number(upd[key]))) ps[key] = Number(ps[key] || 0) + Number(upd[key]);
+    }
+    ps.hp = Math.max(0, ps.hp);
+    ps.san = Math.max(0, ps.san);
+    const items = state.items[pid] || (state.items[pid] = []);
+    for (const it of upd.items_add || []) if (it && !items.includes(it)) items.push(String(it));
+    for (const it of upd.items_remove || []) {
+      const i = items.indexOf(String(it));
+      if (i >= 0) items.splice(i, 1);
+    }
+    const g = state.growth[pid] || (state.growth[pid] = { xp: 0, level: 1 });
+    if (Number.isFinite(Number(upd.xp))) {
+      g.xp += Number(upd.xp);
+      g.level = 1 + Math.floor(g.xp / 10);
+    }
+    if (upd.attrs_add && typeof upd.attrs_add === "object") {
+      g.attrs = g.attrs || {};
+      for (const [k, v] of Object.entries(upd.attrs_add)) {
+        if (Number.isFinite(Number(v))) g.attrs[k] = (g.attrs[k] || 0) + Number(v);
+      }
+    }
+  }
+  for (const ev of st.events || []) {
+    if (ev) state.events.push({ at: engine.clockText(state.time), title: String(ev).slice(0, 120), note: "" });
+  }
+  for (const c of st.codex || []) {
+    if (c && !state.codex.includes(String(c))) state.codex.push(String(c));
+  }
+  if (st.relations && typeof st.relations === "object") {
+    for (const [k, v] of Object.entries(st.relations)) {
+      state.relations[k] = typeof v === "string" ? v : v?.attitude || String(v);
+    }
+  }
+  for (const p of st.plot || []) {
+    if (p && !state.plot.includes(String(p))) state.plot.push(String(p));
+  }
+  while (state.events.length > 60) state.events.shift();
+  while (state.plot.length > 40) state.plot.shift();
+  while (state.codex.length > 80) state.codex.shift();
+}
+
+function roomPrompt(room) {
+  const sc = room.scenario;
+  const modeLine =
+    room.mode === "free"
+      ? "【模式】自由叙事：不掷骰、不做数值判定，玩家写什么就顺着推演，保证世界一致与因果即可。"
+      : "【模式】跑团：保留难度与代价，按玩家人数缩放挑战强度。";
+  const count = room.players.length;
+  const diffLine = {
+    easy: "轻松：多给线索，少给致命后果。",
+    normal: "标准：有代价，但不轻易团灭。",
+    hard: "硬核：后果严重，失败会留下长期伤痕。",
+  }[room.difficulty] || "";
+  const sheets = room.players
+    .map((p) => {
+      const st = room.state.status[p.pid] || {};
+      const items = (room.state.items[p.pid] || []).join("、") || "空";
+      const g = room.state.growth[p.pid] || {};
+      return `- ${p.character.name}（玩家 ${p.name}）：${p.character.role || "旅人"}｜HP ${st.hp ?? "?"} / SAN ${st.san ?? "?"}｜等级 ${g.level || 1}｜物品：${items}`;
+    })
+    .join("\n");
+  const actions = room.players
+    .map((p) => `${p.character.name}：${room.actions[p.sid] || "（本轮没有行动）"}`)
+    .join("\n");
+  const recent = room.log
+    .slice(-8)
+    .map((e) => (e.type === "gm" ? `GM：${e.text}` : `${e.who || "玩家"}：${e.text}`))
+    .join("\n");
+  return [
+    "你是多人联机跑团的主持人。",
+    `【剧本】${sc.title}（${sc.genre}）`,
+    `背景：${sc.background}`,
+    `玩家处境：${sc.hook || ""}`,
+    `真相（不可直接说破）：${sc.truth || ""}`,
+    `人物：${(sc.npcs || []).map((n) => n.name + "：" + n.desc).join("；")}`,
+    `时间表：${(sc.schedule || []).map((e) => `${e.day}天${Math.floor(e.minute / 60)}:${String(e.minute % 60).padStart(2, "0")} ${e.title}`).join("；")}`,
+    modeLine,
+    `玩家人数：${count} 人。${diffLine} 人数越多，敌人与障碍应越强，但奖励和线索也要相应增加。`,
+    `【当前时间】${engine.clockText(room.state.time)}`,
+    `【玩家角色】\n${sheets}`,
+    `【已有事件】${room.state.events.map((e) => e.title).join("、") || "无"}`,
+    `【线索/图鉴】${room.state.codex.join("、") || "无"}`,
+    `【情节线】${room.state.plot.join("、") || "无"}`,
+    `【最近发生】\n${recent || "（刚开始）"}`,
+    `【本轮玩家行动】\n${actions}`,
+    "请写一段照顾到所有玩家行动的叙述（每人都有戏份），结尾输出状态块：",
+    '<state>{"advance_minutes":15,"players":{"玩家pid":{"hp":0,"san":-1,"money":0,"items_add":[],"items_remove":[],"xp":2,"attrs_add":{}}},"events":["..."],"relations":{"NPC":"态度"},"plot":["..."],"codex":["..."]}</state>',
+    "不要输出任何其他标签。",
+  ].join("\n");
+}
+
+function sanitizeRoomCharacter(input, fallbackName) {
+  const c = input && typeof input === "object" ? input : {};
+  const attrs = {};
+  for (const k of ["str", "dex", "con", "int", "per", "cha"]) {
+    const v = Number(c.attrs && c.attrs[k]);
+    attrs[k] = Number.isFinite(v) ? Math.max(1, Math.min(10, Math.round(v))) : 5;
+  }
+  return {
+    name: String(c.name || fallbackName || "旅人").slice(0, 24),
+    role: String(c.role || "旅人").slice(0, 40),
+    attrs,
+  };
+}
+
 function communityView(post, sid) {
   return {
     id: post.id,
@@ -1153,6 +1335,165 @@ const server = http.createServer(async (req, res) => {
       .reverse()
       .map((c) => communityView(c, entry.sid));
     return send(res, 200, { players, scenarios });
+  }
+
+  if (p === "/room" && req.method === "GET") {
+    return send(res, 200, fs.readFileSync(path.join(PUBLIC, "room.html"), "utf8"), "text/html; charset=utf-8");
+  }
+
+  if (req.method === "POST" && p === "/api/rooms/create") {
+    const body = await readBody(req);
+    const sc = engine.loadScenario(String(body.scenarioId || ""), guestDir(entry));
+    if (!sc) return send(res, 400, { error: "剧本不存在" });
+    let prof = loadProfileFor(entry.sid);
+    if (!prof.pid) prof = saveProfileFor(entry.sid, {});
+    const cut = Date.now() - 24 * 3600 * 1000;
+    for (const [code, room] of Object.entries(rooms)) {
+      if ((room.updatedAt || room.createdAt || 0) < cut) delete rooms[code];
+    }
+    const code = makeRoomCode();
+    const room = {
+      code,
+      hostSid: entry.sid,
+      hostPid: prof.pid,
+      scenario: sc,
+      mode: body.mode === "free" ? "free" : "trpg",
+      difficulty: ["easy", "normal", "hard"].includes(body.difficulty) ? body.difficulty : "normal",
+      opening: String(body.opening || "").slice(0, 500),
+      status: "lobby",
+      players: [
+        {
+          sid: entry.sid,
+          pid: prof.pid,
+          name: prof.name || "匿名旅人",
+          avatar: prof.avatar || "",
+          character: sanitizeRoomCharacter(body.character, prof.name),
+        },
+      ],
+      actions: {},
+      log: [],
+      state: newRoomState(),
+      turn: 0,
+      busy: false,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    rooms[code] = room;
+    saveRooms();
+    return send(res, 200, { ok: true, code, room: publicRoom(room, entry.sid) });
+  }
+
+  if (req.method === "POST" && p === "/api/rooms/join") {
+    const body = await readBody(req);
+    const code = String(body.code || "").trim().toUpperCase();
+    const room = rooms[code];
+    if (!room) return send(res, 404, { error: "房间不存在" });
+    if (room.status !== "lobby") return send(res, 400, { error: "这局已经开始，等下一局吧" });
+    if (room.players.length >= 6) return send(res, 400, { error: "房间满了（最多 6 人）" });
+    let prof = loadProfileFor(entry.sid);
+    if (!prof.pid) prof = saveProfileFor(entry.sid, {});
+    if (!room.players.some((p) => p.sid === entry.sid)) {
+      room.players.push({
+        sid: entry.sid,
+        pid: prof.pid,
+        name: prof.name || "匿名旅人",
+        avatar: prof.avatar || "",
+        character: sanitizeRoomCharacter(body.character, prof.name),
+      });
+    }
+    room.updatedAt = Date.now();
+    saveRooms();
+    return send(res, 200, { ok: true, room: publicRoom(room, entry.sid) });
+  }
+
+  if (p === "/api/rooms/state") {
+    const room = rooms[String(url.searchParams.get("code") || "").trim().toUpperCase()];
+    if (!room) return send(res, 404, { error: "房间不存在" });
+    return send(res, 200, { room: publicRoom(room, entry.sid) });
+  }
+
+  if (req.method === "POST" && p === "/api/rooms/start") {
+    const body = await readBody(req);
+    const room = rooms[String(body.code || "").trim().toUpperCase()];
+    if (!room) return send(res, 404, { error: "房间不存在" });
+    if (room.hostSid !== entry.sid) return send(res, 403, { error: "只有房主可以开始" });
+    room.status = "playing";
+    if (room.opening) {
+      room.log.push({ type: "gm", text: room.opening, at: Date.now() });
+    }
+    room.log.push({ type: "sys", text: "游戏开始，请每位玩家写下自己的行动。", at: Date.now() });
+    room.updatedAt = Date.now();
+    saveRooms();
+    return send(res, 200, { ok: true, room: publicRoom(room, entry.sid) });
+  }
+
+  if (req.method === "POST" && p === "/api/rooms/action") {
+    const body = await readBody(req);
+    const room = rooms[String(body.code || "").trim().toUpperCase()];
+    if (!room) return send(res, 404, { error: "房间不存在" });
+    if (room.status !== "playing") return send(res, 400, { error: "游戏还没开始" });
+    const player = room.players.find((p) => p.sid === entry.sid);
+    if (!player) return send(res, 403, { error: "你不在这个房间里" });
+    const text = String(body.text || "").trim().slice(0, 500);
+    if (!text) return send(res, 400, { error: "先写行动" });
+    room.actions[entry.sid] = text;
+    room.log.push({ type: "player", who: player.character.name, text, at: Date.now() });
+    room.updatedAt = Date.now();
+    saveRooms();
+    return send(res, 200, { ok: true, room: publicRoom(room, entry.sid) });
+  }
+
+  if (req.method === "POST" && p === "/api/rooms/advance") {
+    const body = await readBody(req);
+    const room = rooms[String(body.code || "").trim().toUpperCase()];
+    if (!room) return send(res, 404, { error: "房间不存在" });
+    if (room.hostSid !== entry.sid) return send(res, 403, { error: "只有房主可以推进剧情" });
+    if (room.status !== "playing") return send(res, 400, { error: "游戏还没开始" });
+    if (room.busy) return send(res, 429, { error: "正在推演，稍等" });
+    if (!Object.keys(room.actions).length) return send(res, 400, { error: "还没有人提交行动" });
+    room.busy = true;
+    try {
+      const result = await engine.askModel(roomPrompt(room), { reasoningEffort: "low" });
+      const parsed = engine.parseModelTurn(result.text);
+      const narration = parsed.narrative || String(result.text || "").slice(0, 4000);
+      if (narration) room.log.push({ type: "gm", text: narration, at: Date.now() });
+      applyRoomState(room, parsed.state || {});
+      room.turn += 1;
+      room.actions = {};
+      room.updatedAt = Date.now();
+      saveRooms();
+      return send(res, 200, { ok: true, room: publicRoom(room, entry.sid) });
+    } catch (err) {
+      saveRooms();
+      return send(res, 500, { error: `推演失败：${err.message}` });
+    } finally {
+      room.busy = false;
+    }
+  }
+
+  if (req.method === "POST" && p === "/api/rooms/leave") {
+    const body = await readBody(req);
+    const room = rooms[String(body.code || "").trim().toUpperCase()];
+    if (!room) return send(res, 404, { error: "房间不存在" });
+    room.players = room.players.filter((p) => p.sid !== entry.sid);
+    delete room.actions[entry.sid];
+    if (!room.players.length) delete rooms[room.code];
+    else if (room.hostSid === entry.sid) {
+      room.hostSid = room.players[0].sid;
+      room.hostPid = room.players[0].pid;
+    }
+    saveRooms();
+    return send(res, 200, { ok: true });
+  }
+
+  if (req.method === "POST" && p === "/api/rooms/close") {
+    const body = await readBody(req);
+    const room = rooms[String(body.code || "").trim().toUpperCase()];
+    if (!room) return send(res, 404, { error: "房间不存在" });
+    if (room.hostSid !== entry.sid) return send(res, 403, { error: "只有房主可以解散" });
+    delete rooms[room.code];
+    saveRooms();
+    return send(res, 200, { ok: true });
   }
 
   if (req.method === "POST" && p === "/api/quit") {
