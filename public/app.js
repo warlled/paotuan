@@ -969,7 +969,7 @@ $("me-open").addEventListener("click", () => {
 });
 
 const MODEL_CATALOG = [
-  { id:"deepseek", name:"DeepSeek", color:"#4D6BFE", icon:"DS", baseUrl:"https://api.deepseek.com", models:["deepseek-chat","deepseek-reasoner","deepseek-v4-flash"] },
+  { id:"deepseek", name:"DeepSeek", color:"#4D6BFE", icon:"DS", baseUrl:"https://api.deepseek.com", models:["deepseek-chat","deepseek-reasoner","deepseek-v4.1-flash","deepseek-v4-flash"] },
   { id:"openai", name:"ChatGPT / OpenAI", color:"#E8E4DA", icon:"GPT", baseUrl:"https://api.openai.com/v1", models:["gpt-4o","gpt-4o-mini","gpt-4.1","gpt-4.1-mini","o3","o4-mini"] },
   { id:"anthropic", name:"Anthropic Claude", color:"#D97757", icon:"C", baseUrl:"https://api.anthropic.com/v1", models:["claude-sonnet-4-20250514","claude-opus-4-20250514","claude-3-7-sonnet-20250219","claude-3-5-haiku-20241022"] },
   { id:"doubao", name:"豆包 Doubao", color:"#1664FF", icon:"豆", baseUrl:"https://ark.cn-beijing.volces.com/api/v3", models:["doubao-1-5-pro-32k","doubao-1-5-lite-32k","doubao-pro-32k","doubao-lite-32k"] },
@@ -1037,7 +1037,7 @@ async function loadModelInfo() {
     const m = await (await fetch("/api/model")).json();
     $("model-base").value = m.baseUrl || "";
     $("model-name").value = m.model || "";
-    $("model-enabled").checked = Boolean(m.enabled);
+    $("model-enabled").checked = !m.enabled;
     $("model-key").value = "";
     $("model-key").placeholder = m.keyMask ? `已保存：${m.keyMask}（留空不改）` : "sk-...";
     $("model-status").textContent = m.configured
@@ -1054,7 +1054,7 @@ $("model-save").addEventListener("click", async () => {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      enabled: $("model-enabled").checked,
+      enabled: !$("model-enabled").checked,
       baseUrl: $("model-base").value,
       model: $("model-name").value,
       apiKey: $("model-key").value,
@@ -1930,6 +1930,36 @@ $("btn-save-scenario").addEventListener("click", async () => {
   $("custom-box").classList.add("hidden");
   renderScenarios(data.id);
   $("scenario-note").textContent = "剧本已保存，并已选中它。";
+});
+
+$("btn-export-ppt").addEventListener("click", () => {
+  if (typeof PptxGenJS === "undefined") {
+    alert("PPT 组件加载失败，请检查网络后重试。");
+    return;
+  }
+  const d = readScenarioForm();
+  const pptx = new PptxGenJS();
+  pptx.layout = "LAYOUT_16x9";
+  const title = d.title || "未命名剧本";
+  const cover = pptx.addSlide();
+  cover.addText(title, { x: 0.5, y: 1.4, w: 9, h: 1, fontSize: 34, bold: true });
+  cover.addText(`v${d.version} · ${d.genre} · ${(d.tags || []).join(" / ")}`, { x: 0.5, y: 2.5, w: 9, fontSize: 15 });
+  cover.addText(d.blurb || "", { x: 0.5, y: 3.1, w: 9, fontSize: 13 });
+  const slide = (heading, body) => {
+    if (!body) return;
+    const s = pptx.addSlide();
+    s.addText(heading, { x: 0.5, y: 0.3, w: 9, fontSize: 20, bold: true });
+    s.addText(body, { x: 0.5, y: 1.0, w: 9, h: 4.6, fontSize: 11, valign: "top" });
+  };
+  slide("世界设定", d.world || d.background || "");
+  slide("开局设定", `第 ${d.startDay} 天 ${$("s-time").value}\n${d.hook || ""}\n\n${d.opening || ""}`);
+  slide("人物", (d.npcs || []).map((n) => `${n.name}：${n.desc}${n.secret ? "（内情：" + n.secret + "）" : ""}`).join("\n"));
+  slide("线索与结局", `线索：\n${(d.clues || []).join("\n")}\n\n结局：\n${(d.endings || []).map((e) => `${e.name}：${e.condition}`).join("\n")}`);
+  slide("时间表", (d.schedule || []).map((e) => `第${e.day}天 ${String(Math.floor(e.minute / 60)).padStart(2, "0")}:${String(e.minute % 60).padStart(2, "0")} ${e.title} ${e.note || ""}`).join("\n"));
+  slide("实体与状态", `实体：\n${(d.entities || []).map((e) => `${e.name}｜${e.info}｜初始：${e.initial}｜${e.rules}`).join("\n")}\n\n状态：\n${(d.statuses || []).map((s) => `${s.name} 初始${s.initial}：${s.desc}`).join("\n")}`);
+  slide("剧情与词条", `循环事件：\n${(d.loopEvents || []).map((x) => `每 ${x.every} ${x.title}`).join("\n")}\n\n剧情点：\n${(d.plotPoints || []).map((x) => `${x.at || ""} ${x.title}：${x.note || ""}`).join("\n")}\n\n词条：\n${(d.lexicon || []).map((x) => `${x.term}：${x.def}`).join("\n")}`);
+  slide("预设行动与规则", `预设行动：${(d.actions || []).map((a) => a.label).join("、")}\n\n规则：默认骰子${d.rules.diceDefault ? "开" : "关"}；可切换骰子${d.rules.allowDiceToggle ? "是" : "否"}；固定开局默认${d.rules.fixedOpeningDefault ? "开" : "关"}；可切换固定开局${d.rules.allowOpeningToggle ? "是" : "否"}；随机机制${d.rules.randomMode ? "开" : "关"}`);
+  pptx.writeFile({ fileName: `${title}.pptx` }).catch(() => alert("导出失败，请重试。"));
 });
 
 $("s-import-file").addEventListener("change", async (e) => {
