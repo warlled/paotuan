@@ -813,9 +813,22 @@ const FORMAT_REMINDER = [
   "没有变化的键可以省略，但 <state> 标签本身不能省。",
 ].join("\n");
 
+function modeBlock(session) {
+  if (session && session.mode === "free") {
+    return [
+      "【本局模式：自由叙事】",
+      "不掷骰、不做数值判定。玩家的选择直接推动剧情，你负责让世界保持自洽、因果成立。",
+      "不要输出 <checks> 标签；危险与机会通过叙述呈现，而不是通过难度数字。",
+      "时间与事件照常推进，但不要用规则术语解释过程。",
+    ].join("\n");
+  }
+  return "【本局模式：跑团规则】按判定规则与难度进行。";
+}
+
 function buildPrompt(session, scenario, playerAction, settings) {
   return [
     rulesBlock(settings),
+    modeBlock(session),
     "",
     scenarioBrief(scenario),
     "",
@@ -848,6 +861,7 @@ function buildContinuePrompt(session, scenario, playerAction, opening, rolls, ev
     : "（无）";
   return [
     rulesBlock(settings),
+    modeBlock(session),
     "",
     scenarioBrief(scenario),
     "",
@@ -1132,6 +1146,7 @@ async function runOpening(session, scenario) {
   const customOpening = String(scenario.opening || "").trim();
   const prompt = [
     rulesBlock(settings),
+    modeBlock(session),
     "",
     scenarioBrief(scenario),
     "",
@@ -1196,7 +1211,7 @@ function validateCharacter(character, difficulty) {
   return errors;
 }
 
-function createSession({ character, scenarioId, difficulty, scenarioDir }) {
+function createSession({ character, scenarioId, difficulty, mode, scenarioDir }) {
   const scenario = loadScenario(scenarioId, scenarioDir);
   if (!scenario) throw new Error("找不到这个剧本");
   const errors = validateCharacter(character, difficulty);
@@ -1207,6 +1222,7 @@ function createSession({ character, scenarioId, difficulty, scenarioDir }) {
   const session = {
     scenarioId,
     difficulty,
+    mode: mode === "free" ? "free" : "trpg",
     character: {
       name: clip(character.name, CLI.characterName),
       gender: clip(character.gender, 20),

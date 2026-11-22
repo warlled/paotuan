@@ -282,7 +282,12 @@ async function startGame() {
     const res = await fetch("/api/new", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ character, scenarioId: setupState.scenarioId, difficulty: setupState.difficulty }),
+      body: JSON.stringify({
+        character,
+        scenarioId: setupState.scenarioId,
+        difficulty: setupState.difficulty,
+        mode: $("mode-select")?.value || "trpg",
+      }),
     });
     const data = await res.json();
     if (data.error) {
@@ -446,7 +451,7 @@ function renderSession() {
     evBox.appendChild(row);
   }
 
-  $("tb-title").textContent = `${session.scenario.title} · ${c.name}`;
+  $("tb-title").textContent = `${session.scenario.title} · ${c.name}${session.mode === "free" ? " · 自由叙事" : ""}`;
   $("tb-clock").textContent = session.clock;
 
   if (session.ended) showEnding(session.ended);
@@ -1221,6 +1226,12 @@ document.querySelectorAll("[data-close]").forEach((btn) => {
     if (id) $(id).classList.add("hidden");
   });
 });
+
+try {
+  const rk = (document.cookie.match(/(?:^|;\s*)rk=([^;]+)/) || [])[1];
+  const rlink = document.querySelector('#hud a[href="/room"]');
+  if (rk && rlink) rlink.href = "/room?k=" + encodeURIComponent(rk);
+} catch {}
 
 loadMe();
 loadMeta();

@@ -136,9 +136,21 @@
 const $ = (id) => document.getElementById(id);
 let room = null;
 let code = "";
+const params = new URLSearchParams(location.search);
+const inviteKey = params.get("k") || (document.cookie.match(/(?:^|;\s*)rk=([^;]+)/) || [])[1] || "";
+
+function withKey(path) {
+  if (!inviteKey) return path;
+  return path + (path.includes("?") ? "&" : "?") + "k=" + encodeURIComponent(inviteKey);
+}
+
+if (inviteKey) {
+  const home = document.querySelector(".top a");
+  if (home) home.href = "/?k=" + encodeURIComponent(inviteKey);
+}
 
 async function api(path, opts = {}) {
-  const r = await fetch(path, opts);
+  const r = await fetch(withKey(path), opts);
   let body = null;
   try { body = await r.json(); } catch {}
   return { status: r.status, body };
@@ -149,10 +161,18 @@ async function loadScenarios() {
   const r = await api("/api/meta");
   const list = r.body.scenarios || [];
   $("c-scenario").innerHTML = list.map((s) => `<option value="${s.id}">${s.title}（${s.genre}）</option>`).join("");
+  if (!list.length) {
+    $("c-scenario").innerHTML = '<option value="">（剧本加载失败，请从首页进入联机）</option>';
+    $("c-err").textContent = "剧本列表没加载出来，点右上角“回到单机”重新进入。";
+  }
 }
 
 async function createRoom() {
   $("c-err").textContent = "";
+  if (!$("c-scenario").value) {
+    $("c-err").textContent = "剧本还没加载好，请稍等或从首页重新进入。";
+    return;
+  }
   const r = await post("/api/rooms/create", {
     scenarioId: $("c-scenario").value,
     mode: $("c-mode").value,

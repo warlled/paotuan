@@ -1533,11 +1533,13 @@ const server = http.createServer(async (req, res) => {
         character: body.character || {},
         scenarioId: body.scenarioId,
         difficulty: body.difficulty || "normal",
+        mode: body.mode,
+        scenarioDir: guestDir(entry),
       });
     } catch (err) {
       return send(res, 400, { error: String(err.message || err) });
     }
-    const scenario = engine.loadScenario(fresh.scenarioId);
+    const scenario = engine.loadScenario(fresh.scenarioId, guestDir(entry));
     entry.session = fresh;
     entry.busy = true;
     await acquireSlot();
@@ -1570,7 +1572,7 @@ const server = http.createServer(async (req, res) => {
     const body = await readBody(req);
     const text = String(body.text || "").trim().slice(0, 500);
     if (!text) return send(res, 400, { error: "先说要做的事。" });
-    const scenario = engine.loadScenario(entry.session.scenarioId);
+    const scenario = engine.loadScenario(entry.session.scenarioId, guestDir(entry));
     if (!scenario) return send(res, 500, { error: "剧本文件读不到了。" });
     entry.busy = true;
     await acquireSlot();
