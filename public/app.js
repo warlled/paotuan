@@ -1004,18 +1004,25 @@ $("me-avatar-file").addEventListener("change", async (e) => {
 /* ---------- 创作社区 ---------- */
 
 let cmFile = null;
+let cmFilter = "all";
+let cmPosts = [];
 
 function renderCommunity(posts) {
   const list = $("cm-list");
   list.innerHTML = "";
-  if (!posts.length) {
+  const filtered = posts.filter((p) => {
+    if (cmFilter === "all") return true;
+    if (cmFilter === "mine") return Boolean(p.pid && me && p.pid === me.pid);
+    return (p.type || "post") === cmFilter;
+  });
+  if (!filtered.length) {
     const empty = document.createElement("div");
     empty.className = "fb-empty";
-    empty.textContent = "还没有作品，来发第一个吧。";
+    empty.textContent = cmFilter === "mine" ? "你还没有发布过作品。" : "这个分区还没有作品。";
     list.appendChild(empty);
     return;
   }
-  for (const post of posts) {
+  for (const post of filtered) {
     const card = document.createElement("div");
     card.className = "cm-post";
     const head = document.createElement("div");
@@ -1074,6 +1081,12 @@ function renderCommunity(posts) {
       p.textContent = post.text;
       card.appendChild(p);
     }
+    if (post.tags && post.tags.length) {
+      const tags = document.createElement("div");
+      tags.className = "cm-tags";
+      for (const t of post.tags) tags.appendChild(el("span", "tag", t));
+      card.appendChild(tags);
+    }
     if (post.media && post.media.url) {
       const wrap = document.createElement("div");
       wrap.className = "cm-media";
@@ -1103,6 +1116,38 @@ function renderCommunity(posts) {
       if (r.ok) loadCommunity();
     });
     card.appendChild(like);
+    const comments = document.createElement("div");
+    comments.className = "cm-comments";
+    for (const c of post.comments || []) {
+      const row = document.createElement("div");
+      row.className = "cm-comment";
+      row.innerHTML = `<b>${escHtml(c.who || "匿名")}</b>：${escHtml(c.text || "")}`;
+      comments.appendChild(row);
+    }
+    const box = document.createElement("div");
+    box.className = "cm-comment-box";
+    const input = document.createElement("input");
+    input.maxLength = 300;
+    input.placeholder = "说点什么…";
+    const send = document.createElement("button");
+    send.textContent = "评论";
+    send.addEventListener("click", async () => {
+      const text = input.value.trim();
+      if (!text) return;
+      const r = await fetch("/api/community/comment", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ postId: post.id, text }),
+      });
+      if (r.ok) loadCommunity();
+      else {
+        const d = await r.json();
+        alert(d.error || "评论失败");
+      }
+    });
+    box.append(input, send);
+    comments.appendChild(box);
+    card.appendChild(comments);
     list.appendChild(card);
   }
 }
@@ -1112,13 +1157,26 @@ async function loadCommunity() {
     const r = await fetch("/api/community");
     if (!r.ok) return;
     const data = await r.json();
-    renderCommunity(data.posts || []);
+    cmPosts = data.posts || [];
+    renderCommunity(cmPosts);
   } catch {}
 }
 
 $("cm-open").addEventListener("click", () => {
   $("cm-modal").classList.remove("hidden");
   loadCommunity();
+});
+
+document.querySelectorAll("#cm-tabs button").forEach((b) => {
+  b.addEventListener("click", () => {
+    cmFilter = b.dataset.filter;
+    document.querySelectorAll("#cm-tabs button").forEach((x) => x.classList.toggle("on", x === b));
+    renderCommunity(cmPosts);
+  });
+});
+
+$("cm-text").addEventListener("input", () => {
+  $("cm-counter").textContent = `${$("cm-text").value.length} / 1000`;
 });
 
 $("cm-media").addEventListener("change", (e) => {
@@ -1131,6 +1189,19 @@ $("cm-media").addEventListener("change", (e) => {
   }
   cmFile = file;
   $("cm-media-name").textContent = file.name;
+  const prev = $("cm-preview");
+  prev.innerHTML = "";
+  const url = URL.createObjectURL(file);
+  if (String(file.type).startsWith("video/")) {
+    const v = document.createElement("video");
+    v.src = url;
+    v.controls = true;
+    prev.appendChild(v);
+  } else {
+    const img = document.createElement("img");
+    img.src = url;
+    prev.appendChild(img);
+  }
 });
 
 $("cm-post").addEventListener("click", async () => {
@@ -1163,7 +1234,7 @@ $("cm-post").addEventListener("click", async () => {
   const r = await fetch("/api/community", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ title, text, media }),
+    body: JSON.stringify({ title, text, media, tags: $("cm-tags").value }),
   });
   const data = await r.json();
   if (!r.ok) {
@@ -1174,6 +1245,9 @@ $("cm-post").addEventListener("click", async () => {
   $("cm-text").value = "";
   cmFile = null;
   $("cm-media-name").textContent = "";
+  $("cm-preview").innerHTML = "";
+  $("cm-tags").value = "";
+  $("cm-counter").textContent = "0 / 1000";
   $("cm-status").textContent = "已发布";
   loadCommunity();
 });

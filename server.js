@@ -330,8 +330,11 @@ function communityView(post, sid) {
     avatar: post.avatar || "",
     title: post.title,
     text: post.text,
+    tags: post.tags || [],
     genre: post.scenario?.genre || "",
     blurb: post.scenario?.blurb || "",
+    comments: (post.comments || []).slice(-20),
+    commentCount: (post.comments || []).length,
     media: post.media || null,
     at: post.at,
     likes: (post.likes || []).length,
@@ -1393,6 +1396,11 @@ const server = http.createServer(async (req, res) => {
       title,
       text,
       media,
+      tags: (Array.isArray(body.tags) ? body.tags : String(body.tags || "").split(/[,，、]/))
+        .map((t) => String(t).trim().slice(0, 16))
+        .filter(Boolean)
+        .slice(0, 5),
+      comments: [],
       at: new Date().toISOString(),
       likes: [],
     };
@@ -1415,6 +1423,23 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, communityView(post, entry.sid));
   }
 
+  if (req.method === "POST" && p === "/api/community/comment") {
+    const body = await readBody(req);
+    const post = community.find((x) => x.id === String(body.postId || ""));
+    if (!post) return send(res, 404, { error: "作品不存在" });
+    const text = String(body.text || "").trim().slice(0, 300);
+    if (!text) return send(res, 400, { error: "写点内容再评论" });
+    const last = communityLast.get("c-" + entry.sid) || 0;
+    if (Date.now() - last < 10000) return send(res, 429, { error: "评论太快了，稍等。" });
+    communityLast.set("c-" + entry.sid, Date.now());
+    const prof = loadProfileFor(entry.sid);
+    post.comments = Array.isArray(post.comments) ? post.comments : [];
+    post.comments.push({ who: prof.name || "匿名旅人", avatar: prof.avatar || "", text, at: new Date().toISOString() });
+    while (post.comments.length > 50) post.comments.shift();
+    writeJsonFile(COMMUNITY_FILE, community);
+    return send(res, 200, communityView(post, entry.sid));
+  }
+
   if (req.method === "POST" && p === "/api/scenario/share") {
     const body = await readBody(req);
     const sc = ownScenario(entry, String(body.id || ""));
@@ -1433,6 +1458,8 @@ const server = http.createServer(async (req, res) => {
       title: sc.title,
       text: sc.blurb || "",
       scenario: sc,
+      tags: sc.tags || [],
+      comments: [],
       media: null,
       at: new Date().toISOString(),
       likes: [],
