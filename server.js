@@ -17,7 +17,98 @@ const STATS_FILE = path.join(engine.WORK, "share-stats.json");
 const SHARE_STATE_FILE = path.join(engine.WORK, "share-state.json");
 const FEEDBACK_FILE = path.join(engine.WORK, "feedback.json");
 const VOTES_FILE = path.join(engine.WORK, "votes.json");
+const UPLOAD_DIR = path.join(engine.WORK, "uploads");
+const USERS_DIR = path.join(engine.WORK, "users");
+const COMMUNITY_FILE = path.join(engine.WORK, "community.json");
 fs.mkdirSync(SESS_DIR, { recursive: true });
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+fs.mkdirSync(USERS_DIR, { recursive: true });
+
+/* ---------- 个人资料 / 上传 / 创作社区 ---------- */
+
+const MIME_EXT = {
+  "image/png": ".png",
+  "image/jpeg": ".jpg",
+  "image/gif": ".gif",
+  "image/webp": ".webp",
+  "video/mp4": ".mp4",
+  "video/webm": ".webm",
+};
+const UPLOAD_MAX = 8 * 1024 * 1024;
+const AVATAR_MAX = 2 * 1024 * 1024;
+const communityLast = new Map();
+
+function userFile(sid) {
+  return path.join(USERS_DIR, `${sid.replace(/[^a-z0-9]/gi, "")}.json`);
+}
+
+function loadProfileFor(sid) {
+  const p = readJsonFile(userFile(sid), null);
+  return {
+    name: p?.name || "",
+    bio: p?.bio || "",
+    avatar: p?.avatar || "",
+    theme: p?.theme || "#c8a06a",
+    notes: p?.notes || "",
+    updatedAt: p?.updatedAt || 0,
+  };
+}
+
+function saveProfileFor(sid, patch) {
+  const current = loadProfileFor(sid);
+  const name = String(patch.name ?? current.name).trim().slice(0, 24);
+  const bio = String(patch.bio ?? current.bio).trim().slice(0, 200);
+  const theme = /^#[0-9a-f]{6}$/i.test(String(patch.theme || "")) ? String(patch.theme) : current.theme;
+  const notes = String(patch.notes ?? current.notes).slice(0, 2000);
+  let avatar = String(patch.avatar ?? current.avatar);
+  if (avatar && !/^\/uploads\/[a-z0-9]+\.[a-z0-9]+$/i.test(avatar)) avatar = current.avatar;
+  const next = { name, bio, avatar, theme, notes, updatedAt: Date.now() };
+  writeJsonFile(userFile(sid), next);
+  return next;
+}
+
+function sniffMime(buffer) {
+  const b = buffer;
+  if (b.length > 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "image/png";
+  if (b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
+  if (b.length > 6 && b.toString("latin1", 0, 3) === "GIF") return "image/gif";
+  if (b.length > 12 && b.toString("latin1", 0, 4) === "RIFF" && b.toString("latin1", 8, 12) === "WEBP") return "image/webp";
+  if (b.length > 12 && b.toString("latin1", 4, 8) === "ftyp") return "video/mp4";
+  if (b.length > 4 && b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3) return "video/webm";
+  return "";
+}
+
+function saveUpload(base64, declaredMime, maxBytes) {
+  const raw = String(base64 || "").replace(/^data:[^;]+;base64,/, "");
+  if (!raw) throw new Error("没有收到文件内容");
+  const buffer = Buffer.from(raw, "base64");
+  if (!buffer.length) throw new Error("文件内容为空");
+  if (buffer.length > maxBytes) throw new Error(`文件太大，最多 ${Math.round(maxBytes / 1048576)}MB`);
+  const sniffed = sniffMime(buffer);
+  const mime = MIME_EXT[declaredMime] ? declaredMime : sniffed;
+  if (!mime || !MIME_EXT[mime]) throw new Error("只支持图片（png/jpg/gif/webp）或视频（mp4/webm）");
+  if (sniffed && sniffed !== mime) throw new Error("文件内容与类型不符");
+  const name = crypto.randomBytes(8).toString("hex") + MIME_EXT[mime];
+  fs.writeFileSync(path.join(UPLOAD_DIR, name), buffer);
+  return { url: `/uploads/${name}`, type: mime, size: buffer.length };
+}
+
+let community = readJsonFile(COMMUNITY_FILE, []);
+if (!Array.isArray(community)) community = [];
+
+function communityView(post, sid) {
+  return {
+    id: post.id,
+    author: post.author,
+    avatar: post.avatar || "",
+    title: post.title,
+    text: post.text,
+    media: post.media || null,
+    at: post.at,
+    likes: (post.likes || []).length,
+    liked: (post.likes || []).includes(sid),
+  };
+}
 
 /* ---------- 在线人数 / 好评差评 / 留言板 ---------- */
 
@@ -775,6 +866,95 @@ const server = http.createServer(async (req, res) => {
     while (feedback.length > 500) feedback.shift();
     writeJsonFile(FEEDBACK_FILE, feedback);
     return send(res, 200, { ok: true, message });
+  }
+
+  if (p === "/api/me") {
+    if (req.method === "GET") return send(res, 200, loadProfileFor(entry.sid));
+    const body = await readBody(req);
+    return send(res, 200, saveProfileFor(entry.sid, body));
+  }
+
+  if (req.method === "POST" && p === "/api/upload") {
+    const body = await readBody(req);
+    try {
+      const out = saveUpload(body.data, String(body.mime || ""), body.avatar ? AVATAR_MAX : UPLOAD_MAX);
+      return send(res, 200, out);
+    } catch (err) {
+      return send(res, 400, { error: String(err.message || err) });
+    }
+  }
+
+  if (req.method === "GET" && p.startsWith("/uploads/")) {
+    const name = p.slice("/uploads/".length);
+    if (!/^[a-f0-9]{16}\.(png|jpg|gif|webp|mp4|webm)$/i.test(name)) {
+      return send(res, 404, "not found", "text/plain; charset=utf-8");
+    }
+    const file = path.join(UPLOAD_DIR, name);
+    if (!fs.existsSync(file)) return send(res, 404, "not found", "text/plain; charset=utf-8");
+    const ext = path.extname(name).slice(1).toLowerCase();
+    const type =
+      { png: "image/png", jpg: "image/jpeg", gif: "image/gif", webp: "image/webp", mp4: "video/mp4", webm: "video/webm" }[ext] ||
+      "application/octet-stream";
+    res.setHeader("content-type", type);
+    res.setHeader("cache-control", "public, max-age=31536000, immutable");
+    res.setHeader("x-content-type-options", "nosniff");
+    res.end(fs.readFileSync(file));
+    return;
+  }
+
+  if (p === "/space" && req.method === "GET") {
+    return send(res, 200, fs.readFileSync(path.join(PUBLIC, "space.html"), "utf8"), "text/html; charset=utf-8");
+  }
+
+  if (p === "/api/community") {
+    if (req.method === "GET") {
+      const mine = url.searchParams.get("mine") === "1";
+      const source = mine ? community.filter((x) => x.sid === entry.sid) : community;
+      return send(res, 200, { posts: source.slice(-100).reverse().map((x) => communityView(x, entry.sid)) });
+    }
+    const body = await readBody(req);
+    const title = String(body.title || "").trim().slice(0, 60);
+    const text = String(body.text || "").trim().slice(0, 1000);
+    if (!title && !text) return send(res, 400, { error: "写点标题或正文吧。" });
+    const last = communityLast.get(entry.sid) || 0;
+    if (Date.now() - last < 30000) return send(res, 429, { error: "发得太快了，歇一会儿再发。" });
+    let media = null;
+    if (body.media && body.media.url) {
+      const mu = String(body.media.url);
+      if (!/^\/uploads\/[a-f0-9]{16}\.(png|jpg|gif|webp|mp4|webm)$/i.test(mu)) {
+        return send(res, 400, { error: "媒体地址无效" });
+      }
+      media = { url: mu, type: String(body.media.type || "") };
+    }
+    const profile = loadProfileFor(entry.sid);
+    const post = {
+      id: crypto.randomUUID(),
+      sid: entry.sid,
+      author: profile.name || "匿名旅人",
+      avatar: profile.avatar || "",
+      title,
+      text,
+      media,
+      at: new Date().toISOString(),
+      likes: [],
+    };
+    communityLast.set(entry.sid, Date.now());
+    community.push(post);
+    while (community.length > 200) community.shift();
+    writeJsonFile(COMMUNITY_FILE, community);
+    return send(res, 200, { ok: true, post: communityView(post, entry.sid) });
+  }
+
+  if (req.method === "POST" && p === "/api/community/like") {
+    const body = await readBody(req);
+    const post = community.find((x) => x.id === String(body.id || ""));
+    if (!post) return send(res, 404, { error: "作品不存在" });
+    post.likes = Array.isArray(post.likes) ? post.likes : [];
+    const i = post.likes.indexOf(entry.sid);
+    if (i >= 0) post.likes.splice(i, 1);
+    else post.likes.push(entry.sid);
+    writeJsonFile(COMMUNITY_FILE, community);
+    return send(res, 200, communityView(post, entry.sid));
   }
 
   if (req.method === "POST" && p === "/api/quit") {

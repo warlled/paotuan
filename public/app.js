@@ -696,6 +696,245 @@ setInterval(beat, 1000);
 beat();
 loadFeedback();
 
+/* ---------- 我的资料 ---------- */
+
+let me = null;
+
+async function loadMe() {
+  try {
+    const r = await fetch("/api/me");
+    if (!r.ok) return;
+    me = await r.json();
+    $("me-name").value = me.name || "";
+    $("me-bio").value = me.bio || "";
+    $("me-theme").value = me.theme || "#c8a06a";
+    const img = $("me-avatar-img");
+    if (me.avatar) {
+      img.src = me.avatar;
+      img.classList.add("on");
+    } else {
+      img.classList.remove("on");
+      img.removeAttribute("src");
+    }
+  } catch {}
+}
+
+async function saveMe() {
+  const payload = {
+    name: $("me-name").value,
+    bio: $("me-bio").value,
+    theme: $("me-theme").value,
+    avatar: me?.avatar || "",
+  };
+  const r = await fetch("/api/me", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (r.ok) {
+    me = await r.json();
+    $("me-status").textContent = "已保存";
+    setTimeout(() => ($("me-status").textContent = ""), 2000);
+  }
+}
+
+$("me-open").addEventListener("click", () => {
+  $("me-modal").classList.remove("hidden");
+  loadMe();
+});
+
+$("me-save").addEventListener("click", saveMe);
+
+$("me-avatar-file").addEventListener("change", async (e) => {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  if (file.size > 2 * 1024 * 1024) {
+    $("me-status").textContent = "头像不能超过 2MB";
+    return;
+  }
+  $("me-status").textContent = "上传中…";
+  const dataUrl = await new Promise((resolve) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(fr.result);
+    fr.readAsDataURL(file);
+  });
+  const r = await fetch("/api/upload", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ data: dataUrl, mime: file.type, avatar: true }),
+  });
+  const data = await r.json();
+  if (!r.ok) {
+    $("me-status").textContent = data.error || "上传失败";
+    return;
+  }
+  me = { ...(me || {}), avatar: data.url };
+  const img = $("me-avatar-img");
+  img.src = data.url;
+  img.classList.add("on");
+  await saveMe();
+  $("me-status").textContent = "头像已更新";
+});
+
+/* ---------- 创作社区 ---------- */
+
+let cmFile = null;
+
+function renderCommunity(posts) {
+  const list = $("cm-list");
+  list.innerHTML = "";
+  if (!posts.length) {
+    const empty = document.createElement("div");
+    empty.className = "fb-empty";
+    empty.textContent = "还没有作品，来发第一个吧。";
+    list.appendChild(empty);
+    return;
+  }
+  for (const post of posts) {
+    const card = document.createElement("div");
+    card.className = "cm-post";
+    const head = document.createElement("div");
+    head.className = "cm-head";
+    if (post.avatar) {
+      const img = document.createElement("img");
+      img.src = post.avatar;
+      img.alt = "";
+      head.appendChild(img);
+    }
+    const n = document.createElement("span");
+    n.className = "n";
+    n.textContent = post.author || "匿名旅人";
+    const t = document.createElement("span");
+    t.className = "t";
+    try {
+      t.textContent = new Date(post.at).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+    } catch {}
+    head.append(n, t);
+    card.appendChild(head);
+    if (post.title) {
+      const h = document.createElement("div");
+      h.className = "cm-title";
+      h.textContent = post.title;
+      card.appendChild(h);
+    }
+    if (post.text) {
+      const p = document.createElement("div");
+      p.className = "cm-text";
+      p.textContent = post.text;
+      card.appendChild(p);
+    }
+    if (post.media && post.media.url) {
+      const wrap = document.createElement("div");
+      wrap.className = "cm-media";
+      if (String(post.media.type || "").startsWith("video/")) {
+        const v = document.createElement("video");
+        v.src = post.media.url;
+        v.controls = true;
+        v.preload = "metadata";
+        wrap.appendChild(v);
+      } else {
+        const img = document.createElement("img");
+        img.src = post.media.url;
+        img.alt = "";
+        wrap.appendChild(img);
+      }
+      card.appendChild(wrap);
+    }
+    const like = document.createElement("button");
+    like.className = "cm-like" + (post.liked ? " on" : "");
+    like.textContent = "♥ " + (post.likes || 0);
+    like.addEventListener("click", async () => {
+      const r = await fetch("/api/community/like", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: post.id }),
+      });
+      if (r.ok) loadCommunity();
+    });
+    card.appendChild(like);
+    list.appendChild(card);
+  }
+}
+
+async function loadCommunity() {
+  try {
+    const r = await fetch("/api/community");
+    if (!r.ok) return;
+    const data = await r.json();
+    renderCommunity(data.posts || []);
+  } catch {}
+}
+
+$("cm-open").addEventListener("click", () => {
+  $("cm-modal").classList.remove("hidden");
+  loadCommunity();
+});
+
+$("cm-media").addEventListener("change", (e) => {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  if (file.size > 8 * 1024 * 1024) {
+    $("cm-status").textContent = "文件不能超过 8MB";
+    return;
+  }
+  cmFile = file;
+  $("cm-media-name").textContent = file.name;
+});
+
+$("cm-post").addEventListener("click", async () => {
+  const title = $("cm-title").value.trim();
+  const text = $("cm-text").value.trim();
+  if (!title && !text && !cmFile) {
+    $("cm-status").textContent = "写点内容或选个文件吧。";
+    return;
+  }
+  $("cm-status").textContent = "发布中…";
+  let media = null;
+  if (cmFile) {
+    const dataUrl = await new Promise((resolve) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(fr.result);
+      fr.readAsDataURL(cmFile);
+    });
+    const up = await fetch("/api/upload", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ data: dataUrl, mime: cmFile.type }),
+    });
+    const meta = await up.json();
+    if (!up.ok) {
+      $("cm-status").textContent = meta.error || "上传失败";
+      return;
+    }
+    media = { url: meta.url, type: meta.type };
+  }
+  const r = await fetch("/api/community", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ title, text, media }),
+  });
+  const data = await r.json();
+  if (!r.ok) {
+    $("cm-status").textContent = data.error || "发布失败";
+    return;
+  }
+  $("cm-title").value = "";
+  $("cm-text").value = "";
+  cmFile = null;
+  $("cm-media-name").textContent = "";
+  $("cm-status").textContent = "已发布";
+  loadCommunity();
+});
+
+document.querySelectorAll("[data-close]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const id = btn.getAttribute("data-close");
+    if (id) $(id).classList.add("hidden");
+  });
+});
+
 loadMeta();
 
 /* ---------- 角色预设 ---------- */
