@@ -295,6 +295,9 @@ async function startGame() {
       return;
     }
     session = data.session;
+    try {
+      localStorage.setItem("pt-autosave", JSON.stringify({ savedAt: Date.now(), session: { ...session, log: (session.log || []).slice(-200) } }));
+    } catch {}
     $("setup").classList.add("hidden");
     $("game").classList.add("on");
     $("log").innerHTML = "";
@@ -506,18 +509,45 @@ async function act(text) {
   $("input").style.height = "";
   setBusy(true, "……");
   try {
-    const res = await fetch("/api/action", {
+    let res = await fetch("/api/action", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ text }),
     });
-    const data = await res.json();
+    let data = await res.json();
+    if (!res.ok && data.needNewGame) {
+      let backup = null;
+      try {
+        backup = JSON.parse(localStorage.getItem("pt-autosave") || "null");
+      } catch {}
+      if (backup && backup.session) {
+        const ir = await fetch("/api/save/import", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ session: backup.session }),
+        });
+        if (ir.ok) {
+          const restored = await ir.json();
+          session = restored.session;
+          appendSegment({ type: "sys", text: "服务器重启过，已从本机自动备份恢复进度，正在重试这一步。" });
+          res = await fetch("/api/action", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ text }),
+          });
+          data = await res.json();
+        }
+      }
+    }
     setBusy(false);
     if (data.error) {
       appendSegment({ type: "sys", text: data.error });
       return;
     }
     session = data.session;
+    try {
+      localStorage.setItem("pt-autosave", JSON.stringify({ savedAt: Date.now(), session: { ...session, log: (session.log || []).slice(-200) } }));
+    } catch {}
     (data.segments || []).forEach(appendSegment);
     renderSession();
   } catch (e) {

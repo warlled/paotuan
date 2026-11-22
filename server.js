@@ -1910,7 +1910,12 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === "POST" && p === "/api/action") {
-    if (!entry.session) return send(res, 400, { error: "还没有开始游戏。" });
+    if (!entry.session) {
+      return send(res, 409, {
+        error: "这一局的进度在服务器上已经失效（通常是站点重启或重新部署导致）。",
+        needNewGame: true,
+      });
+    }
     if (entry.busy) return send(res, 429, { error: "上一回合还在进行中。" });
     if (!entry.owner && entry.session.turns >= guestTurnLimit) {
       return send(res, 403, { error: `试玩到这里啦：每位访客最多 ${guestTurnLimit} 回合。` });
