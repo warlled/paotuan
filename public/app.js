@@ -969,7 +969,7 @@ $("me-open").addEventListener("click", () => {
 });
 
 const MODEL_CATALOG = [
-  { id:"deepseek", name:"DeepSeek", color:"#4D6BFE", icon:"DS", baseUrl:"https://api.deepseek.com", models:["deepseek-chat","deepseek-reasoner"] },
+  { id:"deepseek", name:"DeepSeek", color:"#4D6BFE", icon:"DS", baseUrl:"https://api.deepseek.com", models:["deepseek-chat","deepseek-reasoner","deepseek-v4-flash"] },
   { id:"openai", name:"ChatGPT / OpenAI", color:"#E8E4DA", icon:"GPT", baseUrl:"https://api.openai.com/v1", models:["gpt-4o","gpt-4o-mini","gpt-4.1","gpt-4.1-mini","o3","o4-mini"] },
   { id:"doubao", name:"豆包 Doubao", color:"#1664FF", icon:"豆", baseUrl:"https://ark.cn-beijing.volces.com/api/v3", models:["doubao-1-5-pro-32k","doubao-1-5-lite-32k","doubao-pro-32k","doubao-lite-32k"] },
   { id:"qwen", name:"通义千问 Qwen", color:"#615CED", icon:"Q", baseUrl:"https://dashscope.aliyuncs.com/compatible-mode/v1", models:["qwen-max","qwen-plus","qwen-turbo"] },
