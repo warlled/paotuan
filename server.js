@@ -672,6 +672,58 @@ function adminState() {
   };
 }
 
+function dataStats() {
+  const count = (dir, ext) => {
+    try {
+      return fs.readdirSync(dir).filter((f) => f.endsWith(ext)).length;
+    } catch {
+      return 0;
+    }
+  };
+  return {
+    feedback: feedback.length,
+    up: votes.up || 0,
+    down: votes.down || 0,
+    users: count(USERS_DIR, ".json"),
+    community: community.length,
+    rooms: Object.keys(rooms).length,
+    sessions: count(SESS_DIR, ".json"),
+    uploads: count(UPLOAD_DIR, ""),
+    dataDir: engine.WORK,
+    persistent: process.env.PERSISTENT === "1" || !process.env.RENDER,
+  };
+}
+
+function buildBackup() {
+  const readDir = (dir) => {
+    try {
+      return fs
+        .readdirSync(dir)
+        .filter((f) => f.endsWith(".json"))
+        .map((f) => {
+          try {
+            return { name: f, data: JSON.parse(fs.readFileSync(path.join(dir, f), "utf8")) };
+          } catch {
+            return null;
+          }
+        })
+        .filter(Boolean);
+    } catch {
+      return [];
+    }
+  };
+  return {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    feedback,
+    votes,
+    community,
+    rooms,
+    users: readDir(USERS_DIR),
+    sessions: readDir(SESS_DIR),
+  };
+}
+
 function adminPage() {
   const html = [
     '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">',
@@ -702,6 +754,15 @@ function adminPage() {
     "</div>",
     '<div class="note">每日调用上限：<b id="cap"></b> 次（今天已用 <b id="used"></b> 次）。<br>',
     "达到上限后会自动停止接待，次日恢复。上限在主机的 GUEST_DAILY_CALLS 环境变量里改。</div>",
+    '<div class="note" style="margin-top:16px;border-top:1px solid #262b3a;padding-top:14px">',
+    "<b>数据总览</b><br>留言 <b id=\"d-fb\">-</b> · 好评 <b id=\"d-up\">-</b> · 差评 <b id=\"d-down\">-</b> · 用户 <b id=\"d-users\">-</b><br>",
+    "作品 <b id=\"d-cm\">-</b> · 房间 <b id=\"d-rooms\">-</b> · 存档 <b id=\"d-sessions\">-</b> · 上传 <b id=\"d-uploads\">-</b><br>",
+    '<span id="d-persist"></span>',
+    '<div class="row" style="margin-top:10px">',
+    '<button id="btn-backup">下载全部数据备份</button>',
+    '<label style="display:inline-block;border:1px solid #262b3a;border-radius:9px;padding:6px 12px;color:#8b90a0;font-size:12.5px;cursor:pointer">从备份恢复<input id="restore-file" type="file" accept="application/json,.json" hidden></label>',
+    '<span id="d-status" style="color:#8b90a0;font-size:12px"></span>',
+    "</div></div>",
     '<div class="row" style="margin-top:18px">',
     '<form method="post" action="/admin/owner"><button class="primary" type="submit">进入房主模式</button></form>',
     '<form method="post" action="/admin/owner/off"><button type="submit">退出房主模式</button></form>',
@@ -726,6 +787,40 @@ function adminPage() {
     "  });",
     "  refresh();",
     "}",
+    "async function refreshStats(){",
+    '  const s = await (await fetch("/api/admin/stats")).json();',
+    '  document.getElementById("d-fb").textContent = s.feedback;',
+    '  document.getElementById("d-up").textContent = s.up;',
+    '  document.getElementById("d-down").textContent = s.down;',
+    '  document.getElementById("d-users").textContent = s.users;',
+    '  document.getElementById("d-cm").textContent = s.community;',
+    '  document.getElementById("d-rooms").textContent = s.rooms;',
+    '  document.getElementById("d-sessions").textContent = s.sessions;',
+    '  document.getElementById("d-uploads").textContent = s.uploads;',
+    '  const p = document.getElementById("d-persist");',
+    '  p.style.color = s.persistent ? "#8fd8ac" : "#f0a3b4";',
+    '  p.textContent = s.persistent ? "数据目录：" + s.dataDir + "（已使用持久目录）" : "⚠ 当前没有持久盘：重启/部署会清空留言、票数、用户与作品。请定期备份，或在 Render 挂载 /data 磁盘。";',
+    "}",
+    'document.getElementById("btn-backup").onclick = async () => {',
+    '  const b = await (await fetch("/api/admin/backup")).json();',
+    '  const blob = new Blob([JSON.stringify(b, null, 2)], { type: "application/json" });',
+    '  const url = URL.createObjectURL(blob);',
+    '  const a = document.createElement("a");',
+    '  a.href = url; a.download = "paotuan-backup-" + new Date().toISOString().slice(0,10) + ".json";',
+    "  document.body.appendChild(a); a.click(); a.remove();",
+    "  setTimeout(() => URL.revokeObjectURL(url), 3000);",
+    '  document.getElementById("d-status").textContent = "备份已下载";',
+    "};",
+    'document.getElementById("restore-file").onchange = async (e) => {',
+    "  const f = e.target.files[0]; e.target.value = ''; if (!f) return;",
+    '  if (!confirm("恢复会覆盖当前数据，确定吗？")) return;',
+    "  const backup = JSON.parse(await f.text());",
+    '  const r = await fetch("/api/admin/restore", { method: "POST", headers: {"content-type":"application/json"}, body: JSON.stringify({ backup }) });',
+    '  const d = await r.json();',
+    '  document.getElementById("d-status").textContent = r.ok ? "恢复完成" : (d.error || "恢复失败");',
+    "  refreshStats();",
+    "};",
+    "refreshStats();",
     'document.getElementById("close").onclick = () => setState(false, 0);',
     'document.getElementById("open1").onclick = () => setState(true, 60);',
     'document.getElementById("open2").onclick = () => setState(true, 120);',
@@ -899,6 +994,54 @@ const server = http.createServer(async (req, res) => {
       updatedAt: Date.now(),
     });
     return send(res, 200, adminState());
+  }
+
+  if (p === "/api/admin/stats") {
+    if (!adminOk) return send(res, 403, { error: "没有管理权限" });
+    return send(res, 200, dataStats());
+  }
+
+  if (p === "/api/admin/backup") {
+    if (!adminOk) return send(res, 403, { error: "没有管理权限" });
+    return send(res, 200, buildBackup());
+  }
+
+  if (req.method === "POST" && p === "/api/admin/restore") {
+    if (!adminOk) return send(res, 403, { error: "没有管理权限" });
+    const body = await readBody(req);
+    const b = body.backup || body;
+    if (!b || typeof b !== "object") return send(res, 400, { error: "备份文件格式不对" });
+    if (Array.isArray(b.feedback)) {
+      feedback = b.feedback.slice(0, 500);
+      writeJsonFile(FEEDBACK_FILE, feedback);
+    }
+    if (b.votes && typeof b.votes === "object") {
+      votes = {
+        up: Number(b.votes.up) || 0,
+        down: Number(b.votes.down) || 0,
+        voters: b.votes.voters && typeof b.votes.voters === "object" ? b.votes.voters : {},
+      };
+      writeJsonFile(VOTES_FILE, votes);
+    }
+    if (Array.isArray(b.community)) {
+      community = b.community.slice(0, 200);
+      writeJsonFile(COMMUNITY_FILE, community);
+    }
+    if (b.rooms && typeof b.rooms === "object" && !Array.isArray(b.rooms)) {
+      rooms = b.rooms;
+      saveRooms();
+    }
+    for (const u of Array.isArray(b.users) ? b.users : []) {
+      if (u && typeof u.name === "string" && /^[\w-]+\.json$/.test(u.name)) {
+        writeJsonFile(path.join(USERS_DIR, u.name), u.data);
+      }
+    }
+    for (const s of Array.isArray(b.sessions) ? b.sessions : []) {
+      if (s && typeof s.name === "string" && /^[\w-]+\.json$/.test(s.name)) {
+        writeJsonFile(path.join(SESS_DIR, s.name), s.data);
+      }
+    }
+    return send(res, 200, { ok: true, stats: dataStats() });
   }
 
   if (!entry.owner && !siteOpen()) {
