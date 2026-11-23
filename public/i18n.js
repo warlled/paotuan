@@ -28,6 +28,8 @@
     "隐藏状态栏": ["Hide player panel", "プレイヤーパネルを隠す", "Masquer le panneau joueur", "Скрыть панель игрока"],
     "显示玩家状态栏": ["Show player panel", "プレイヤーパネルを表示", "Afficher le panneau joueur", "Показать панель игрока"],
     "状态栏": ["Player panel", "プレイヤーパネル", "Panneau joueur", "Панель игрока"],
+    "状态": ["Status", "状態", "Statut", "Статус"],
+    "关闭状态面板": ["Close status panel", "ステータスを閉じる", "Fermer le panneau", "Закрыть панель"],
     "关闭": ["Close", "閉じる", "Fermer", "Закрыть"],
     "反馈与留言": ["Feedback & messages", "フィードバックと掲示板", "Avis et messages", "Отзывы и сообщения"],
     "留言会显示你的昵称和头像，可在「我的」里设置。": [
@@ -835,6 +837,8 @@
     "隐藏状态栏": ["플레이어 패널 숨기기", "Spielerleiste ausblenden"],
     "显示玩家状态栏": ["플레이어 패널 표시", "Spielerleiste anzeigen"],
     "状态栏": ["플레이어 패널", "Spielerleiste"],
+    "状态": ["상태", "Status"],
+    "关闭状态面板": ["상태 패널 닫기", "Statusfenster schließen"],
     "全部": ["전체", "Alle"],
     "历史": ["역사", "Historie"],
     "奇幻": ["판타지", "Fantasy"],

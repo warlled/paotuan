@@ -903,6 +903,15 @@ body:has(.owner-closed-banner) #game { padding-top: 28px; }
 /* ---------- 游戏界面 ---------- */
 #game { display: none; height: 100%; }
 #game.on { display: grid; grid-template-columns: 1fr 352px; grid-template-rows: minmax(0, 1fr); }
+.mobile-only,
+.mobile-side-close { display: none; }
+#side-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 68;
+  background: rgba(0, 0, 0, .48);
+  backdrop-filter: blur(2px);
+}
 #main { order: 1; }
 #side {
   order: 2;
@@ -954,9 +963,69 @@ body:has(.owner-closed-banner) #game { padding-top: 28px; }
 }
 
 @media (max-width: 900px) {
-  #game.on { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) auto; }
-  #side { max-height: 42vh; border-left: 0; border-top: 1px solid var(--line); }
-  #topbar { flex-wrap: wrap; }
+  #hud-left { top: 6px; left: 8px; }
+  #hud-right { position: fixed; right: 8px; top: 7px; }
+  #setup { padding: 138px 14px 76px; }
+  #game.on { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr); }
+  #side {
+    display: none;
+    position: fixed;
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    top: 72px;
+    z-index: 70;
+    max-height: none;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, .5);
+    padding-top: 42px;
+  }
+  #game.mobile-side-open #side { display: block; }
+  .mobile-only { display: inline-flex; }
+  .mobile-side-close {
+    display: grid;
+    place-items: center;
+    position: absolute;
+    right: 10px;
+    top: 8px;
+    z-index: 2;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    background: var(--panel2);
+    color: var(--text);
+  }
+  #btn-side-toggle {
+    background: var(--accent);
+    color: #1a1408;
+    border-color: var(--accent);
+    font-weight: 600;
+  }
+  #topbar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding: 9px 10px;
+    scrollbar-width: none;
+  }
+  #topbar::-webkit-scrollbar { display: none; }
+  #topbar .title { min-width: 120px; max-width: 48vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #topbar input, #topbar select, #topbar button { flex: 0 0 auto; min-height: 38px; }
+  #log { padding: 14px 13px 8px; }
+  #composer { padding: 9px 10px calc(10px + env(safe-area-inset-bottom)); }
+  #quick {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scrollbar-width: none;
+  }
+  #quick::-webkit-scrollbar { display: none; }
+  #quick button { flex: 0 0 auto; min-height: 38px; padding: 7px 14px; }
+  #inputRow { gap: 7px; }
+  #inputRow textarea { min-height: 48px; font-size: 16px; }
+  #inputRow button.primary { min-width: 64px; padding: 0 15px; }
   .jump { right: 16px; bottom: 120px; }
   .custom.scenario-workspace { inset: 8px; border-radius: 15px; }
   .editor-top { align-items: flex-start; padding: 13px 15px 12px; }
@@ -989,6 +1058,49 @@ body:has(.owner-closed-banner) #game { padding-top: 28px; }
   .editor-footer { padding: 9px 13px; }
   .editor-footer-copy { display: none; }
   .editor-footer .editor-inline-actions { width: 100%; justify-content: flex-end; }
+}
+
+@media (max-width: 700px) {
+  #hud { padding: 5px 8px; }
+  #hud-left {
+    max-width: calc(100vw - 72px);
+    border-radius: 12px;
+    padding: 3px 6px;
+  }
+  .hud-caption { display: none; }
+  .hud-controls button { width: 34px; height: 34px; font-size: 16px; }
+  .vote-btn, .fb-open { min-height: 36px; padding-top: 7px; padding-bottom: 7px; font-size: 12.5px; }
+  .setup-wrap h1 { font-size: 22px; line-height: 1.4; letter-spacing: 1px; }
+  .setup-sub { font-size: 13px; line-height: 1.65; margin-bottom: 20px; }
+  .create-bar { display: grid; grid-template-columns: 1fr; gap: 9px; margin-bottom: 24px; }
+  .create-bar > .ghost, .site-lang-inline { width: 100%; margin: 0; }
+  .create-bar > .ghost { min-height: 44px; padding: 10px 14px; text-align: center; }
+  .site-lang-inline { justify-content: space-between; padding: 7px 10px; border: 1px solid var(--line); border-radius: 11px; }
+  .site-lang-inline select { flex: 1; max-width: 190px; min-height: 38px; }
+  .step { margin-bottom: 26px; }
+  .step h2 { font-size: 15px; line-height: 1.5; }
+  .picker-bar { gap: 9px; }
+  .tabs { flex-wrap: nowrap; width: 100%; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tabs button { flex: 0 0 auto; min-height: 38px; padding: 7px 15px; font-size: 12.5px; }
+  .pager { width: 100%; margin-left: 0; justify-content: space-between; }
+  .pager button { width: 44px; height: 44px; }
+  .cards { gap: 12px; }
+  .card { min-height: 0; padding: 18px 16px; border-radius: 14px; }
+  .card .t { font-size: 17px; line-height: 1.4; }
+  .card .g { font-size: 12.5px; line-height: 1.6; }
+  .card .b { font-size: 14px; line-height: 1.65; }
+  .grid2, .grid3 { grid-template-columns: 1fr; }
+  .start-bar { flex-wrap: wrap; gap: 9px; }
+  .start-bar > button,
+  .start-bar > select,
+  .start-bar > input { min-height: 42px; max-width: 100%; }
+  #preset-name, #mode-select { width: 100% !important; min-width: 0; }
+  .attrs { gap: 13px; }
+  .dice-panel { flex-wrap: wrap; }
+  .dice-panel select, .dice-panel button { min-height: 42px; }
+  .seg.gm { font-size: 15px; line-height: 1.85; }
+  .seg.player .b { max-width: 88%; font-size: 14.5px; }
 }
 
 @media (max-width: 620px) {

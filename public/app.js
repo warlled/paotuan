@@ -1640,19 +1640,38 @@ try {
   const KEY = "pt-hud-pos";
   const VIEW_KEY = "pt-hud-view";
   let view = { alpha: "solid", compact: false, hidden: false };
+  let hasSavedView = false;
   try {
     const saved = JSON.parse(localStorage.getItem(VIEW_KEY) || "null");
     if (saved && typeof saved === "object") {
+      hasSavedView = true;
       view.alpha = ["solid", "soft", "ghost"].includes(saved.alpha) ? saved.alpha : "solid";
       view.compact = Boolean(saved.compact);
       view.hidden = Boolean(saved.hidden);
     }
   } catch {}
+  if (!hasSavedView && window.matchMedia("(max-width: 900px)").matches) {
+    view.alpha = "soft";
+    view.compact = true;
+  }
 
   function placeRestoreAtBox() {
     if (!restore) return;
     restore.style.left = Math.max(4, box.offsetLeft) + "px";
     restore.style.top = Math.max(4, box.offsetTop) + "px";
+  }
+
+  function clampBoxPosition() {
+    const width = box.offsetWidth || 120;
+    const height = box.offsetHeight || 40;
+    const left = Math.max(4, Math.min(window.innerWidth - width - 4, box.offsetLeft || 4));
+    const top = Math.max(4, Math.min(window.innerHeight - height - 4, box.offsetTop || 4));
+    box.style.left = left + "px";
+    box.style.top = top + "px";
+    if (restore) {
+      restore.style.left = left + "px";
+      restore.style.top = top + "px";
+    }
   }
 
   function applyView() {
@@ -1676,6 +1695,7 @@ try {
       box.style.top = p.top + "px";
     }
   } catch {}
+  clampBoxPosition();
   applyView();
 
   compact?.addEventListener("click", () => {
@@ -1726,14 +1746,29 @@ try {
   grip.addEventListener("pointerup", end);
   grip.addEventListener("pointercancel", end);
   window.addEventListener("resize", () => {
-    const left = Math.max(4, Math.min(window.innerWidth - box.offsetWidth - 4, box.offsetLeft));
-    const top = Math.max(4, Math.min(window.innerHeight - box.offsetHeight - 4, box.offsetTop));
-    box.style.left = left + "px";
-    box.style.top = top + "px";
-    if (restore) {
-      restore.style.left = left + "px";
-      restore.style.top = top + "px";
-    }
+    clampBoxPosition();
+  });
+})();
+
+(function initMobileSidePanel() {
+  const game = $("game");
+  const toggle = $("btn-side-toggle");
+  const close = $("side-close");
+  const scrim = $("side-scrim");
+  if (!game || !toggle || !close || !scrim) return;
+  const setOpen = (open) => {
+    game.classList.toggle("mobile-side-open", open);
+    scrim.classList.toggle("hidden", !open);
+    toggle.setAttribute("aria-expanded", open ? "true" : "false");
+  };
+  toggle.addEventListener("click", () => setOpen(!game.classList.contains("mobile-side-open")));
+  close.addEventListener("click", () => setOpen(false));
+  scrim.addEventListener("click", () => setOpen(false));
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") setOpen(false);
+  });
+  window.addEventListener("resize", () => {
+    if (window.innerWidth > 900) setOpen(false);
   });
 })();
 

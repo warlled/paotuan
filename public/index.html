@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>玩家自由创作游玩社区网站平台</title>
-<link rel="stylesheet" href="/style.css?v=20261124-8lang8">
+<link rel="stylesheet" href="/style.css?v=20261124-8lang9">
 </head>
 <body>
 
@@ -574,7 +574,9 @@
 </section>
 
 <section id="game">
+  <div id="side-scrim" class="hidden"></div>
   <aside id="side">
+    <button id="side-close" class="mobile-side-close" type="button" title="关闭状态面板">✕</button>
     <div class="sect">
       <div class="bigname" id="pc-name"></div>
       <div class="sub" id="pc-sub"></div>
@@ -700,6 +702,7 @@
         <option value="fr">Français</option>
         <option value="ru">Русский</option>
       </select>
+      <button id="btn-side-toggle" class="mobile-only" type="button" aria-expanded="false">状态</button>
       <span class="hint" id="tb-save">自动存档</span>
       <button id="btn-opening">开场</button>
       <button id="btn-export-play">导出</button>
@@ -726,8 +729,8 @@
   </div>
 </section>
 
-<script src="/i18n.js?v=20261124-8lang8"></script>
-<script src="/app.js?v=20261124-8lang8"></script>
+<script src="/i18n.js?v=20261124-8lang9"></script>
+<script src="/app.js?v=20261124-8lang9"></script>
 <script src="/vendor/pptxgen.bundle.js?v=3.12.0" async></script>
 </body>
 </html>
