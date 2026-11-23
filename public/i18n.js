@@ -1130,6 +1130,34 @@
     return out.replace(/[\u3400-\u9fff]/g, (char) => S2T[char] || char);
   }
 
+  let cacheDirty = false;
+  let cacheTimer = 0;
+
+  function flushRemoteCache() {
+    if (cacheTimer) {
+      clearTimeout(cacheTimer);
+      cacheTimer = 0;
+    }
+    if (!cacheDirty) return;
+    cacheDirty = false;
+    const write = () => localStorage.setItem(REMOTE_CACHE_KEY, JSON.stringify(Object.fromEntries(remoteCache)));
+    try {
+      write();
+    } catch {
+      // localStorage 满了：砍掉一半最旧的再试一次
+      try {
+        const excess = Math.ceil(remoteCache.size / 2);
+        let count = 0;
+        for (const oldKey of remoteCache.keys()) {
+          remoteCache.delete(oldKey);
+          if (++count >= excess) break;
+        }
+        write();
+      } catch {}
+    }
+  }
+
+  /** 原来每翻译一条就整表序列化写入，一条长句就能同步卡住主线程；改成合并写入。 */
   function cacheRemote(key, translated) {
     remoteCache.set(key, translated);
     if (remoteCache.size > 1600) {
@@ -1140,10 +1168,11 @@
         if (++count >= excess) break;
       }
     }
-    try {
-      localStorage.setItem(REMOTE_CACHE_KEY, JSON.stringify(Object.fromEntries(remoteCache)));
-    } catch {}
+    cacheDirty = true;
+    if (!cacheTimer) cacheTimer = setTimeout(flushRemoteCache, 400);
   }
+
+  window.addEventListener("pagehide", flushRemoteCache);
 
   function showTranslationStatus(text) {
     if (!TRANSLATION_STATUS[current]) return;
@@ -1190,7 +1219,27 @@
     return template.replace(/\$(\d+)/g, (_, index) => match[Number(index)] || "");
   }
 
+  const staticMemo = new Map();
+
+  /** 同一句在一页里会被反复请求，字典/正则结果放进内存缓存，避免重复匹配。 */
   function translate(value) {
+    if (current === "zh-Hans" || !value) return value;
+    const lead = value.match(/^\s*/)?.[0] || "";
+    const trail = value.match(/\s*$/)?.[0] || "";
+    const key = value.trim();
+    if (!key) return value;
+    const cached = remoteCache.get(current + "\n" + key);
+    if (cached) return lead + cached + trail;
+    const memoKey = current + "\n" + value;
+    const hit = staticMemo.get(memoKey);
+    if (hit !== undefined) return hit;
+    const out = translateStatic(value);
+    if (staticMemo.size > 4000) staticMemo.clear();
+    staticMemo.set(memoKey, out);
+    return out;
+  }
+
+  function translateStatic(value) {
     if (current === "zh-Hans" || !value) return value;
     const lead = value.match(/^\s*/)?.[0] || "";
     const trail = value.match(/\s*$/)?.[0] || "";
@@ -1277,11 +1326,25 @@
     }
   }
 
+  /** checkVisibility 不会触发完整布局计算，getClientRects() 每个节点调一次代价太高。 */
+  function isVisible(node) {
+    if (!node || !node.isConnected) return false;
+    if (typeof node.checkVisibility === "function") {
+      try {
+        return node.checkVisibility({ checkOpacity: false, checkVisibilityCSS: true });
+      } catch {}
+    }
+    return true;
+  }
+
+  const MAX_SCAN_NODES = 5000;
+  const MAX_SCAN_TEXTS = 240;
+
   function collectRemote(root, texts) {
     if (!root) return;
     if (root.nodeType === Node.TEXT_NODE) {
       const element = root.parentElement;
-      if (!element || !element.getClientRects().length || element.closest(REMOTE_SKIP)) return;
+      if (!element || !isVisible(element) || element.closest(REMOTE_SKIP)) return;
       const value = root.nodeValue.trim();
       if (/[\u3400-\u9fff]/.test(value) && !remoteCache.has(`${current}\n${value}`) && !remoteMisses.has(`${current}\n${value}`)) {
         texts.add(value);
@@ -1289,7 +1352,7 @@
       return;
     }
     if (root.nodeType === Node.ELEMENT_NODE) {
-      if (root.getClientRects().length && !root.closest(REMOTE_SKIP)) {
+      if (isVisible(root) && !root.closest(REMOTE_SKIP)) {
         for (const name of ["placeholder", "title", "alt", "aria-label"]) {
           const value = root.getAttribute(name)?.trim();
           if (value && /[\u3400-\u9fff]/.test(value) && !remoteCache.has(`${current}\n${value}`) && !remoteMisses.has(`${current}\n${value}`)) {
@@ -1300,16 +1363,18 @@
     }
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
     let node = walker.nextNode();
-    while (node) {
+    let scanned = 0;
+    while (node && scanned < MAX_SCAN_NODES && texts.size < MAX_SCAN_TEXTS) {
+      scanned += 1;
       if (node.nodeType === Node.TEXT_NODE) {
         const element = node.parentElement;
-        if (element && element.getClientRects().length && !element.closest(REMOTE_SKIP)) {
+        if (element && isVisible(element) && !element.closest(REMOTE_SKIP)) {
           const value = node.nodeValue.trim();
           if (/[\u3400-\u9fff]/.test(value) && !remoteCache.has(`${current}\n${value}`) && !remoteMisses.has(`${current}\n${value}`)) {
             texts.add(value);
           }
         }
-      } else if (node.getClientRects().length && !node.closest(REMOTE_SKIP)) {
+      } else if (isVisible(node) && !node.closest(REMOTE_SKIP)) {
         for (const name of ["placeholder", "title", "alt", "aria-label"]) {
           const value = node.getAttribute(name)?.trim();
           if (value && /[\u3400-\u9fff]/.test(value) && !remoteCache.has(`${current}\n${value}`) && !remoteMisses.has(`${current}\n${value}`)) {
@@ -1398,6 +1463,7 @@
   function setLanguage(language, options = {}) {
     const next = normalizeLanguage(language);
     current = next;
+    staticMemo.clear();
     allowRemoteModelCall = options.allowRemoteModel === true;
     hideTranslationStatus();
     document.documentElement.lang = next === "zh-Hans" ? "zh-CN" : next === "zh-Hant" ? "zh-TW" : next;
