@@ -101,6 +101,44 @@ const DEFAULT_SETTINGS = {
   links: [],
 };
 
+const LANGUAGES = {
+  zh: { name: "简体中文", instruction: "使用简体中文。" },
+  en: {
+    name: "English",
+    instruction:
+      "All GM narration, NPC dialogue, scene descriptions, dice-result explanations and endings must be written in natural English. Translate Chinese source material when needed. Keep established proper nouns recognizable, but do not narrate in Chinese.",
+  },
+  ja: {
+    name: "日本語",
+    instruction:
+      "GMの語り、NPCの台詞、情景描写、判定結果の説明、結末はすべて自然な日本語で書いてください。中国語の設定資料は必要に応じて日本語に翻訳し、ナレーションを中国語で書かないでください。",
+  },
+  fr: {
+    name: "Français",
+    instruction:
+      "Toute la narration du MJ, les dialogues des PNJ, les descriptions, les explications des jets de dés et les fins doivent être rédigés en français naturel. Traduisez les sources chinoises si nécessaire ; ne racontez pas en chinois.",
+  },
+  ru: {
+    name: "Русский",
+    instruction:
+      "Всё повествование ведущего, реплики NPC, описания сцен, пояснения к броскам и финалы должны быть на естественном русском языке. При необходимости переводите китайские исходные материалы; не ведите повествование по-китайски.",
+  },
+};
+
+function normalizeLanguage(value) {
+  const lang = String(value || "").trim().toLowerCase().split("-")[0];
+  return Object.prototype.hasOwnProperty.call(LANGUAGES, lang) ? lang : "zh";
+}
+
+function languageInstruction(value) {
+  const language = LANGUAGES[normalizeLanguage(value)];
+  return [
+    `【输出语言】${language.instruction}`,
+    "无论剧本资料、角色设定或玩家行动原本使用什么语言，本回合的叙事输出都必须遵循上述语言。",
+    "内部标签 <checks>、<state> 以及其中的 JSON 字段名必须保持原有英文格式，不能翻译或改名。",
+  ].join("\n");
+}
+
 const NARRATIVE_LENGTH = {
   简短: "每回合正文控制在 2 段以内，节奏快，少写环境铺陈。",
   标准: "每回合正文 2 到 4 段，兼顾氛围与推进。",
@@ -1011,9 +1049,11 @@ function scenarioBrief(scenario) {
   ].join("\n");
 }
 
-function rulesBlock(settings) {
+function rulesBlock(settings, language) {
   const s = settings || getSettings();
   const lines = [
+    languageInstruction(language),
+    "",
     "【你与引擎的分工】",
     "你是这场跑团的 GM（主持人）。玩家的行动结果由外面的引擎掷骰决定，你不得自行编造随机结果。",
     "1) 叙述要紧凑、有画面感，用第二人称称呼玩家，每回合推进一点剧情，不要一次性把整条线讲完。",
@@ -1144,7 +1184,7 @@ function worldBlock(session) {
 
 function buildPrompt(session, scenario, playerAction, settings) {
   return [
-    rulesBlock(settings),
+    rulesBlock(settings, session.language),
     modeBlock(session),
     "",
     scenarioBrief(scenario),
@@ -1177,7 +1217,7 @@ function buildContinuePrompt(session, scenario, playerAction, opening, rolls, ev
     ? events.map((e) => `${e.title}：${e.note || ""}`).join("\n")
     : "（无）";
   return [
-    rulesBlock(settings),
+    rulesBlock(settings, session.language),
     modeBlock(session),
     "",
     scenarioBrief(scenario),
@@ -1508,8 +1548,9 @@ async function runTurn(session, scenario, playerAction, modelOverride) {
 async function runOpening(session, scenario, modelOverride) {
   const settings = getSettings();
   const customOpening = String(scenario.opening || "").trim();
+  const language = normalizeLanguage(session.language);
   const prompt = [
-    rulesBlock(settings),
+    rulesBlock(settings, language),
     modeBlock(session),
     "",
     scenarioBrief(scenario),
@@ -1518,7 +1559,9 @@ async function runOpening(session, scenario, modelOverride) {
     "",
     ...(customOpening
       ? [
-          "【玩家写好的开场白（已原样呈现给玩家，不要重复其中的句子）】",
+          language === "zh"
+            ? "【玩家写好的开场白（已原样呈现给玩家，不要重复其中的句子）】"
+            : "【需要本地化的玩家开场白】请先把下面内容忠实翻译成规定语言，并作为第一段叙述呈现给玩家；不要保留中文叙述。",
           customOpening,
           "",
         ]
@@ -1531,7 +1574,9 @@ async function runOpening(session, scenario, modelOverride) {
     worldBlock(session),
     "",
     customOpening
-      ? "【这是游戏的第一幕】开场白已经给过了，请顺着它往前推一小步：描写此刻正在发生的一件事、一个人的出现或一个细微的变化，把玩家推到一个需要做决定的位置。不要复述开场白。"
+      ? language === "zh"
+        ? "【这是游戏的第一幕】开场白已经给过了，请顺着它往前推一小步：描写此刻正在发生的一件事、一个人的出现或一个细微的变化，把玩家推到一个需要做决定的位置。不要复述开场白。"
+        : "【这是游戏的第一幕】请先输出上面开场白的目标语言译文，再顺着它推进一小步。译文要忠实，随后描写一个变化，把玩家推到需要决定的位置。"
       : "【这是游戏的第一幕】请写出开场：把玩家放进场景里，交代他在哪、此刻看到听到什么、眼前最值得注意的东西是什么。3 到 5 段，节奏稳一点，不要急着抛出全部悬念。",
     "结尾按格式给出状态块（如果开局不推进时间，advance_minutes 写 0）。",
   ].join("\n");
@@ -1542,7 +1587,7 @@ async function runOpening(session, scenario, modelOverride) {
   const applied = applyState(session, scenario, parsed.state);
   return {
     segments: [
-      ...(customOpening ? [{ type: "gm", text: customOpening }] : []),
+      ...(customOpening && language === "zh" ? [{ type: "gm", text: customOpening }] : []),
       ...(parsed.narrative ? [{ type: "gm", text: parsed.narrative }] : []),
       ...applied.fired.map((ev) => ({ type: "event", text: `${ev.title}：${ev.note || ""}` })),
       ...applied.changes.map((ch) => ({ type: "change", text: ch })),
@@ -1577,7 +1622,7 @@ function validateCharacter(character, difficulty) {
   return errors;
 }
 
-function createSession({ character, scenarioId, difficulty, mode, scenarioDir }) {
+function createSession({ character, scenarioId, difficulty, mode, scenarioDir, language }) {
   const scenario = loadScenario(scenarioId, scenarioDir);
   if (!scenario) throw new Error("找不到这个剧本");
   const errors = validateCharacter(character, difficulty);
@@ -1589,6 +1634,7 @@ function createSession({ character, scenarioId, difficulty, mode, scenarioDir })
     scenarioId,
     difficulty,
     mode: mode === "free" ? "free" : "trpg",
+    language: normalizeLanguage(language || character.language),
     character: {
       name: clip(character.name, CLI.characterName),
       gender: clip(character.gender, 20),
@@ -1688,6 +1734,7 @@ function loadSession(file) {
 module.exports = {
   ROOT, WORK, SCENARIO_DIR, PRESET_DIR, USER_SCENARIO_DIR, config, ATTRS, SKILLS, DIFFICULTY, ATTR_POINTS, ATTR_MIN, ATTR_MAX,
   NARRATIVE_LENGTH, DEFAULT_SETTINGS,
+  LANGUAGES, normalizeLanguage, languageInstruction,
   listScenarios, loadScenario, clockText, upcomingEvents, humanDuration,
   advanceTime, applyState, parseModelTurn, buildPrompt, buildContinuePrompt,
   rollCheck, skillValue, runTurn, runOpening, createSession, saveSession, loadSession,

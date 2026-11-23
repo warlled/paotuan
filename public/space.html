@@ -53,6 +53,11 @@
 <div class="wrap">
   <div class="top">
     <h1>我的私人空间</h1>
+    <select data-language-select style="width:auto;min-width:112px;padding:5px 8px">
+      <option value="zh">中文</option><option value="en">English</option>
+      <option value="ja">日本語</option><option value="fr">Français</option>
+      <option value="ru">Русский</option>
+    </select>
     <a id="public-link" href="#" target="_blank" rel="noopener" style="display:none">我的公开主页</a>
     <a href="/">← 回到游戏</a>
   </div>
@@ -98,6 +103,7 @@
     </div>
   </div>
 </div>
+<script src="/i18n.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 let me = null;

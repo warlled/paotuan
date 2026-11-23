@@ -229,6 +229,7 @@ function publicRoom(room, sid) {
     mode: room.mode,
     difficulty: room.difficulty,
     scenario: { title: room.scenario.title, genre: room.scenario.genre, blurb: room.scenario.blurb },
+    language: engine.normalizeLanguage(room.language),
     players: room.players.map((p) => ({
       pid: p.pid,
       name: p.name,
@@ -358,6 +359,8 @@ function roomPrompt(room) {
     .join("\n");
   return [
     "你是多人联机跑团的主持人。",
+    engine.languageInstruction(room.language),
+    "",
     `【剧本】${sc.title}（${sc.genre}）`,
     `背景：${sc.background}`,
     `玩家处境：${sc.hook || ""}`,
@@ -1530,7 +1533,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "GET" && (p === "/" || p === "/index.html")) {
     return send(res, 200, fs.readFileSync(path.join(PUBLIC, "index.html"), "utf8"), "text/html; charset=utf-8");
   }
-  if (req.method === "GET" && (p === "/app.js" || p === "/style.css")) {
+  if (req.method === "GET" && (p === "/app.js" || p === "/i18n.js" || p === "/style.css")) {
     const type = p.endsWith(".css") ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8";
     if (!fs.existsSync(path.join(PUBLIC, p))) return send(res, 404, "not found", "text/plain; charset=utf-8");
     return send(res, 200, fs.readFileSync(path.join(PUBLIC, p), "utf8"), type);
@@ -2018,6 +2021,7 @@ const server = http.createServer(async (req, res) => {
       mode: body.mode === "free" ? "free" : "trpg",
       difficulty: ["easy", "normal", "hard"].includes(body.difficulty) ? body.difficulty : "normal",
       opening: String(body.opening || "").slice(0, 500),
+      language: engine.normalizeLanguage(body.language),
       status: "lobby",
       players: [
         {
@@ -2112,6 +2116,7 @@ const server = http.createServer(async (req, res) => {
     if (room.hostSid !== entry.sid) return send(res, 403, { error: "只有房主可以推进剧情" });
     if (room.status !== "playing") return send(res, 400, { error: "游戏还没开始" });
     if (room.busy) return send(res, 429, { error: "正在推演，稍等" });
+    if (body.language != null) room.language = engine.normalizeLanguage(body.language);
     if (!Object.keys(room.actions).length) return send(res, 400, { error: "还没有人提交行动" });
     room.busy = true;
     try {
@@ -2234,6 +2239,7 @@ const server = http.createServer(async (req, res) => {
         difficulty: body.difficulty || "normal",
         mode: body.mode,
         scenarioDir: guestDir(entry),
+        language: body.language,
       });
     } catch (err) {
       return send(res, 400, { error: String(err.message || err) });
@@ -2278,6 +2284,7 @@ const server = http.createServer(async (req, res) => {
     const body = await readBody(req);
     const text = String(body.text || "").trim().slice(0, 500);
     if (!text) return send(res, 400, { error: "先说要做的事。" });
+    if (body.language != null) entry.session.language = engine.normalizeLanguage(body.language);
     const scenario = engine.loadScenario(entry.session.scenarioId, guestDir(entry));
     if (!scenario) return send(res, 500, { error: "剧本文件读不到了。" });
     entry.busy = true;

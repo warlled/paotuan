@@ -287,6 +287,7 @@ async function startGame() {
         scenarioId: setupState.scenarioId,
         difficulty: setupState.difficulty,
         mode: $("mode-select")?.value || "trpg",
+        language: currentUiLanguage(),
       }),
     });
     const data = await res.json();
@@ -512,7 +513,7 @@ async function act(text) {
     let res = await fetch("/api/action", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, language: currentUiLanguage() }),
     });
     let data = await res.json();
     if (!res.ok && data.needNewGame) {
@@ -533,7 +534,7 @@ async function act(text) {
           res = await fetch("/api/action", {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ text }),
+            body: JSON.stringify({ text, language: currentUiLanguage() }),
           });
           data = await res.json();
         }
@@ -1617,26 +1618,17 @@ $("btn-export-play").addEventListener("click", () => {
   pptx.writeFile({ fileName: `${sc.title || "跑团"}-${c.name || "角色"}-游玩记录.pptx` }).catch(() => alert("导出失败，请重试。"));
 });
 
-const I18N = {
-  en: { good: "Good", bad: "Bad", feedback: "Board", me: "Me", community: "Community", online: "Online", start: "Start", restart: "Restart", quit: "Quit", opening: "Opening", save: "Save", load: "Load" },
-  ja: { good: "高評価", bad: "低評価", feedback: "掲示板", me: "マイ", community: "コミュ", online: "オンライン", start: "開始", restart: "再開", quit: "終了", opening: "導入", save: "保存", load: "読込" },
-  fr: { good: "Avis +", bad: "Avis -", feedback: "Messages", me: "Moi", community: "Communauté", online: "En ligne", start: "Commencer", restart: "Recommencer", quit: "Quitter", opening: "Ouverture", save: "Sauver", load: "Charger" },
-  ru: { good: "Хорошо", bad: "Плохо", feedback: "Отзывы", me: "Профиль", community: "Сообщество", online: "Онлайн", start: "Начать", restart: "Заново", quit: "Выйти", opening: "Начало", save: "Сохранить", load: "Загрузить" },
-};
-const LANG_TARGETS = [
-  ["#vote-up span", "good"], ["#vote-down span", "bad"], ["#feedback-open span", "feedback"],
-  ["#me-open", "me"], ["#cm-open", "community"], ['#hud a[href^="/room"]', "online"],
-  ["#start", "start"], ["#btn-new", "restart"], ["#btn-quit", "quit"], ["#btn-opening", "opening"],
-  ["#btn-save-file", "save"], ["#btn-load-file", "load"],
-];
+function currentUiLanguage() {
+  return window.PT_I18N?.getLanguage() || (() => {
+    try {
+      return localStorage.getItem("pt-lang") || "zh";
+    } catch {
+      return "zh";
+    }
+  })();
+}
 function applyLang(lang) {
-  for (const [sel, key] of LANG_TARGETS) {
-    const node = document.querySelector(sel);
-    if (!node) continue;
-    if (!node.dataset.zh) node.dataset.zh = node.textContent;
-    node.textContent = lang === "zh" ? node.dataset.zh : (I18N[lang] && I18N[lang][key]) || node.dataset.zh;
-  }
-  document.documentElement.lang = lang;
+  window.PT_I18N?.setLanguage(lang);
 }
 function applyZoom(value) {
   document.body.style.zoom = String(value);
@@ -1654,6 +1646,10 @@ document.querySelectorAll("[data-zoom]").forEach((b) => {
 $("lang-select").addEventListener("change", () => {
   const lang = $("lang-select").value;
   applyLang(lang);
+  try { localStorage.setItem("pt-lang", lang); } catch {}
+});
+window.addEventListener("pt-language-changed", (event) => {
+  const lang = event.detail?.language || currentUiLanguage();
   try { localStorage.setItem("pt-lang", lang); } catch {}
 });
 try {
