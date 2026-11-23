@@ -1679,6 +1679,9 @@ const server = http.createServer(async (req, res) => {
       else missing.push(text);
     }
     if (!missing.length) return send(res, 200, { translations, cached: true });
+    if (body.cachedOnly === true) {
+      return send(res, 200, { translations, cached: true, partial: true });
+    }
     if (!entry.owner && guestQuotaLeft() <= 0) {
       return send(res, 429, { error: "今天的翻译额度已经用完，明天再来吧。" });
     }

@@ -1645,8 +1645,8 @@ function currentUiLanguage() {
     }
   })();
 }
-function applyLang(lang) {
-  window.PT_I18N?.setLanguage(lang);
+function applyLang(lang, options = {}) {
+  window.PT_I18N?.setLanguage(lang, options);
 }
 function applyZoom(value) {
   document.body.style.zoom = String(value);
@@ -1663,7 +1663,7 @@ document.querySelectorAll("[data-zoom]").forEach((b) => {
 });
 $("lang-select").addEventListener("change", () => {
   const lang = $("lang-select").value;
-  applyLang(lang);
+  applyLang(lang, { allowRemoteModel: true });
   try { localStorage.setItem("pt-lang", lang); } catch {}
 });
 window.addEventListener("pt-language-changed", (event) => {
@@ -1675,7 +1675,7 @@ try {
   if (z) applyZoom(z);
   const l = localStorage.getItem("pt-lang") || "zh-Hans";
   $("lang-select").value = l;
-  applyLang(l);
+  applyLang(l, { silent: true });
 } catch {}
 
 buildModelPicker();

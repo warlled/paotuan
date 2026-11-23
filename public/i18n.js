@@ -1104,6 +1104,7 @@
   let remoteTimer = 0;
   let remoteToken = 0;
   let remoteRunning = false;
+  let allowRemoteModelCall = false;
   let translationStatusNode = null;
 
   const TRANSLATION_STATUS = {
@@ -1320,11 +1321,11 @@
     }
   }
 
-  async function translateRemoteBatch(language, texts, token) {
+  async function translateRemoteBatch(language, texts, token, allowModel) {
     const response = await fetch("/api/i18n/translate", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ language, texts }),
+      body: JSON.stringify({ language, texts, cachedOnly: !allowModel }),
     });
     if (!response.ok) throw new Error(`translation ${response.status}`);
     const data = await response.json();
@@ -1356,7 +1357,7 @@
       }
       showTranslationStatus();
       try {
-        await translateRemoteBatch(language, batch, token);
+        await translateRemoteBatch(language, batch, token, allowRemoteModelCall);
       } catch {
         for (const text of batch) remoteMisses.add(`${language}\n${text}`);
       }
@@ -1397,6 +1398,7 @@
   function setLanguage(language, options = {}) {
     const next = normalizeLanguage(language);
     current = next;
+    allowRemoteModelCall = options.allowRemoteModel === true;
     hideTranslationStatus();
     document.documentElement.lang = next === "zh-Hans" ? "zh-CN" : next === "zh-Hant" ? "zh-TW" : next;
     apply();
@@ -1414,7 +1416,7 @@
     document.querySelectorAll("#lang-select, #game-lang-select, [data-language-select]").forEach((picker) => {
       if (picker.dataset.ptLangBound) return;
       picker.dataset.ptLangBound = "1";
-      picker.addEventListener("change", () => setLanguage(picker.value));
+      picker.addEventListener("change", () => setLanguage(picker.value, { allowRemoteModel: true }));
     });
   }
 
@@ -1443,7 +1445,10 @@
       attributes: true,
       attributeFilter: ["placeholder", "title", "alt", "aria-label"],
     });
-    document.addEventListener("click", () => scheduleRemoteTranslation(650), true);
+    document.addEventListener("click", () => {
+      allowRemoteModelCall = true;
+      scheduleRemoteTranslation(650);
+    }, true);
   }
 
   window.PT_I18N = {
