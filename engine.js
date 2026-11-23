@@ -102,7 +102,12 @@ const DEFAULT_SETTINGS = {
 };
 
 const LANGUAGES = {
-  zh: { name: "简体中文", instruction: "使用简体中文。" },
+  "zh-Hans": { name: "简体中文", instruction: "使用简体中文。" },
+  "zh-Hant": {
+    name: "繁體中文",
+    instruction:
+      "所有GM敘述、NPC對話、場景描寫、判定說明與結局都必須使用自然、正確的繁體中文。可將簡體中文資料轉為繁體中文，但專有名稱應保持一致。",
+  },
   en: {
     name: "English",
     instruction:
@@ -112,6 +117,16 @@ const LANGUAGES = {
     name: "日本語",
     instruction:
       "GMの語り、NPCの台詞、情景描写、判定結果の説明、結末はすべて自然な日本語で書いてください。中国語の設定資料は必要に応じて日本語に翻訳し、ナレーションを中国語で書かないでください。",
+  },
+  ko: {
+    name: "한국어",
+    instruction:
+      "GM의 모든 서술, NPC 대사, 장면 묘사, 판정 결과 설명과 결말은 자연스러운 한국어로 작성하십시오. 필요한 경우 중국어 원문을 한국어로 번역하고, 서사를 중국어로 쓰지 마십시오.",
+  },
+  de: {
+    name: "Deutsch",
+    instruction:
+      "Alle Erzähltexte des Spielleiters, NPC-Dialoge, Szenenbeschreibungen, Erklärungen von Proben und Enden müssen auf natürlichem Deutsch verfasst sein. Übersetze chinesische Quellen bei Bedarf; erzähle nicht auf Chinesisch.",
   },
   fr: {
     name: "Français",
@@ -126,8 +141,11 @@ const LANGUAGES = {
 };
 
 function normalizeLanguage(value) {
-  const lang = String(value || "").trim().toLowerCase().split("-")[0];
-  return Object.prototype.hasOwnProperty.call(LANGUAGES, lang) ? lang : "zh";
+  const lang = String(value || "").trim().toLowerCase().replace(/_/g, "-");
+  if (["zh", "zh-hans", "zh-cn", "zh-sg"].includes(lang)) return "zh-Hans";
+  if (["zh-hant", "zh-tw", "zh-hk", "zh-mo"].includes(lang)) return "zh-Hant";
+  const short = lang.split("-")[0];
+  return Object.prototype.hasOwnProperty.call(LANGUAGES, short) ? short : "zh-Hans";
 }
 
 function languageInstruction(value) {
@@ -977,6 +995,10 @@ function scenarioBrief(scenario) {
     .map((e) => `- ${e.name}：${e.condition}${e.effect ? `｜收束效果：${e.effect}` : ""}`)
     .join("\n");
   const rules = scenario.rules || {};
+  const continuity = (Array.isArray(scenario.continuity) ? scenario.continuity : [scenario.continuity])
+    .map((item) => clip(item, 1200))
+    .filter(Boolean)
+    .join("\n");
   const entities = (scenario.entities || [])
     .slice(0, 12)
     .map((e) => {
@@ -1035,6 +1057,7 @@ function scenarioBrief(scenario) {
     `固定开局选项：\n${openings || "无"}`,
     `相关人物：\n${npcs}`,
     `线索池（GM 内部参考，只能通过场景与对话逐步放出）：${clues}`,
+    `设定红线（优先级高于临场发挥）：\n${continuity || "未单独指定；仍须遵守背景、人物能力与既有状态。"}`,
     `真相（严禁直接说破）：${scenario.truth || ""}`,
     `结局方向：\n${endings}`,
     `实体名录：\n${entities || "无"}`,
@@ -1079,6 +1102,11 @@ function rulesBlock(settings, language) {
     "    attitude 用两到四个字的词（初识、戒备、信任、感激、敌意、亲近……），delta 是 -3 到 3 的整数，表示好感的变化方向。",
     "    关系没有变化就不要写 relations；不要每回合都把所有人写一遍。",
     "12) 目标：玩家明确接下或完成一件事时，用 objectives_add / objectives_done（各最多 2 条，每条 20 字以内）。",
+    "13) 不得替玩家决定行动、台词、内心想法或结果，也不要把玩家的猜测直接写成世界真相。只描写玩家能看见、听见、摸到或合理推断到的内容。",
+    "14) 保持空间、时间和人物状态连续：角色不会无解释瞬移，伤势、道具、位置、在场人员与已发生事件都不会自行复原；NPC 只能依据自己的知情范围行动。",
+    "15) 不要擅自加入鬼魂、附身、无实体怨灵、通灵、预知、时间循环、失忆、梦境结局或现实重置。题材允许超自然时，也必须使用剧本已建立的规则，并给出可观察、可验证的线索。",
+    "16) 参照既有作品时，不得篡改角色身份、能力上限、关键经历或世界观规则，不得让未在场人物隔空救援；优先遵守剧本的“设定红线”。",
+    "17) 怪异现象必须有来源、代价和前后一致的规则。若不确定某个新设定是否成立，宁可不写，也不要用突然的反转、幻觉或“其实都是梦”收尾。",
   ];
   if (!s.allowCritFail) {
     lines.push("※ 本局关闭了大失败：即使判定掷出最低值，也请给一个“代价很大但没崩盘”的结果，不要写角色摔断腿之类的灾难。");
@@ -1549,6 +1577,7 @@ async function runOpening(session, scenario, modelOverride) {
   const settings = getSettings();
   const customOpening = String(scenario.opening || "").trim();
   const language = normalizeLanguage(session.language);
+  const showCustomOpening = language === "zh-Hans";
   const prompt = [
     rulesBlock(settings, language),
     modeBlock(session),
@@ -1559,7 +1588,7 @@ async function runOpening(session, scenario, modelOverride) {
     "",
     ...(customOpening
       ? [
-          language === "zh"
+          showCustomOpening
             ? "【玩家写好的开场白（已原样呈现给玩家，不要重复其中的句子）】"
             : "【需要本地化的玩家开场白】请先把下面内容忠实翻译成规定语言，并作为第一段叙述呈现给玩家；不要保留中文叙述。",
           customOpening,
@@ -1574,7 +1603,7 @@ async function runOpening(session, scenario, modelOverride) {
     worldBlock(session),
     "",
     customOpening
-      ? language === "zh"
+      ? showCustomOpening
         ? "【这是游戏的第一幕】开场白已经给过了，请顺着它往前推一小步：描写此刻正在发生的一件事、一个人的出现或一个细微的变化，把玩家推到一个需要做决定的位置。不要复述开场白。"
         : "【这是游戏的第一幕】请先输出上面开场白的目标语言译文，再顺着它推进一小步。译文要忠实，随后描写一个变化，把玩家推到需要决定的位置。"
       : "【这是游戏的第一幕】请写出开场：把玩家放进场景里，交代他在哪、此刻看到听到什么、眼前最值得注意的东西是什么。3 到 5 段，节奏稳一点，不要急着抛出全部悬念。",
@@ -1587,7 +1616,7 @@ async function runOpening(session, scenario, modelOverride) {
   const applied = applyState(session, scenario, parsed.state);
   return {
     segments: [
-      ...(customOpening && language === "zh" ? [{ type: "gm", text: customOpening }] : []),
+      ...(customOpening && showCustomOpening ? [{ type: "gm", text: customOpening }] : []),
       ...(parsed.narrative ? [{ type: "gm", text: parsed.narrative }] : []),
       ...applied.fired.map((ev) => ({ type: "event", text: `${ev.title}：${ev.note || ""}` })),
       ...applied.changes.map((ch) => ({ type: "change", text: ch })),

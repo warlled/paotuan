@@ -1621,9 +1621,9 @@ $("btn-export-play").addEventListener("click", () => {
 function currentUiLanguage() {
   return window.PT_I18N?.getLanguage() || (() => {
     try {
-      return localStorage.getItem("pt-lang") || "zh";
+      return localStorage.getItem("pt-lang") || "zh-Hans";
     } catch {
-      return "zh";
+      return "zh-Hans";
     }
   })();
 }
@@ -1655,7 +1655,7 @@ window.addEventListener("pt-language-changed", (event) => {
 try {
   const z = Number(localStorage.getItem("pt-zoom"));
   if (z) applyZoom(z);
-  const l = localStorage.getItem("pt-lang") || "zh";
+  const l = localStorage.getItem("pt-lang") || "zh-Hans";
   $("lang-select").value = l;
   applyLang(l);
 } catch {}

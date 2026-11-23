@@ -86,9 +86,10 @@
   <div class="top">
     <h1>多人联机 · 创作游玩</h1>
     <select data-language-select style="width:auto;min-width:112px;padding:5px 8px">
-      <option value="zh">中文</option><option value="en">English</option>
-      <option value="ja">日本語</option><option value="fr">Français</option>
-      <option value="ru">Русский</option>
+      <option value="zh-Hans">简体中文</option><option value="zh-Hant">繁體中文</option>
+      <option value="en">English</option><option value="ja">日本語</option>
+      <option value="ko">한국어</option><option value="de">Deutsch</option>
+      <option value="fr">Français</option><option value="ru">Русский</option>
     </select>
     <a href="/">← 回到单机</a>
   </div>
@@ -292,7 +293,7 @@ async function createRoom() {
     mode: $("c-mode").value,
     difficulty: $("c-diff").value,
     opening: $("c-opening").value,
-    language: window.PT_I18N?.getLanguage() || "zh",
+    language: window.PT_I18N?.getLanguage() || "zh-Hans",
     character: { name: $("c-name").value, role: $("c-role").value, bio: $("c-bio").value, attrs: readAttrs("c-attrs") },
   });
   if (!r.ok) { $("c-err").textContent = r.body?.error || "创建失败"; return; }
@@ -467,7 +468,7 @@ async function action() {
 }
 async function advance() {
   $("r-err").textContent = "正在推演…";
-  const r = await post("/api/rooms/advance", { code, language: window.PT_I18N?.getLanguage() || "zh" });
+  const r = await post("/api/rooms/advance", { code, language: window.PT_I18N?.getLanguage() || "zh-Hans" });
   if (!r.ok) { $("r-err").textContent = r.body?.error || "推进失败"; return; }
   $("r-err").textContent = "";
   room = r.body.room; render();

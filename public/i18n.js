@@ -1,11 +1,14 @@
 /* Shared interface localisation for the main site, rooms and profile pages. */
 (() => {
   const STORAGE_KEY = "pt-lang";
-  const SUPPORTED = ["zh", "en", "ja", "fr", "ru"];
+  const SUPPORTED = ["zh-Hans", "zh-Hant", "en", "ja", "ko", "de", "fr", "ru"];
   const LANGUAGE_NAMES = {
-    zh: "简体中文",
+    "zh-Hans": "简体中文",
+    "zh-Hant": "繁體中文",
     en: "English",
     ja: "日本語",
+    ko: "한국어",
+    de: "Deutsch",
     fr: "Français",
     ru: "Русский",
   };
@@ -794,6 +797,131 @@
     "按掷骰总值判断结果": ["Result is determined by the rolled total", "ダイスの合計値で結果を判定", "Le total du jet détermine le résultat", "Результат определяется суммой броска"],
   };
 
+  // Core Korean/German strings. Less common text is translated once through the server cache.
+  const KO_DE = {
+    "好评": ["좋아요", "Gefällt mir"],
+    "差评": ["싫어요", "Gefällt mir nicht"],
+    "留言板": ["게시판", "Feedback"],
+    "我的": ["내 정보", "Profil"],
+    "社区": ["커뮤니티", "Community"],
+    "联机": ["멀티플레이", "Mehrspieler"],
+    "反馈与留言": ["의견과 메시지", "Feedback und Nachrichten"],
+    "发布": ["게시", "Veröffentlichen"],
+    "关闭": ["닫기", "Schließen"],
+    "保存": ["저장", "Speichern"],
+    "删除": ["삭제", "Löschen"],
+    "读取": ["불러오기", "Laden"],
+    "清除": ["지우기", "Löschen"],
+    "测试连接": ["연결 테스트", "Verbindung testen"],
+    "保存资料": ["프로필 저장", "Profil speichern"],
+    "进入我的私人空间": ["내 개인 공간 열기", "Meinen privaten Bereich öffnen"],
+    "头像": ["아바타", "Avatar"],
+    "昵称": ["닉네임", "Nickname"],
+    "一句话个人简介": ["한 줄 소개", "Kurze Biografie"],
+    "上传头像": ["아바타 업로드", "Avatar hochladen"],
+    "主题色": ["강조 색상", "Akzentfarbe"],
+    "网站主题": ["사이트 테마", "Website-Design"],
+    "界面字号": ["화면 글자 크기", "Schriftgröße"],
+    "网站语言": ["웹사이트 언어", "Websitesprache"],
+    "全部": ["전체", "Alle"],
+    "历史": ["역사", "Historie"],
+    "奇幻": ["판타지", "Fantasy"],
+    "科幻": ["SF", "Science-Fiction"],
+    "现实": ["현실", "Realismus"],
+    "言情": ["로맨스", "Romantik"],
+    "脑洞": ["기발한 상상", "Verrückte Ideen"],
+    "玄幻": ["동양 판타지", "Mystische Fantasy"],
+    "仙侠": ["선협", "Xianxia"],
+    "怪谈": ["괴담", "Seltsame Geschichten"],
+    "悬疑": ["미스터리", "Mystery"],
+    "搜索": ["검색", "Suchen"],
+    "创作社区": ["창작 커뮤니티", "Kreativ-Community"],
+    "玩家自由创作游玩": ["플레이어 창작 플레이", "Spielerisches Erschaffen"],
+    "社区网站平台": ["커뮤니티 플랫폼", "Community-Plattform"],
+    "＋ 写一个新剧本": ["＋ 새 시나리오", "＋ Neues Szenario"],
+    "去创作社区": ["창작 커뮤니티로", "Zur Community"],
+    "我的空间": ["내 공간", "Mein Bereich"],
+    "一、选剧本": ["1. 시나리오 선택", "1. Szenario wählen"],
+    "原创": ["오리지널", "Original"],
+    "漫威": ["Marvel", "Marvel"],
+    "自己写一个剧本": ["새 시나리오 작성", "Szenario erstellen"],
+    "编辑选中的自定义剧本": ["선택한 시나리오 편집", "Ausgewähltes Szenario bearbeiten"],
+    "删除选中的自定义剧本": ["선택한 시나리오 삭제", "Ausgewähltes Szenario löschen"],
+    "分享到社区": ["커뮤니티에 공유", "In der Community teilen"],
+    "二、写你的角色": ["2. 캐릭터 작성", "2. Charakter erstellen"],
+    "姓名 *": ["이름 *", "Name *"],
+    "称呼 / 性别": ["호칭 / 성별", "Anrede / Geschlecht"],
+    "年龄": ["나이", "Alter"],
+    "身份职业": ["신분 / 직업", "Rolle / Beruf"],
+    "外貌": ["외모", "Aussehen"],
+    "性格": ["성격", "Persönlichkeit"],
+    "背景": ["배경", "Hintergrund"],
+    "目标 / 动机": ["목표 / 동기", "Ziel / Motivation"],
+    "保存这个角色": ["캐릭터 저장", "Charakter speichern"],
+    "三、分配属性（共 30 点，每项 1-10）": [
+      "3. 능력치 배분 (총 30점, 항목당 1–10)",
+      "3. Attribute verteilen (30 Punkte, je 1–10)",
+    ],
+    "随机分配": ["무작위 배분", "Zufällig verteilen"],
+    "重置为 5": ["5로 초기화", "Auf 5 zurücksetzen"],
+    "四、难度": ["4. 난이도", "4. Schwierigkeit"],
+    "玩法": ["모드", "Modus"],
+    "开始游戏": ["게임 시작", "Spiel starten"],
+    "继续上次的游戏": ["이전 게임 계속", "Letztes Spiel fortsetzen"],
+    "属性": ["능력치", "Attribute"],
+    "技能值": ["기술", "Fertigkeiten"],
+    "探索": ["탐험", "Erkundung"],
+    "当前位置": ["현재 위치", "Standort"],
+    "等级": ["레벨", "Stufe"],
+    "经验": ["경험치", "Erfahrung"],
+    "主动掷骰": ["직접 판정", "Manuelle Probe"],
+    "背包": ["소지품", "Inventar"],
+    "线索": ["단서", "Hinweise"],
+    "时间表": ["일정", "Zeitplan"],
+    "人物关系": ["인물 관계", "Beziehungen"],
+    "当前目标": ["현재 목표", "Aktuelle Ziele"],
+    "已发生事件": ["발생한 사건", "Vergangene Ereignisse"],
+    "设定（下一回合生效）": ["설정 (다음 턴부터)", "Einstellungen (ab nächster Runde)"],
+    "自动存档": ["자동 저장", "Automatisch speichern"],
+    "开场": ["도입", "Einstieg"],
+    "导出": ["내보내기", "Exportieren"],
+    "存档": ["저장", "Speichern"],
+    "读档": ["불러오기", "Laden"],
+    "重新开始": ["다시 시작", "Neu starten"],
+    "退出": ["나가기", "Beenden"],
+    "观察四周": ["주변 둘러보기", "Umsehen"],
+    "找人搭话": ["누군가와 대화", "Jemanden ansprechen"],
+    "梳理线索": ["단서 정리", "Hinweise ordnen"],
+    "休息一会儿": ["잠시 휴식", "Kurz ausruhen"],
+    "行动": ["행동", "Handeln"],
+    "开始行动": ["행동 시작", "Beginnen"],
+    "属性": ["능력치", "Attribute"],
+    "力量": ["근력", "Stärke"],
+    "敏捷": ["민첩", "Geschicklichkeit"],
+    "体质": ["내구", "Konstitution"],
+    "智力": ["지능", "Intelligenz"],
+    "感知": ["지각", "Wahrnehmung"],
+    "魅力": ["매력", "Charisma"],
+    "侦查": ["수색", "Untersuchen"],
+    "聆听": ["청각", "Zuhören"],
+    "话术": ["설득", "Überzeugen"],
+    "威吓": ["위협", "Einschüchtern"],
+    "格斗": ["격투", "Nahkampf"],
+    "潜行": ["은신", "Schleichen"],
+    "身手": ["곡예", "Akrobatik"],
+    "学识": ["학식", "Wissen"],
+    "医术": ["의술", "Medizin"],
+    "意志": ["의지", "Willenskraft"],
+    "单人": ["싱글 플레이", "Einzelspieler"],
+    "多人": ["멀티 플레이", "Mehrspieler"],
+    "创作系统": ["창작 시스템", "Kreativsystem"],
+    "基本力量": ["기본 능력", "Grundwerte"],
+    "未记录": ["미기록", "Nicht erfasst"],
+    "轻松": ["쉬움", "Leicht"],
+    "标准": ["표준", "Normal"],
+    "硬核": ["하드코어", "Hardcore"],
+  };
+
   const PATTERNS = [
     [/^第 (\d+) \/ (\d+) 页$/, ["Page $1 / $2", "$1 / $2ページ", "Page $1 / $2", "Стр. $1 / $2"]],
     [/^第 (\d+) 回合(?: · (.*))?$/, ["Turn $1$2", "$1ターン$2", "Tour $1$2", "Ход $1$2"]],
@@ -834,26 +962,221 @@
   const SKIP = [
     "script",
     "style",
-    "#log .seg.gm",
     "#log .seg.player",
-    ".gm",
     ".player",
-    ".op-story",
-    ".ro-story",
     ".fb-item",
     ".cm-item",
     ".post",
-    "#scenarios .card .t",
-    "#scenarios .card .b",
     "[data-no-i18n]",
   ].join(",");
+
+  const REMOTE_SKIP = [
+    "script",
+    "style",
+    "textarea",
+    "input",
+    "select",
+    "#log .seg.player",
+    ".fb-item",
+    ".cm-item",
+    ".post",
+    "[data-no-i18n]",
+  ].join(",");
+
+  const TRADITIONAL_PHRASES = {
+    剧本: "劇本",
+    设定: "設定",
+    简体中文: "簡體中文",
+    个人: "個人",
+    关系: "關係",
+    网站: "網站",
+    联机: "聯機",
+    创建: "建立",
+    数据: "資料",
+    链接: "連結",
+    词条: "詞條",
+    进度: "進度",
+    时间: "時間",
+    开始: "開始",
+    结束: "結束",
+    选择: "選擇",
+    随机: "隨機",
+    触发: "觸發",
+    选项: "選項",
+    状态: "狀態",
+    默认: "預設",
+    内容: "內容",
+    简介: "簡介",
+    标题: "標題",
+    角色: "角色",
+    经历: "經歷",
+    改变: "改變",
+    发生: "發生",
+    处理: "處理",
+    后端: "後端",
+    服务器: "伺服器",
+    记录: "記錄",
+    恢复: "恢復",
+    备份: "備份",
+    费用: "費用",
+    风险: "風險",
+    繁体: "繁體",
+    联系: "聯絡",
+    里面: "裡面",
+    说话: "說話",
+    这里: "這裡",
+    那里: "那裡",
+  };
+
+  const S2T = Object.fromEntries(
+    Object.entries({
+      万: "萬", 与: "與", 专: "專", 业: "業", 东: "東", 丝: "絲", 丢: "丟", 两: "兩", 严: "嚴", 个: "個",
+      丰: "豐", 临: "臨", 为: "為", 义: "義", 乌: "烏", 乐: "樂", 乔: "喬", 习: "習", 乡: "鄉", 书: "書",
+      买: "買", 乱: "亂", 争: "爭", 于: "於", 亏: "虧", 云: "雲", 亚: "亞", 产: "產", 亩: "畝", 亲: "親",
+      亿: "億", 仅: "僅", 从: "從", 仓: "倉", 仪: "儀", 们: "們", 价: "價", 众: "眾", 优: "優", 会: "會",
+      伞: "傘", 伟: "偉", 传: "傳", 伤: "傷", 伦: "倫", 伪: "偽", 体: "體", 余: "餘", 佣: "傭", 侠: "俠",
+      侣: "侶", 侣: "侶", 侦: "偵", 侧: "側", 侨: "僑", 俩: "倆", 债: "債", 倾: "傾", 偿: "償", 储: "儲",
+      儿: "兒", 党: "黨", 入: "入", 关: "關", 兴: "興", 养: "養", 兽: "獸", 内: "內", 册: "冊", 写: "寫",
+      军: "軍", 农: "農", 冲: "衝", 决: "決", 况: "況", 冻: "凍", 净: "淨", 减: "減", 凑: "湊", 准: "準",
+      几: "幾", 凤: "鳳", 凭: "憑", 击: "擊", 划: "劃", 则: "則", 刚: "剛", 创: "創", 删: "刪", 别: "別",
+      剧: "劇", 劝: "勸", 办: "辦", 务: "務", 动: "動", 劲: "勁", 劳: "勞", 势: "勢", 勋: "勳", 医: "醫",
+      华: "華", 协: "協", 单: "單", 卖: "賣", 卢: "盧", 卫: "衛", 却: "卻", 厂: "廠", 厅: "廳", 历: "歷",
+      压: "壓", 厌: "厭", 厕: "廁", 县: "縣", 参: "參", 双: "雙", 发: "發", 变: "變", 叠: "疊", 号: "號",
+      叹: "嘆", 吓: "嚇", 吗: "嗎", 听: "聽", 启: "啟", 员: "員", 响: "響", 哑: "啞", 唤: "喚", 团: "團",
+      园: "園", 围: "圍", 图: "圖", 圆: "圓", 圣: "聖", 场: "場", 坏: "壞", 块: "塊", 坚: "堅", 坛: "壇",
+      坟: "墳", 坠: "墜", 垒: "壘", 垦: "墾", 执: "執", 坚: "堅", 声: "聲", 壳: "殼", 处: "處", 备: "備",
+      复: "複", 够: "夠", 头: "頭", 夹: "夾", 夺: "奪", 奖: "獎", 妇: "婦", 妈: "媽", 娱: "娛", 婴: "嬰",
+      宁: "寧", 宝: "寶", 实: "實", 审: "審", 宪: "憲", 宫: "宮", 宽: "寬", 宾: "賓", 对: "對", 寻: "尋",
+      导: "導", 寿: "壽", 将: "將", 尔: "爾", 尘: "塵", 尝: "嘗", 层: "層", 属: "屬", 岁: "歲", 岂: "豈",
+      峡: "峽", 币: "幣", 帅: "帥", 师: "師", 帐: "帳", 带: "帶", 帮: "幫", 广: "廣", 庆: "慶", 库: "庫",
+      应: "應", 庙: "廟", 庞: "龐", 废: "廢", 开: "開", 异: "異", 弃: "棄", 张: "張", 弹: "彈", 强: "強",
+      归: "歸", 当: "當", 录: "錄", 彻: "徹", 径: "徑", 忆: "憶", 忧: "憂", 怀: "懷", 态: "態", 总: "總",
+      恋: "戀", 恳: "懇", 恼: "惱", 悬: "懸", 惊: "驚", 惧: "懼", 惨: "慘", 惩: "懲", 愿: "願", 懒: "懶",
+      戏: "戲", 战: "戰", 户: "戶", 扎: "紮", 扑: "撲", 执: "執", 扩: "擴", 扫: "掃", 扬: "揚", 扰: "擾",
+      报: "報", 担: "擔", 拟: "擬", 拥: "擁", 择: "擇", 挂: "掛", 挥: "揮", 损: "損", 换: "換", 据: "據",
+      掷: "擲", 插: "插", 搜: "搜", 摄: "攝", 摆: "擺", 摇: "搖", 撑: "撐", 撤: "撤", 撷: "擷", 敌: "敵",
+      数: "數", 断: "斷", 无: "無", 旧: "舊", 时: "時", 显: "顯", 晋: "晉", 晒: "曬", 晓: "曉", 术: "術",
+      机: "機", 杀: "殺", 杂: "雜", 权: "權", 条: "條", 来: "來", 杨: "楊", 极: "極", 构: "構", 枪: "槍",
+      标: "標", 树: "樹", 样: "樣", 桥: "橋", 检: "檢", 楼: "樓", 欢: "歡", 欧: "歐", 残: "殘", 历: "歷",
+      归: "歸", 气: "氣", 汇: "匯", 汉: "漢", 汤: "湯", 沟: "溝", 没: "沒", 泪: "淚", 测: "測", 济: "濟",
+      浓: "濃", 涛: "濤", 润: "潤", 涨: "漲", 渐: "漸", 温: "溫", 湾: "灣", 满: "滿", 滤: "濾", 灭: "滅",
+      灯: "燈", 灵: "靈", 灾: "災", 炼: "煉", 烂: "爛", 烟: "煙", 热: "熱", 爱: "愛", 牵: "牽", 犹: "猶",
+      狮: "獅", 独: "獨", 狱: "獄", 猎: "獵", 献: "獻", 环: "環", 现: "現", 玛: "瑪", 画: "畫", 疗: "療",
+      盘: "盤", 监: "監", 盖: "蓋", 确: "確", 礼: "禮", 祸: "禍", 离: "離", 种: "種", 称: "稱", 积: "積",
+      稳: "穩", 穷: "窮", 窗: "窗", 笔: "筆", 筑: "築", 筛: "篩", 签: "簽", 简: "簡", 类: "類", 粮: "糧",
+      紧: "緊", 约: "約", 级: "級", 纪: "紀", 纯: "純", 纳: "納", 纵: "縱", 纷: "紛", 纸: "紙", 线: "線",
+      练: "練", 组: "組", 细: "細", 织: "織", 终: "終", 经: "經", 结: "結", 绝: "絕", 统: "統", 续: "續",
+      维: "維", 综: "綜", 绿: "綠", 缓: "緩", 编: "編", 缘: "緣", 缩: "縮", 网: "網", 罗: "羅", 罚: "罰",
+      义: "義", 习: "習", 翻: "翻", 联: "聯", 职: "職", 聪: "聰", 肠: "腸", 肤: "膚", 胜: "勝", 脚: "腳",
+      脸: "臉", 舖: "舖", 艺: "藝", 节: "節", 苏: "蘇", 药: "藥", 获: "獲", 营: "營", 蓝: "藍", 虽: "雖",
+      虫: "蟲", 蛮: "蠻", 补: "補", 装: "裝", 见: "見", 观: "觀", 规: "規", 觉: "覺", 览: "覽", 触: "觸",
+      计: "計", 订: "訂", 认: "認", 讨: "討", 让: "讓", 训: "訓", 议: "議", 记: "記", 讲: "講", 许: "許",
+      论: "論", 设: "設", 访: "訪", 证: "證", 评: "評", 识: "識", 诉: "訴", 词: "詞", 译: "譯", 试: "試",
+      话: "話", 详: "詳", 语: "語", 说: "說", 请: "請", 读: "讀", 课: "課", 谢: "謝", 调: "調", 谈: "談",
+      请: "請", 谋: "謀", 谓: "謂", 谜: "謎", 象: "象", 贝: "貝", 负: "負", 贡: "貢", 财: "財", 责: "責",
+      败: "敗", 货: "貨", 质: "質", 贩: "販", 贪: "貪", 贫: "貧", 购: "購", 贯: "貫", 贴: "貼", 贵: "貴",
+      费: "費", 贺: "賀", 资: "資", 赛: "賽", 赞: "讚", 赢: "贏", 赶: "趕", 趋: "趨", 车: "車", 轨: "軌",
+      转: "轉", 轻: "輕", 载: "載", 较: "較", 辆: "輛", 输: "輸", 辞: "辭", 边: "邊", 达: "達", 迁: "遷",
+      过: "過", 运: "運", 还: "還", 进: "進", 远: "遠", 违: "違", 连: "連", 迟: "遲", 适: "適", 选: "選",
+      递: "遞", 逻: "邏", 遗: "遺", 邮: "郵", 邻: "鄰", 释: "釋", 针: "針", 钟: "鐘", 钢: "鋼", 钱: "錢",
+      铁: "鐵", 银: "銀", 错: "錯", 键: "鍵", 长: "長", 门: "門", 闭: "閉", 问: "問", 间: "間", 闻: "聞",
+      阅: "閱", 阳: "陽", 阴: "陰", 阵: "陣", 阶: "階", 际: "際", 陆: "陸", 陈: "陳", 险: "險", 随: "隨",
+      隐: "隱", 难: "難", 雾: "霧", 静: "靜", 页: "頁", 顶: "頂", 项: "項", 顺: "順", 须: "須", 预: "預",
+      领: "領", 频: "頻", 题: "題", 颜: "顏", 额: "額", 风: "風", 飞: "飛", 饭: "飯", 马: "馬", 验: "驗",
+      骑: "騎", 鱼: "魚", 鸟: "鳥", 鸡: "雞", 黄: "黃", 齐: "齊", 龄: "齡", 龙: "龍",
+    }),
+  );
+
+  const REMOTE_CACHE_KEY = "pt-i18n-remote-v1";
+  let remoteCache = (() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(REMOTE_CACHE_KEY) || "{}");
+      return new Map(Object.entries(saved || {}));
+    } catch {
+      return new Map();
+    }
+  })();
+  const remoteMisses = new Set();
+  let remoteTimer = 0;
+  let remoteToken = 0;
+  let translationStatusNode = null;
+
+  const TRANSLATION_STATUS = {
+    "zh-Hant": "正在轉換頁面內容…",
+    en: "Translating page content…",
+    ja: "ページ内容を翻訳しています…",
+    ko: "페이지 내용을 번역하는 중…",
+    de: "Seiteninhalt wird übersetzt…",
+    fr: "Traduction du contenu…",
+    ru: "Перевод содержимого страницы…",
+  };
+
+  function normalizeLanguage(value) {
+    const lang = String(value || "").trim().toLowerCase().replace(/_/g, "-");
+    if (["zh", "zh-hans", "zh-cn", "zh-sg"].includes(lang)) return "zh-Hans";
+    if (["zh-hant", "zh-tw", "zh-hk", "zh-mo"].includes(lang)) return "zh-Hant";
+    return SUPPORTED.includes(lang) ? lang : "zh-Hans";
+  }
+
+  function toTraditional(value) {
+    let out = String(value || "");
+    for (const [from, to] of Object.entries(TRADITIONAL_PHRASES)) out = out.split(from).join(to);
+    return out.replace(/[\u3400-\u9fff]/g, (char) => S2T[char] || char);
+  }
+
+  function cacheRemote(key, translated) {
+    remoteCache.set(key, translated);
+    if (remoteCache.size > 1600) {
+      const excess = remoteCache.size - 1600;
+      let count = 0;
+      for (const oldKey of remoteCache.keys()) {
+        remoteCache.delete(oldKey);
+        if (++count >= excess) break;
+      }
+    }
+    try {
+      localStorage.setItem(REMOTE_CACHE_KEY, JSON.stringify(Object.fromEntries(remoteCache)));
+    } catch {}
+  }
+
+  function showTranslationStatus(text) {
+    if (!TRANSLATION_STATUS[current]) return;
+    if (!translationStatusNode) {
+      translationStatusNode = document.createElement("div");
+      translationStatusNode.id = "pt-i18n-status";
+      translationStatusNode.setAttribute("role", "status");
+      translationStatusNode.setAttribute("aria-live", "polite");
+      Object.assign(translationStatusNode.style, {
+        position: "fixed",
+        left: "50%",
+        bottom: "18px",
+        transform: "translateX(-50%)",
+        zIndex: "120",
+        padding: "7px 13px",
+        borderRadius: "999px",
+        background: "rgba(20, 23, 32, .94)",
+        color: "#f0f1f5",
+        border: "1px solid #3b4358",
+        boxShadow: "0 8px 26px rgba(0,0,0,.32)",
+        fontSize: "12px",
+        pointerEvents: "none",
+      });
+      document.body.appendChild(translationStatusNode);
+    }
+    translationStatusNode.textContent = text || TRANSLATION_STATUS[current];
+    translationStatusNode.style.display = "block";
+  }
+
+  function hideTranslationStatus() {
+    if (translationStatusNode) translationStatusNode.style.display = "none";
+  }
 
   let current = (() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      return SUPPORTED.includes(saved) ? saved : "zh";
+      return normalizeLanguage(saved);
     } catch {
-      return "zh";
+      return "zh-Hans";
     }
   })();
 
@@ -862,27 +1185,31 @@
   }
 
   function translate(value) {
-    if (current === "zh" || !value) return value;
+    if (current === "zh-Hans" || !value) return value;
     const lead = value.match(/^\s*/)?.[0] || "";
     const trail = value.match(/\s*$/)?.[0] || "";
     const key = value.trim();
     if (!key) return value;
+    const cached = remoteCache.get(`${current}\n${key}`);
+    if (cached) return lead + cached + trail;
+    if (current === "zh-Hant") return lead + toTraditional(key) + trail;
     const index = { en: 0, ja: 1, fr: 2, ru: 3 }[current];
-    if (D[key]) return lead + D[key][index] + trail;
+    if (D[key] && index != null && D[key][index]) return lead + D[key][index] + trail;
+    if (KO_DE[key]) return lead + KO_DE[key][current === "ko" ? 0 : 1] + trail;
     const attr = key.match(/^([力敏体智感魅])(\d+)$/);
     if (attr) {
       const letters = {
-        力: { en: "STR", ja: "力", fr: "FOR", ru: "СИЛ" },
-        敏: { en: "DEX", ja: "敏", fr: "DEX", ru: "ЛОВ" },
-        体: { en: "CON", ja: "体", fr: "CON", ru: "ТЕЛ" },
-        智: { en: "INT", ja: "知", fr: "INT", ru: "ИНТ" },
-        感: { en: "PER", ja: "感", fr: "PER", ru: "ВОС" },
-        魅: { en: "CHA", ja: "魅", fr: "CHA", ru: "ОБА" },
+        力: { en: "STR", ja: "力", ko: "근력", de: "STÄ", fr: "FOR", ru: "СИЛ" },
+        敏: { en: "DEX", ja: "敏", ko: "민첩", de: "GES", fr: "DEX", ru: "ЛОВ" },
+        体: { en: "CON", ja: "体", ko: "내구", de: "KON", fr: "CON", ru: "ТЕЛ" },
+        智: { en: "INT", ja: "知", ko: "지능", de: "INT", fr: "INT", ru: "ИНТ" },
+        感: { en: "PER", ja: "感", ko: "지각", de: "WAH", fr: "PER", ru: "ВОС" },
+        魅: { en: "CHA", ja: "魅", ko: "매력", de: "CHA", fr: "CHA", ru: "ОБА" },
       };
       return lead + letters[attr[1]][current] + attr[2] + trail;
     }
     const derived = key.match(/^标准难度下：初始生命 (\d+)，初始理智 (\d+)。技能判定＝d20＋对应属性，对比如上难度。$/);
-    if (derived) {
+    if (derived && index != null) {
       const text = [
         `At normal difficulty: starting HP ${derived[1]}, starting SAN ${derived[2]}. Skill checks = d20 + attribute against the difficulty above.`,
         `標準難易度：初期HP ${derived[1]}、初期正気度 ${derived[2]}。技能判定＝d20＋能力値で上記難易度と比較します。`,
@@ -891,13 +1218,17 @@
       ][index];
       return lead + text + trail;
     }
-    for (const [pattern, translated] of PATTERNS) {
-      const match = key.match(pattern);
-      if (match) return lead + interpolate(translated[index], match) + trail;
+    if (index != null) {
+      for (const [pattern, translated] of PATTERNS) {
+        const match = key.match(pattern);
+        if (match) return lead + interpolate(translated[index], match) + trail;
+      }
     }
     const countLabels = {
       en: "schedule points",
       ja: "予定",
+      ko: "개 일정",
+      de: "Zeitpunkte",
       fr: "étapes",
       ru: "событий",
     };
@@ -940,6 +1271,98 @@
     }
   }
 
+  function collectRemote(root, texts) {
+    if (!root) return;
+    if (root.nodeType === Node.TEXT_NODE) {
+      const element = root.parentElement;
+      if (!element || !element.getClientRects().length || element.closest(REMOTE_SKIP)) return;
+      const value = root.nodeValue.trim();
+      if (/[\u3400-\u9fff]/.test(value) && !remoteCache.has(`${current}\n${value}`) && !remoteMisses.has(`${current}\n${value}`)) {
+        texts.add(value);
+      }
+      return;
+    }
+    if (root.nodeType === Node.ELEMENT_NODE) {
+      if (root.getClientRects().length && !root.closest(REMOTE_SKIP)) {
+        for (const name of ["placeholder", "title", "alt", "aria-label"]) {
+          const value = root.getAttribute(name)?.trim();
+          if (value && /[\u3400-\u9fff]/.test(value) && !remoteCache.has(`${current}\n${value}`) && !remoteMisses.has(`${current}\n${value}`)) {
+            texts.add(value);
+          }
+        }
+      }
+    }
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
+    let node = walker.nextNode();
+    while (node) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const element = node.parentElement;
+        if (element && element.getClientRects().length && !element.closest(REMOTE_SKIP)) {
+          const value = node.nodeValue.trim();
+          if (/[\u3400-\u9fff]/.test(value) && !remoteCache.has(`${current}\n${value}`) && !remoteMisses.has(`${current}\n${value}`)) {
+            texts.add(value);
+          }
+        }
+      } else if (node.getClientRects().length && !node.closest(REMOTE_SKIP)) {
+        for (const name of ["placeholder", "title", "alt", "aria-label"]) {
+          const value = node.getAttribute(name)?.trim();
+          if (value && /[\u3400-\u9fff]/.test(value) && !remoteCache.has(`${current}\n${value}`) && !remoteMisses.has(`${current}\n${value}`)) {
+            texts.add(value);
+          }
+        }
+      }
+      node = walker.nextNode();
+    }
+  }
+
+  async function translateRemoteBatch(language, texts, token) {
+    const response = await fetch("/api/i18n/translate", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ language, texts }),
+    });
+    if (!response.ok) throw new Error(`translation ${response.status}`);
+    const data = await response.json();
+    if (token !== remoteToken || language !== current) return;
+    for (const [source, translated] of Object.entries(data.translations || {})) {
+      if (translated) cacheRemote(`${language}\n${source}`, translated);
+    }
+  }
+
+  async function runRemoteTranslation() {
+    if (current === "zh-Hans" || current === "zh-Hant") {
+      hideTranslationStatus();
+      return;
+    }
+    const token = ++remoteToken;
+    const language = current;
+    const texts = new Set();
+    collectRemote(document.documentElement, texts);
+    const queue = [...texts].slice(0, 108);
+    if (!queue.length) {
+      hideTranslationStatus();
+      return;
+    }
+    showTranslationStatus();
+    for (let offset = 0; offset < queue.length; offset += 36) {
+      if (token !== remoteToken || language !== current) return;
+      const batch = queue.slice(offset, offset + 36);
+      try {
+        await translateRemoteBatch(language, batch, token);
+      } catch {
+        for (const text of batch) remoteMisses.add(`${language}\n${text}`);
+        break;
+      }
+    }
+    if (token === remoteToken && language === current) apply();
+    if (token === remoteToken) hideTranslationStatus();
+  }
+
+  function scheduleRemoteTranslation(delay = 450) {
+    clearTimeout(remoteTimer);
+    remoteTimer = setTimeout(runRemoteTranslation, delay);
+  }
+
   function apply(root = document.documentElement) {
     if (!root) return;
     if (root.nodeType === Node.TEXT_NODE) {
@@ -963,11 +1386,13 @@
   }
 
   function setLanguage(language, options = {}) {
-    const next = SUPPORTED.includes(language) ? language : "zh";
+    const next = normalizeLanguage(language);
     current = next;
-    document.documentElement.lang = next === "zh" ? "zh-CN" : next;
+    hideTranslationStatus();
+    document.documentElement.lang = next === "zh-Hans" ? "zh-CN" : next === "zh-Hant" ? "zh-TW" : next;
     apply();
     syncPickers();
+    scheduleRemoteTranslation();
     if (!options.silent) {
       try {
         localStorage.setItem(STORAGE_KEY, next);
@@ -985,13 +1410,18 @@
   }
 
   const observer = new MutationObserver((records) => {
+    let shouldTranslateRemote = false;
     for (const record of records) {
       if (record.type === "characterData") translateTextNode(record.target);
       else {
-        for (const node of record.addedNodes) apply(node);
+        for (const node of record.addedNodes) {
+          apply(node);
+          shouldTranslateRemote = true;
+        }
         if (record.type === "attributes") translateAttributes(record.target);
       }
     }
+    if (shouldTranslateRemote) scheduleRemoteTranslation();
   });
 
   function boot() {
@@ -1004,6 +1434,7 @@
       attributes: true,
       attributeFilter: ["placeholder", "title", "alt", "aria-label"],
     });
+    document.addEventListener("click", () => scheduleRemoteTranslation(650), true);
   }
 
   window.PT_I18N = {
@@ -1013,6 +1444,7 @@
     setLanguage,
     translate,
     apply,
+    scheduleRemoteTranslation,
   };
   window.ptT = translate;
   window.ptLang = () => current;
