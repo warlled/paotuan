@@ -206,10 +206,10 @@ function makeRoomCode() {
   return String(Date.now()).slice(-5);
 }
 
-function newRoomState() {
+function newRoomState(scenario = {}) {
   return {
-    time: { day: 1, minute: 18 * 60 },
-    location: "",
+    time: engine.scenarioStartParts(scenario),
+    location: scenario.startLocation || "",
     firedEvents: [],
     status: {},
     items: {},
@@ -225,12 +225,19 @@ function newRoomState() {
 }
 
 function publicRoom(room, sid) {
+  const scenario = room.scenario || {};
+  engine.normalizeSessionTime(room.state, scenario);
   return {
     code: room.code,
     status: room.status,
     mode: room.mode,
     difficulty: room.difficulty,
-    scenario: { title: room.scenario.title, genre: room.scenario.genre, blurb: room.scenario.blurb },
+    scenario: {
+      title: room.scenario.title,
+      genre: room.scenario.genre,
+      blurb: room.scenario.blurb,
+      playStyle: room.scenario.playStyle || "content",
+    },
     language: engine.normalizeLanguage(room.language),
     players: room.players.map((p) => ({
       pid: p.pid,
@@ -248,14 +255,16 @@ function publicRoom(room, sid) {
       clock: engine.clockText(room.state.time),
     },
     opening: room.opening || room.scenario.hook || "",
-    upcoming: engine.upcomingEvents({ time: room.state.time, firedEvents: room.state.firedEvents || [] }, room.scenario).slice(0, 3),
+    upcoming: engine.upcomingEvents({ time: room.state.time, firedEvents: room.state.firedEvents || [] }, scenario).slice(0, 3),
     myActionSubmitted: Boolean(room.actions[sid]),
     busy: Boolean(room.busy),
   };
 }
 
-function applyRoomState(room, st) {
+function applyRoomState(room, st, options = {}) {
   const state = room.state;
+  const allowClues = options.allowClues === true;
+  const allowObjectives = options.allowObjectives === true;
   if (Number.isFinite(Number(st.advance_minutes))) {
     const mock = { time: state.time, firedEvents: state.firedEvents || [], eventLog: state.events };
     const fired = engine.advanceTime(mock, room.scenario, Number(st.advance_minutes));
@@ -295,8 +304,10 @@ function applyRoomState(room, st) {
   for (const ev of st.events || []) {
     if (ev) state.events.push({ at: engine.clockText(state.time), title: String(ev).slice(0, 120), note: "" });
   }
-  for (const c of st.codex || []) {
-    if (c && !state.codex.includes(String(c))) state.codex.push(String(c));
+  if (allowClues) {
+    for (const c of st.codex || []) {
+      if (c && !state.codex.includes(String(c))) state.codex.push(String(c));
+    }
   }
   if (st.relations && typeof st.relations === "object") {
     for (const [k, v] of Object.entries(st.relations)) {
@@ -306,18 +317,24 @@ function applyRoomState(room, st) {
   for (const p of st.plot || []) {
     if (p && !state.plot.includes(String(p))) state.plot.push(String(p));
   }
-  for (const o of st.objectives || []) {
-    if (o && !state.objectives.includes(String(o))) state.objectives.push(String(o));
+  if (allowObjectives) {
+    for (const o of st.objectives || []) {
+      if (o && !state.objectives.includes(String(o))) state.objectives.push(String(o));
+    }
   }
   if (st.location) state.location = String(st.location).slice(0, 60);
-  for (const q of st.quests_add || []) {
-    const text = String(q || "").trim().slice(0, 80);
-    if (text && !state.quests.some((x) => x.text === text)) state.quests.push({ text, done: false });
+  if (allowObjectives) {
+    for (const q of st.quests_add || []) {
+      const text = String(q || "").trim().slice(0, 80);
+      if (text && !state.quests.some((x) => x.text === text)) state.quests.push({ text, done: false });
+    }
   }
-  for (const q of st.quests_done || []) {
-    const text = String(q || "").trim();
-    const hit = state.quests.find((x) => !x.done && (x.text === text || x.text.includes(text) || text.includes(x.text)));
-    if (hit) hit.done = true;
+  if (allowObjectives) {
+    for (const q of st.quests_done || []) {
+      const text = String(q || "").trim();
+      const hit = state.quests.find((x) => !x.done && (x.text === text || x.text.includes(text) || text.includes(x.text)));
+      if (hit) hit.done = true;
+    }
   }
   for (const n of st.npcs_add || []) {
     const name = String(n || "").trim().slice(0, 30);
@@ -331,7 +348,8 @@ function applyRoomState(room, st) {
 }
 
 function roomPrompt(room) {
-  const sc = room.scenario;
+  const sc = room.scenario || {};
+  engine.normalizeSessionTime(room.state, sc);
   const modeLine =
     room.mode === "free"
       ? "【模式】自由探索（ARPG）：有骨架的开放世界。玩家可探索、交谈、交易、战斗、成长；不做掷骰判定，但结果必须符合因果、时间、人物能力与设定。NPC 有自己的目标与作息，会主动行动；每次推进要给出具体地点、可交互人物与下一步钩子（任务/传闻/异常）。"
@@ -364,11 +382,16 @@ function roomPrompt(room) {
     engine.languageInstruction(room.language),
     "",
     `【剧本】${sc.title}（${sc.genre}）`,
+    ...(sc.playStyle === "open-world"
+      ? [
+          "【开放世界规则】没有唯一主线、必查案件或强制结局。玩家自行确定目标，选择地点、阵营、交易、冲突与结束时机。时间表只是世界变化，不是任务清单。",
+        ]
+      : []),
     `背景：${sc.background}`,
     `玩家处境：${sc.hook || ""}`,
-    `真相（不可直接说破）：${sc.truth || ""}`,
+    `${sc.playStyle === "open-world" ? "开放世界事实边界" : "真相（不可直接说破）"}：${sc.truth || ""}`,
     `人物：${(sc.npcs || []).map((n) => n.name + "：" + n.desc).join("；")}`,
-    `时间表：${(sc.schedule || []).map((e) => `${e.day}天${Math.floor(e.minute / 60)}:${String(e.minute % 60).padStart(2, "0")} ${e.title}`).join("；")}`,
+    `时间表：${engine.scenarioSchedule(sc).map((e) => `${e.at} ${e.title}`).join("；")}`,
     modeLine,
     `玩家人数：${count} 人。${diffLine} 人数越多，敌人与障碍应越强，但奖励和线索也要相应增加。`,
     `【当前时间】${engine.clockText(room.state.time)}`,
@@ -382,8 +405,9 @@ function roomPrompt(room) {
     `【已认识】${room.state.npcs.join("、") || "无"}`,
     `【最近发生】\n${recent || "（刚开始）"}`,
     `【本轮玩家行动】\n${actions}`,
+    "【登记限制】不要主动替玩家建立目标或线索。只有当本轮行动明确调查、搜索、收集并获得具体线索时，才可写 codex；只有玩家明确接受委托、答应请求、立下目标或完成任务时，才可写 objectives / quests_add / quests_done。仅仅进入地点、听到暗示或 GM 建议调查，不算玩家已接取。",
     "请写一段照顾到所有玩家行动的叙述（每人都有戏份），结尾输出状态块：",
-    '<state>{"advance_minutes":15,"location":"新地点","players":{"玩家pid":{"hp":0,"san":-1,"money":0,"items_add":[],"items_remove":[],"xp":2,"attrs_add":{}}},"events":["..."],"relations":{"NPC":"态度"},"plot":["..."],"codex":["..."],"objectives":["下一步目标"],"quests_add":["新任务"],"quests_done":["已完成任务"],"npcs_add":["新认识的人"]}</state>',
+    '<state>{"advance_minutes":15,"location":"新地点","players":{"玩家pid":{"hp":0,"san":-1,"money":0,"items_add":[],"items_remove":[],"xp":2,"attrs_add":{}}},"events":["..."],"relations":{"NPC":"态度"},"plot":["..."],"npcs_add":["新认识的人"]}</state>',
     "不要输出任何其他标签。",
   ].join("\n");
 }
@@ -639,6 +663,10 @@ function releaseSlot() {
 function send(res, code, body, type = "application/json; charset=utf-8") {
   const payload = typeof body === "string" ? body : JSON.stringify(body);
   const headers = { "content-type": type, "content-length": Buffer.byteLength(payload) };
+  if (/text\/html|javascript|text\/css/i.test(type)) {
+    headers["cache-control"] = "no-store, no-cache, must-revalidate, max-age=0";
+    headers.pragma = "no-cache";
+  }
   if (res._cookies?.length) headers["set-cookie"] = res._cookies;
   res.writeHead(code, headers);
   res.end(payload);
@@ -1453,10 +1481,12 @@ function scenarioMeta(entry, id) {
 function publicSession(entry) {
   const session = entry.session;
   if (!session) return null;
+  const scenario = engine.loadScenario(session.scenarioId, guestDir(entry)) || {};
+  engine.normalizeSessionTime(session, scenario);
   return {
     ...session,
     scenario: scenarioMeta(entry, session.scenarioId),
-    upcoming: engine.upcomingEvents(session, engine.loadScenario(session.scenarioId, guestDir(entry)) || {}).slice(0, 6),
+    upcoming: engine.upcomingEvents(session, scenario).slice(0, 6),
     clock: engine.clockText(session.time),
     limits: {
       logKeep: 800,
@@ -1467,9 +1497,10 @@ function publicSession(entry) {
       avgInputK: Math.round(((session.usage?.input || 0) / Math.max(1, session.usage?.calls || 1)) / 100),
     },
     settings: engine.getSettings(),
-    schedule: (engine.loadScenario(session.scenarioId, guestDir(entry))?.schedule || []).map((ev, index) => {
-      const key = `${ev.day}-${ev.minute}-${index}`;
-      return { ...ev, key, fired: session.firedEvents.includes(key) };
+    schedule: engine.scenarioSchedule(scenario).map((ev, index) => {
+      const key = `${ev.at}-${index}`;
+      const legacyKey = ev.day !== undefined ? `${ev.day}-${ev.minute}-${index}` : "";
+      return { ...ev, key, fired: session.firedEvents.includes(key) || Boolean(legacyKey && session.firedEvents.includes(legacyKey)) };
     }),
   };
 }
@@ -2151,7 +2182,7 @@ const server = http.createServer(async (req, res) => {
       ],
       actions: {},
       log: [],
-      state: newRoomState(),
+      state: newRoomState(sc),
       turn: 0,
       busy: false,
       createdAt: Date.now(),
@@ -2241,7 +2272,8 @@ const server = http.createServer(async (req, res) => {
       const parsed = engine.parseModelTurn(result.text);
       const narration = parsed.narrative || String(result.text || "").slice(0, 4000);
       if (narration) room.log.push({ type: "gm", text: narration, at: Date.now() });
-      applyRoomState(room, parsed.state || {});
+      const actionGate = engine.actionStateGate(Object.values(room.actions).join("\n"));
+      applyRoomState(room, parsed.state || {}, actionGate);
       room.turn += 1;
       room.actions = {};
       room.updatedAt = Date.now();

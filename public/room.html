@@ -373,11 +373,12 @@ function render() {
 
   const objBox = $("r-objectives");
   const objs = r.state.objectives || [];
-  objBox.innerHTML = objs.length ? objs.map((o) => `<div class="item">${esc(o)}</div>`).join("") : '<div class="hint">还没有明确目标</div>';
+  objBox.classList.toggle("hidden", !objs.length);
+  objBox.innerHTML = objs.map((o) => `<div class="item">${esc(o)}</div>`).join("");
   const upBox = $("r-upcoming");
   const ups = r.upcoming || [];
   upBox.innerHTML = ups.length
-    ? ups.map((e) => `<div class="item"><b>${esc(e.title)}</b> · ${e.minutesAway > 0 ? `还有 ${human(e.minutesAway)}` : "已到点"}</div>`).join("")
+    ? ups.map((e) => `<div class="item"><b>${esc(e.title)}</b> · ${esc(String(e.at || "").replace("T", " "))} · ${e.minutesAway > 0 ? `还有 ${human(e.minutesAway)}` : "已到点"}</div>`).join("")
     : '<div class="hint">暂无后续日程</div>';
   const qBox = $("r-quests");
   const qs = r.state.quests || [];
@@ -386,6 +387,10 @@ function render() {
     : '<div class="hint">暂无任务</div>';
   const nBox = $("r-npcs");
   nBox.innerHTML = (r.state.npcs || []).map((n) => `<span class="tag">${esc(n)}</span>`).join("") || '<span class="tag">还没有认识的人</span>';
+  const codexTab = document.querySelector('#r-tabs button[data-tab="codex"]');
+  const hasCodex = Boolean((r.state.codex || []).length);
+  codexTab?.classList.toggle("hidden", !hasCodex);
+  if (!hasCodex && tab === "codex") tab = "events";
 
   if (r.status === "playing" && !sessionStorage.getItem("ro-" + r.code)) {
     sessionStorage.setItem("ro-" + r.code, "1");
@@ -446,7 +451,7 @@ function showRoomOpening() {
     .join("");
   $("ro-title").textContent = room.scenario.title + " · 开场";
   $("ro-body").innerHTML =
-    `<div class="meta">${esc(room.scenario.genre || "")} · ${room.mode === "free" ? "自由叙事" : "跑团"} · ${({ easy:"轻松", normal:"标准", hard:"硬核" }[room.difficulty]) || ""} · ${esc(room.state.clock)}</div>` +
+    `<div class="meta">${esc(room.scenario.genre || "")}${room.scenario.playStyle === "open-world" ? " · 开放世界" : ""} · ${room.mode === "free" ? "自由叙事" : "跑团"} · ${({ easy:"轻松", normal:"标准", hard:"硬核" }[room.difficulty]) || ""} · ${esc(room.state.clock)}</div>` +
     (room.scenario.blurb ? `<div class="meta">${esc(room.scenario.blurb)}</div>` : "") +
     `<div class="ro-sec">玩家角色</div>${players || '<div class="hint">暂无</div>'}` +
     `<div class="ro-sec">开场</div><div class="ro-story">${esc(opening)}</div>`;

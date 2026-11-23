@@ -228,6 +228,12 @@ function listScenarios(extraDir) {
           genre: data.genre || "",
           blurb: data.blurb || "",
           players: data.players || "单人",
+          playStyle: data.playStyle === "open-world" ? "open-world" : "content",
+          startAt: formatDateTime(data.startAt),
+          actions: (Array.isArray(data.actions) ? data.actions : [])
+            .slice(0, 8)
+            .map((action) => ({ label: clip(action?.label, 20), text: clip(action?.text, 300) }))
+            .filter((action) => action.label && action.text),
           scheduleCount: (data.schedule || []).length,
           custom: Boolean(data.custom),
           guestOwned: isExtra,
@@ -321,15 +327,20 @@ function saveCustomScenario(input, existingId, targetDir) {
 
   const cleanList = (arr, limit, count) =>
     (Array.isArray(arr) ? arr.map((x) => clip(x, limit)).filter(Boolean).slice(0, count) : []);
+  const inputStart = {
+    startAt: input.startAt,
+    startDateTime: input.startDateTime,
+    startDay: input.startDay,
+    startMinute: input.startMinute,
+  };
   const schedule = (Array.isArray(input.schedule) ? input.schedule : [])
     .map((ev) => ({
-      day: Math.max(1, Math.floor(Number(ev.day) || 1)),
-      minute: Math.max(0, Math.min(1439, Math.floor(Number(ev.minute) || 0))),
+      at: formatDateTime(ev.at) || formatDateParts(scenarioEventParts(inputStart, ev)),
       title: clip(ev.title, CLI.eventTitle),
       note: clip(ev.note, CLI.eventNote),
     }))
-    .filter((ev) => ev.title)
-    .sort((a, b) => a.day * 1440 + a.minute - (b.day * 1440 + b.minute))
+    .filter((ev) => ev.title && ev.at)
+    .sort((a, b) => a.at.localeCompare(b.at))
     .slice(0, CLI.eventCount);
 
   const npcs = (Array.isArray(input.npcs) ? input.npcs : [])
@@ -395,6 +406,8 @@ function saveCustomScenario(input, existingId, targetDir) {
     genre: clip(input.genre, CLI.genre) || "自定义",
     blurb: clip(input.blurb, CLI.blurb) || background.slice(0, 80),
     tags: cleanList(input.tags, 20, 12),
+    playStyle: input.playStyle === "open-world" ? "open-world" : "content",
+    continuity: cleanList(input.continuity, 1200, 8),
     version: clip(input.version, 20) || "1.0",
     versionNote: clip(input.versionNote, 500),
     world: clip(input.world, 4000) || background,
@@ -489,8 +502,7 @@ function saveCustomScenario(input, existingId, targetDir) {
     npcs,
     schedule,
     endings: endings.length ? endings : [{ name: "自由结局", condition: "由剧情自然收束" }],
-    startDay: Math.max(1, Math.floor(Number(input.startDay) || 1)),
-    startMinute: Math.max(0, Math.min(1439, Math.floor(Number(input.startMinute) ?? 9 * 60))),
+    startAt: formatDateParts(scenarioStartParts(inputStart)),
     startMoney: Math.max(0, Math.floor(Number(input.startMoney) || 0)),
     startLocation: clip(input.startLocation, 120),
     startItems: cleanList(input.startItems, CLI.item, CLI.itemCount),
@@ -624,39 +636,168 @@ function rollCheck(character, skillName, dc, difficulty) {
 
 /* ---------- 时间与日程 ---------- */
 
+const DATE_TIME_PATTERN = /^(\d{1,4})[-/](\d{1,2})[-/](\d{1,2})(?:[T\s](\d{1,2}):(\d{2}))?$/;
+const MINUTE_MS = 60 * 1000;
+
+function pad2(value) {
+  return String(value).padStart(2, "0");
+}
+
+function validDateParts(parts) {
+  if (!parts) return false;
+  const { year, month, day, hour, minute } = parts;
+  if (year < 1 || month < 1 || month > 12 || day < 1 || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    return false;
+  }
+  const check = new Date(Date.UTC(year, month - 1, day));
+  return check.getUTCFullYear() === year && check.getUTCMonth() === month - 1 && check.getUTCDate() === day;
+}
+
+function parseDateTime(value) {
+  if (value && typeof value === "object") {
+    const parts = {
+      year: Number(value.year),
+      month: Number(value.month),
+      day: Number(value.day),
+      hour: Number(value.hour ?? value.hours ?? 0),
+      minute: Number(value.minute ?? value.minutes ?? 0),
+    };
+    return validDateParts(parts) ? parts : null;
+  }
+  const match = String(value || "").trim().match(DATE_TIME_PATTERN);
+  if (!match) return null;
+  const parts = {
+    year: Number(match[1]),
+    month: Number(match[2]),
+    day: Number(match[3]),
+    hour: Number(match[4] || 0),
+    minute: Number(match[5] || 0),
+  };
+  return validDateParts(parts) ? parts : null;
+}
+
+function formatDateParts(parts) {
+  return `${String(parts.year).padStart(4, "0")}-${pad2(parts.month)}-${pad2(parts.day)}T${pad2(parts.hour)}:${pad2(parts.minute)}`;
+}
+
+function formatDateTime(value) {
+  const parts = parseDateTime(value);
+  return parts ? formatDateParts(parts) : "";
+}
+
+function datePartsToSerial(parts) {
+  return Math.floor(Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute) / MINUTE_MS);
+}
+
+function serialToDateParts(serial) {
+  const date = new Date(Number(serial) * MINUTE_MS);
+  return {
+    year: date.getUTCFullYear(),
+    month: date.getUTCMonth() + 1,
+    day: date.getUTCDate(),
+    hour: date.getUTCHours(),
+    minute: date.getUTCMinutes(),
+  };
+}
+
+function scenarioStartParts(scenario) {
+  const explicit =
+    parseDateTime(scenario?.startAt) ||
+    parseDateTime(scenario?.startDateTime) ||
+    parseDateTime({
+      year: scenario?.startYear,
+      month: scenario?.startMonth || 1,
+      day: scenario?.startDay || 1,
+      hour: scenario?.startHour || 0,
+      minute: scenario?.startMinute || 0,
+    });
+  if (explicit) return explicit;
+  const base = { year: 2026, month: 1, day: 1, hour: 0, minute: 0 };
+  const offset = (Math.max(1, Number(scenario?.startDay) || 1) - 1) * 1440 + Math.max(0, Number(scenario?.startMinute) || 540);
+  return serialToDateParts(datePartsToSerial(base) + offset);
+}
+
+function scenarioStartMidnight(scenario) {
+  const start = scenarioStartParts(scenario);
+  return { ...start, hour: 0, minute: 0 };
+}
+
+function scenarioEventParts(scenario, event) {
+  const explicit = parseDateTime(event?.at) || parseDateTime(event?.datetime) || parseDateTime(event?.dateTime);
+  if (explicit) return explicit;
+  if (event && (event.year || event.month || event.hour)) {
+    const structured = parseDateTime({
+      year: event.year || scenarioStartParts(scenario).year,
+      month: event.month || scenarioStartParts(scenario).month,
+      day: event.day || scenarioStartParts(scenario).day,
+      hour: event.hour || 0,
+      minute: event.minute || 0,
+    });
+    if (structured) return structured;
+  }
+  const start = scenarioStartMidnight(scenario);
+  const offset = (Math.max(1, Number(event?.day) || 1) - 1) * 1440 + Math.max(0, Number(event?.minute) || 0);
+  return serialToDateParts(datePartsToSerial(start) + offset);
+}
+
+function scenarioSchedule(scenario) {
+  return (Array.isArray(scenario?.schedule) ? scenario.schedule : []).map((event) => ({
+    ...event,
+    at: formatDateParts(scenarioEventParts(scenario, event)),
+  }));
+}
+
+function normalizeSessionTime(session, scenario) {
+  if (!session) return null;
+  if (Array.isArray(session.firedEvents)) {
+    const events = scenarioSchedule(scenario);
+    session.firedEvents = [...new Set(session.firedEvents.map((key) => {
+      const legacy = String(key || "").match(/^\d+-\d+-(\d+)$/);
+      if (!legacy) return key;
+      const index = Number(legacy[1]);
+      return events[index] ? `${events[index].at}-${index}` : key;
+    }))];
+  }
+  const current = parseDateTime(session.time);
+  if (current) {
+    session.time = current;
+    return current;
+  }
+  const start = scenarioStartMidnight(scenario);
+  const legacyDay = Math.max(1, Number(session.time?.day) || 1);
+  const legacyMinute = Math.max(0, Number(session.time?.minute) || 0);
+  session.time = serialToDateParts(datePartsToSerial(start) + (legacyDay - 1) * 1440 + legacyMinute);
+  return session.time;
+}
+
 function clockText(time) {
-  const h = Math.floor(time.minute / 60);
-  const m = time.minute % 60;
-  return `第 ${time.day} 天 ${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  const parts = parseDateTime(time);
+  if (!parts) return "时间未记录";
+  return `${String(parts.year).padStart(4, "0")}年${pad2(parts.month)}月${pad2(parts.day)}日 ${pad2(parts.hour)}:${pad2(parts.minute)}`;
 }
 
 function eventKey(ev, index) {
-  return `${ev.day}-${ev.minute}-${index}`;
+  return `${ev.at || "未定时"}-${index}`;
 }
 
 function advanceTime(session, scenario, minutes) {
   const m = Math.max(0, Math.min(24 * 60, Number(minutes) || 0));
-  session.time.minute += m;
-  while (session.time.minute >= 1440) {
-    session.time.minute -= 1440;
-    session.time.day += 1;
-  }
+  const now = normalizeSessionTime(session, scenario);
+  session.time = serialToDateParts(datePartsToSerial(now) + m);
+  const nowAbs = datePartsToSerial(session.time);
   const fired = [];
-  (scenario.schedule || []).forEach((ev, index) => {
+  scenarioSchedule(scenario).forEach((ev, index) => {
     const key = eventKey(ev, index);
     if (session.firedEvents.includes(key)) return;
-    const passed =
-      session.time.day > ev.day ||
-      (session.time.day === ev.day && session.time.minute >= ev.minute);
+    const passed = nowAbs >= datePartsToSerial(scenarioEventParts(scenario, ev));
     if (passed) {
       session.firedEvents.push(key);
       if (!Array.isArray(session.eventLog)) session.eventLog = [];
       session.eventLog.push({
-        day: ev.day,
-        minute: ev.minute,
         title: ev.title,
         note: ev.note || "",
         at: clockText(session.time),
+        scheduledAt: ev.at,
       });
       fired.push({ ...ev, key });
     }
@@ -665,12 +806,13 @@ function advanceTime(session, scenario, minutes) {
 }
 
 function upcomingEvents(session, scenario) {
+  const now = normalizeSessionTime(session, scenario);
+  const nowAbs = datePartsToSerial(now);
   const out = [];
-  (scenario.schedule || []).forEach((ev, index) => {
+  scenarioSchedule(scenario).forEach((ev, index) => {
     const key = eventKey(ev, index);
     if (session.firedEvents.includes(key)) return;
-    const nowAbs = session.time.day * 1440 + session.time.minute;
-    const evAbs = ev.day * 1440 + ev.minute;
+    const evAbs = datePartsToSerial(scenarioEventParts(scenario, ev));
     out.push({ ...ev, key, minutesAway: evAbs - nowAbs });
   });
   out.sort((a, b) => a.minutesAway - b.minutesAway);
@@ -1045,8 +1187,17 @@ function scenarioBrief(scenario) {
     })
     .filter(Boolean)
     .join("、");
+  const clueHeading =
+    scenario.playStyle === "open-world"
+      ? "可发现信息与互动机会（不是必查谜案，也不能被GM一次性全部说出）"
+      : "线索池（GM 内部参考，只能通过场景与对话逐步放出）";
   return [
     `【剧本】${scenario.title}（${scenario.genre}）`,
+    `运行框架：${
+      scenario.playStyle === "open-world"
+        ? "自由开放世界沙盒。没有唯一主线、强制任务或预设结局；玩家自行设定目标与行动方向。"
+        : "按剧本自身题材与规则运行。"
+    }`,
     `版本：v${scenario.version || "1.0"}${scenario.versionNote ? " · " + scenario.versionNote : ""}`,
     `标签：${(scenario.tags || []).join("、") || "无"}`,
     `世界设定：${scenario.world || scenario.background}`,
@@ -1056,9 +1207,11 @@ function scenarioBrief(scenario) {
     `固定开局：${rules.fixedOpeningDesc || scenario.fixedOpeningDesc || "未单独描述"}`,
     `固定开局选项：\n${openings || "无"}`,
     `相关人物：\n${npcs}`,
-    `线索池（GM 内部参考，只能通过场景与对话逐步放出）：${clues}`,
+    `${clueHeading}：${clues}`,
     `设定红线（优先级高于临场发挥）：\n${continuity || "未单独指定；仍须遵守背景、人物能力与既有状态。"}`,
-    `真相（严禁直接说破）：${scenario.truth || ""}`,
+    `${
+      scenario.playStyle === "open-world" ? "开放世界事实边界（不是待破解谜案的答案）" : "真相（严禁直接说破）"
+    }：${scenario.truth || ""}`,
     `结局方向：\n${endings}`,
     `实体名录：\n${entities || "无"}`,
     `玩家持续状态：\n${statuses || "无"}`,
@@ -1079,7 +1232,7 @@ function rulesBlock(settings, language) {
     "",
     "【你与引擎的分工】",
     "你是这场跑团的 GM（主持人）。玩家的行动结果由外面的引擎掷骰决定，你不得自行编造随机结果。",
-    "1) 叙述要紧凑、有画面感，用第二人称称呼玩家，每回合推进一点剧情，不要一次性把整条线讲完。",
+    "1) 叙述要紧凑、有画面感，用第二人称称呼玩家。每回合让世界对玩家行动产生具体变化，不要替玩家把整段人生或剧情跑完。",
     `2) 篇幅要求：${NARRATIVE_LENGTH[s.narrativeLength] || NARRATIVE_LENGTH["标准"]}`,
     "3) 当玩家的行动结果不确定、且失败会有代价时，先把叙述停在需要判定的那一刻，然后在结尾输出判定请求：",
     "<checks>",
@@ -1089,19 +1242,20 @@ function rulesBlock(settings, language) {
     "一次最多提出 2 个判定。明确提出判定后，不要再写结果，也不要写“你成功了/你失败了”。",
     "4) 每回合结尾必须输出状态块（只写有变化的项，没变化就写 advance_minutes）：",
     "<state>",
-    '{"advance_minutes": 15, "hp": 0, "san": -2, "money": -50, "clues_add": ["药瓶"], "items_add": ["铜钥匙"], "items_remove": ["蜡烛"], "relations": {"陆守仁": {"attitude": "戒备", "delta": -1, "note": "你当面质疑了他"}}, "objectives_add": ["弄清信是谁寄的"], "objectives_done": ["找到账房先生"], "flags": {"见过管家": true}}',
+    '{"advance_minutes": 15, "hp": 0, "san": -2, "money": -50, "items_add": ["铜钥匙"], "items_remove": ["蜡烛"], "relations": {"陆守仁": {"attitude": "戒备", "delta": -1, "note": "你当面质疑了他"}}, "flags": {"见过管家": true}}',
     "</state>",
     "advance_minutes 按行动实际耗时估计：一句对话 5-10，查看房间一角 10-20，翻找整个房间 30，赶路 30-120，睡一整夜按实际时长。",
     "5) 不要在正文里写出 <checks>、<state> 这些标签之外的内容；两个标签之外就是给玩家看的故事正文。",
     "6) 不要输出 markdown 标题、不要解释规则、不要提到引擎、模型、AI、提示词。",
     "7) 涉及玩家不知道的信息（真相、他人内心）不要写出来，只能通过可见可听的细节暗示。",
-    "8) 结尾留一个自然的行动余地或悬念，让玩家决定下一步。",
+    "8) 结尾留一个自然的行动余地或可继续互动的具体局面，让玩家决定下一步；不要为了钩子而强行制造悬念。",
     "9) 当剧情走到结局，在 state 里加 \"ending\":\"结局名\" 并补一句结局标题，之后停止提出判定。",
     "10) 玩家角色死亡或彻底疯狂时，也要给一个收束的结局，并在 state 里写 \"ending\"。",
     "11) 人物关系：当某个 NPC 对玩家的态度发生明显变化时，在 state 里写 relations，键是人物名，值是 {\"attitude\":\"信任\",\"delta\":1,\"note\":\"原因\"}。",
     "    attitude 用两到四个字的词（初识、戒备、信任、感激、敌意、亲近……），delta 是 -3 到 3 的整数，表示好感的变化方向。",
     "    关系没有变化就不要写 relations；不要每回合都把所有人写一遍。",
-    "12) 目标：玩家明确接下或完成一件事时，用 objectives_add / objectives_done（各最多 2 条，每条 20 字以内）。",
+    "12) 线索与目标必须由玩家主动触发：只有玩家明确调查、搜索、收集或获取了具体线索时，才可写 clues_add；只有玩家明确接受委托、答应请求、主动立下目标或完成任务时，才可写 objectives_add / objectives_done / quests_add / quests_done。",
+    "    不得把环境描述、NPC 暗示、GM 建议或你认为玩家应该调查的内容自动登记为线索或目标；没有明确收获就省略这些字段。",
     "13) 不得替玩家决定行动、台词、内心想法或结果，也不要把玩家的猜测直接写成世界真相。只描写玩家能看见、听见、摸到或合理推断到的内容。",
     "14) 保持空间、时间和人物状态连续：角色不会无解释瞬移，伤势、道具、位置、在场人员与已发生事件都不会自行复原；NPC 只能依据自己的知情范围行动。",
     "15) 不要擅自加入鬼魂、附身、无实体怨灵、通灵、预知、时间循环、失忆、梦境结局或现实重置。题材允许超自然时，也必须使用剧本已建立的规则，并给出可观察、可验证的线索。",
@@ -1157,12 +1311,7 @@ function timeBlock(session, scenario) {
   const fired = session.firedEvents.length ? session.firedEvents.length : 0;
   const upcoming = up.length
     ? up
-        .map((e) => {
-          const h = Math.floor(e.minute / 60);
-          const m = e.minute % 60;
-          const when = `第${e.day}天 ${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-          return `${when} — ${e.title}（${humanDuration(e.minutesAway)}）`;
-        })
+        .map((e) => `${clockText(e.at)} — ${e.title}（${humanDuration(e.minutesAway)}）`)
         .join("\n")
     : "（没有待触发的日程）";
   return [
@@ -1181,7 +1330,7 @@ const FORMAT_REMINDER = [
   "2. 需要玩家掷骰时，正文停在要判定的那一刻，然后写一行：",
   '<checks>[{"skill":"侦查","why":"找暗格"}]</checks>',
   "3. 最后必须写状态块（没有变化也要写，只写 change 的部分）：",
-  '<state>{"advance_minutes":10,"relations":{"人物名":{"attitude":"态度词","delta":1,"note":"原因"}},"objectives_add":["新目标"],"objectives_done":["已完成的事"],"clues_add":["新线索"]}</state>',
+  '<state>{"advance_minutes":10,"relations":{"人物名":{"attitude":"态度词","delta":1,"note":"原因"}}}</state>',
   "没有变化的键可以省略，但 <state> 标签本身不能省。",
 ].join("\n");
 
@@ -1194,7 +1343,7 @@ function modeBlock(session) {
       "2) NPC 有自己的目标、作息、立场和记忆，会主动行动、记得玩家做过的事；不要让玩家凭空发明世界。",
       "3) 每当玩家进入新地点或取得进展，给出具体的下一步钩子：一个任务、一条传闻、一个异常、一次 NPC 请求，而不是空白等待。",
       "4) 不做掷骰判定，但结果必须符合因果、距离、时间、人物能力与世界观；不要无理由地成功或失败。",
-      "5) 在 state 中更新 location、npcs_add、quests_add/quests_done、items_add/items_remove、relations、xp、codex 等字段。",
+      "5) 在 state 中按变化更新 location、npcs_add、items_add/items_remove、relations、xp 等字段。目标和线索只在玩家明确接取或发现时登记。",
       "6) 不要输出 <checks> 标签，也不要使用规则术语解释过程。",
     ].join("\n");
   }
@@ -1324,8 +1473,23 @@ function parseModelTurn(text) {
   return { narrative, checks, state, hadState: Boolean(stateBlock) };
 }
 
-function applyState(session, scenario, state) {
+const DISCOVERY_ACTION =
+  /(调查|检查|搜索|搜查|观察|查看|翻找|追踪|询问|打听|收集|拾取|读取|化验|分析|确认|寻找|找|线索|证据|痕迹|search|inspect|investigate|look|examine|check|collect|ask|track|find|evidence|clue|調べ|探|捜索|見る|確認|手がかり|조사|수색|찾|관찰|확인|단서|untersuchen|suchen|finden|prüfen|beobachten|hinweis|chercher|fouiller|examiner|observer|indice|искать|осмотреть|проверить|найти|улика)/i;
+const COMMITMENT_ACTION =
+  /(接受|接取|接下|答应|承诺|受托|委托|任务|帮忙|协助|决定|打算|我要|目标|accept|quest|task|promise|agree|help|decide|plan|mission|受ける|依頼|約束|任務|목표|수락|임무|의뢰|약속|annehmen|auftrag|versprechen|accepter|quête|promettre|принять|задание|обещать|цель)/i;
+
+function actionStateGate(action) {
+  const text = String(action || "");
+  return {
+    allowClues: DISCOVERY_ACTION.test(text),
+    allowObjectives: COMMITMENT_ACTION.test(text),
+  };
+}
+
+function applyState(session, scenario, state, options = {}) {
   const changes = [];
+  const allowClues = options.allowClues === true;
+  const allowObjectives = options.allowObjectives === true;
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   let advanced = false;
   if (Number.isFinite(Number(state.hp)) && Number(state.hp) !== 0) {
@@ -1342,10 +1506,12 @@ function applyState(session, scenario, state) {
     session.status.money += Number(state.money);
     changes.push(`钱 ${state.money > 0 ? "+" : ""}${state.money}（现有 ${session.status.money}）`);
   }
-  for (const clue of state.clues_add || []) {
-    if (clue && !session.clues.includes(clue)) {
-      session.clues.push(String(clue));
-      changes.push(`获得线索：${clue}`);
+  if (allowClues) {
+    for (const clue of state.clues_add || []) {
+      if (clue && !session.clues.includes(clue)) {
+        session.clues.push(String(clue));
+        changes.push(`获得线索：${clue}`);
+      }
     }
   }
   for (const item of state.items_add || []) {
@@ -1397,24 +1563,26 @@ function applyState(session, scenario, state) {
   }
 
   // 当前目标
-  if (!Array.isArray(session.objectives)) session.objectives = [];
-  for (const item of (Array.isArray(state.objectives_add) ? state.objectives_add : []).slice(0, 4)) {
-    const text = clip(item, 80);
-    if (text && !session.objectives.some((o) => o.text === text)) {
-      session.objectives.push({ text, turn: session.turns || 0, done: false });
-      changes.push(`新目标：${text}`);
+  if (allowObjectives) {
+    if (!Array.isArray(session.objectives)) session.objectives = [];
+    for (const item of (Array.isArray(state.objectives_add) ? state.objectives_add : []).slice(0, 4)) {
+      const text = clip(item, 80);
+      if (text && !session.objectives.some((o) => o.text === text)) {
+        session.objectives.push({ text, turn: session.turns || 0, done: false });
+        changes.push(`新目标：${text}`);
+      }
     }
-  }
-  for (const item of (Array.isArray(state.objectives_done) ? state.objectives_done : []).slice(0, 4)) {
-    const text = clip(item, 80);
-    if (!text) continue;
-    const hit = session.objectives.find((o) => !o.done && (o.text === text || o.text.includes(text) || text.includes(o.text)));
-    if (hit) {
-      hit.done = true;
-      changes.push(`完成目标：${hit.text}`);
+    for (const item of (Array.isArray(state.objectives_done) ? state.objectives_done : []).slice(0, 4)) {
+      const text = clip(item, 80);
+      if (!text) continue;
+      const hit = session.objectives.find((o) => !o.done && (o.text === text || o.text.includes(text) || text.includes(o.text)));
+      if (hit) {
+        hit.done = true;
+        changes.push(`完成目标：${hit.text}`);
+      }
     }
+    while (session.objectives.length > 10) session.objectives.shift();
   }
-  while (session.objectives.length > 10) session.objectives.shift();
 
   if (state.location) {
     const next = clip(state.location, 60);
@@ -1423,24 +1591,26 @@ function applyState(session, scenario, state) {
       changes.push(`地点：${next}`);
     }
   }
-  if (!Array.isArray(session.quests)) session.quests = [];
-  for (const item of (Array.isArray(state.quests_add) ? state.quests_add : []).slice(0, 4)) {
-    const text = clip(item, 80);
-    if (text && !session.quests.some((q) => q.text === text)) {
-      session.quests.push({ text, done: false, turn: session.turns || 0 });
-      changes.push(`接取任务：${text}`);
+  if (allowObjectives) {
+    if (!Array.isArray(session.quests)) session.quests = [];
+    for (const item of (Array.isArray(state.quests_add) ? state.quests_add : []).slice(0, 4)) {
+      const text = clip(item, 80);
+      if (text && !session.quests.some((q) => q.text === text)) {
+        session.quests.push({ text, done: false, turn: session.turns || 0 });
+        changes.push(`接取任务：${text}`);
+      }
     }
-  }
-  for (const item of (Array.isArray(state.quests_done) ? state.quests_done : []).slice(0, 4)) {
-    const text = clip(item, 80);
-    if (!text) continue;
-    const hit = session.quests.find((q) => !q.done && (q.text === text || q.text.includes(text) || text.includes(q.text)));
-    if (hit) {
-      hit.done = true;
-      changes.push(`完成任务：${hit.text}`);
+    for (const item of (Array.isArray(state.quests_done) ? state.quests_done : []).slice(0, 4)) {
+      const text = clip(item, 80);
+      if (!text) continue;
+      const hit = session.quests.find((q) => !q.done && (q.text === text || q.text.includes(text) || text.includes(q.text)));
+      if (hit) {
+        hit.done = true;
+        changes.push(`完成任务：${hit.text}`);
+      }
     }
+    while (session.quests.length > 12) session.quests.shift();
   }
-  while (session.quests.length > 12) session.quests.shift();
   if (!Array.isArray(session.npcsKnown)) session.npcsKnown = [];
   for (const n of (Array.isArray(state.npcs_add) ? state.npcs_add : []).slice(0, 4)) {
     const name = clip(n, 30);
@@ -1493,6 +1663,7 @@ async function runTurn(session, scenario, playerAction, modelOverride) {
   const segments = [];
   const settings = getSettings();
   const fallbackMinutes = settings.autoAdvanceMinutes;
+  const storyGate = actionStateGate(playerAction);
   session.log.push({ type: "player", text: playerAction });
 
   const first = await askModel(buildPrompt(session, scenario, playerAction, settings), settings, modelOverride);
@@ -1516,7 +1687,7 @@ async function runTurn(session, scenario, playerAction, modelOverride) {
       session.log.push({ type: "dice", text: line });
     }
     // 前半段不推进时间，避免同一个动作被算两次耗时；时间只认结果叙述里的估算。
-    const pre = applyState(session, scenario, { ...parsed.state, advance_minutes: 0, ending: undefined });
+    const pre = applyState(session, scenario, { ...parsed.state, advance_minutes: 0, ending: undefined }, storyGate);
     firedEvents = pre.fired;
     for (const ev of firedEvents) {
       segments.push({ type: "event", text: `${ev.title}：${ev.note || ""}` });
@@ -1533,7 +1704,7 @@ async function runTurn(session, scenario, playerAction, modelOverride) {
       segments.push({ type: "gm", text: parsed2.narrative });
       session.log.push({ type: "gm", text: parsed2.narrative });
     }
-    const post = applyState(session, scenario, parsed2.state);
+    const post = applyState(session, scenario, parsed2.state, storyGate);
     for (const ev of post.fired) {
       segments.push({ type: "event", text: `${ev.title}：${ev.note || ""}` });
       session.log.push({ type: "event", text: `${ev.title}：${ev.note || ""}` });
@@ -1553,7 +1724,7 @@ async function runTurn(session, scenario, playerAction, modelOverride) {
       segments.push({ type: "change", text: ch });
     }
   } else {
-    const applied = applyState(session, scenario, parsed.state);
+    const applied = applyState(session, scenario, parsed.state, storyGate);
     if (!applied.advanced) {
       const fb = applyState(session, scenario, { advance_minutes: fallbackMinutes });
       applied.fired = applied.fired.concat(fb.fired);
@@ -1578,6 +1749,7 @@ async function runOpening(session, scenario, modelOverride) {
   const customOpening = String(scenario.opening || "").trim();
   const language = normalizeLanguage(session.language);
   const showCustomOpening = language === "zh-Hans";
+  const openWorld = scenario.playStyle === "open-world";
   const prompt = [
     rulesBlock(settings, language),
     modeBlock(session),
@@ -1598,22 +1770,21 @@ async function runOpening(session, scenario, modelOverride) {
     "【玩家角色卡】",
     characterSheet(session),
     "",
-    timeBlock(session, scenario),
-    "",
-    worldBlock(session),
-    "",
+    ...(openWorld ? [] : [timeBlock(session, scenario), "", worldBlock(session), ""]),
     customOpening
       ? showCustomOpening
         ? "【这是游戏的第一幕】开场白已经给过了，请顺着它往前推一小步：描写此刻正在发生的一件事、一个人的出现或一个细微的变化，把玩家推到一个需要做决定的位置。不要复述开场白。"
         : "【这是游戏的第一幕】请先输出上面开场白的目标语言译文，再顺着它推进一小步。译文要忠实，随后描写一个变化，把玩家推到需要决定的位置。"
-      : "【这是游戏的第一幕】请写出开场：把玩家放进场景里，交代他在哪、此刻看到听到什么、眼前最值得注意的东西是什么。3 到 5 段，节奏稳一点，不要急着抛出全部悬念。",
+      : openWorld
+        ? "【这是游戏的第一幕】请写一个刻意模糊的开场：只描写逐渐浮现的感官、气氛和零散可见的事物，不要明确具体地点、日期时刻、身份、组织归属、当前状态或故事框架，也不要直接给出任务、线索或目标。保留足够空白，让玩家自行观察、回忆、确认或定义处境。3 到 4 段。"
+        : "【这是游戏的第一幕】请写出开场：把玩家放进场景里，交代他在哪、此刻看到听到什么、眼前最值得注意的东西是什么。3 到 5 段，节奏稳一点，不要急着抛出全部悬念。",
     "结尾按格式给出状态块（如果开局不推进时间，advance_minutes 写 0）。",
   ].join("\n");
   const raw = await askModel(prompt, settings, modelOverride);
   addUsage(session, raw.usage);
   const parsed = parseModelTurn(raw.text);
   if (parsed.narrative) session.log.push({ type: "gm", text: parsed.narrative });
-  const applied = applyState(session, scenario, parsed.state);
+  const applied = applyState(session, scenario, parsed.state, { allowClues: false, allowObjectives: false });
   return {
     segments: [
       ...(customOpening && showCustomOpening ? [{ type: "gm", text: customOpening }] : []),
@@ -1676,7 +1847,7 @@ function createSession({ character, scenarioId, difficulty, mode, scenarioDir, l
       attrs,
     },
     status: { hp: d2.hpMax, hpMax: d2.hpMax, san: d2.sanMax, sanMax: d2.sanMax, money: d2.money },
-    time: { day: scenario.startDay || 1, minute: scenario.startMinute ?? 9 * 60 },
+    time: scenarioStartParts(scenario),
     location: scenario.startLocation || "",
     inventory: [...(scenario.startItems || [])],
     clues: [],
@@ -1765,7 +1936,8 @@ module.exports = {
   NARRATIVE_LENGTH, DEFAULT_SETTINGS,
   LANGUAGES, normalizeLanguage, languageInstruction,
   listScenarios, loadScenario, clockText, upcomingEvents, humanDuration,
-  advanceTime, applyState, parseModelTurn, buildPrompt, buildContinuePrompt,
+  parseDateTime, formatDateTime, scenarioStartParts, scenarioSchedule, normalizeSessionTime,
+  advanceTime, applyState, actionStateGate, parseModelTurn, buildPrompt, buildContinuePrompt,
   rollCheck, skillValue, runTurn, runOpening, createSession, saveSession, loadSession,
   validateCharacter, sleep,
   getSettings, saveSettings, saveCustomScenario, readScenarioRaw, deleteCustomScenario,

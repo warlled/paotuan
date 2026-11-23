@@ -286,6 +286,7 @@
                     <label class="editor-field editor-span-2"><span>一句话简介</span><input id="s-blurb" maxlength="200" placeholder="剧本卡片上显示的故事引子"></label>
                     <label class="editor-field"><span>叙事基调</span><input id="s-tone" maxlength="200" placeholder="例如：冷、克制、压抑"></label>
                     <label class="editor-field"><span>标签</span><input id="s-tags" placeholder="悬疑, 民国, 单人（逗号分隔）"></label>
+                    <label class="editor-field editor-span-2"><span>运行框架</span><select id="s-play-style"><option value="open-world">自由开放世界（玩家自行设定目标）</option><option value="content">内容型剧本（保留明确题材结构）</option></select></label>
                   </div>
                 </div>
                 <div class="editor-block">
@@ -311,13 +312,13 @@
                     <label class="editor-field editor-span-2"><span>世界设定</span><textarea id="s-world" placeholder="世界怎样运转、有哪些地点与势力、什么能做或不能做"></textarea></label>
                     <label class="editor-field"><span>故事背景 <em>必填</em></span><textarea id="s-background" placeholder="这是个什么地方、什么时候、发生了什么、玩家为什么在这里"></textarea></label>
                     <label class="editor-field"><span>幕后真相</span><textarea id="s-truth" placeholder="GM 知道但不会直接说破的内幕；留空则由 GM 建立并保持一致"></textarea></label>
+                    <label class="editor-field editor-span-2"><span>设定红线</span><textarea id="s-continuity" placeholder="每行一条不可违背的世界规则、能力边界或叙事限制"></textarea></label>
                   </div>
                 </div>
                 <div class="editor-block">
                   <div class="editor-block-head"><b>开局位置</b><span>时间、地点、随身资源与玩家所处局面</span></div>
                   <div class="editor-field-grid editor-grid-3">
-                    <label class="editor-field"><span>开局第几天</span><input id="s-day" type="number" min="1" value="1"></label>
-                    <label class="editor-field"><span>开局时间</span><input id="s-time" type="time" value="18:00"></label>
+                    <label class="editor-field editor-span-2"><span>开局日期与时间</span><input id="s-start-at" type="datetime-local" value="2026-01-01T18:00"></label>
                     <label class="editor-field"><span>随身钱</span><input id="s-money" type="number" min="0" value="100"></label>
                     <label class="editor-field editor-span-2"><span>开局地点</span><input id="s-location" maxlength="120" placeholder="例如：雨夜中的陆宅前厅"></label>
                     <label class="editor-field"><span>随身物品</span><input id="s-items" placeholder="怀表, 折叠伞, 一封信"></label>
@@ -394,12 +395,12 @@
             <details class="editor-section" id="editor-timeline" data-editor-section="timeline">
               <summary>
                 <span class="editor-section-index">06</span>
-                <span class="editor-section-title"><b>时间与事件</b><small>按天推进的时间表，以及循环发生的事件</small></span>
+                <span class="editor-section-title"><b>时间与事件</b><small>按完整年月日与时刻推进的时间表，以及循环发生的事件</small></span>
                 <span class="editor-section-state" data-section-state>已收起</span>
               </summary>
               <div class="editor-section-body">
                 <div class="editor-subsection">
-                  <div class="editor-subhead"><div><b>时间表</b><span>触发后进入对局事件流，并同步到右侧状态栏</span></div><span class="editor-count" id="count-schedule">0 个节点</span></div>
+                  <div class="editor-subhead"><div><b>时间表</b><span>使用年-月-日 时:分；触发后进入对局事件流，并同步到右侧状态栏</span></div><span class="editor-count" id="count-schedule">0 个节点</span></div>
                   <div class="editor-repeat-list" id="editor-schedule"></div>
                   <button type="button" class="editor-add" data-add-row="schedule">＋ 添加时间节点</button>
                 </div>
@@ -612,7 +613,7 @@
       <div class="tags" id="inventory"></div>
     </div>
 
-    <div class="sect">
+    <div class="sect hidden" id="clue-sect">
       <h3>线索</h3>
       <div class="tags" id="clues"></div>
     </div>
@@ -627,7 +628,7 @@
         <div class="rel-list" id="relations"></div>
       </div>
 
-      <div class="sect">
+      <div class="sect hidden" id="objective-sect">
         <h3>当前目标</h3>
         <div class="obj-list" id="objectives"></div>
       </div>
@@ -721,4 +722,3 @@
 <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js" defer></script>
 </body>
 </html>
-

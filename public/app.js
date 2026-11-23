@@ -80,7 +80,7 @@ function renderScenarios(selectId) {
     const card = el("button", "card");
     card.appendChild(el("div", "t", s.title));
     card.appendChild(
-      el("div", "g", `${s.genre} · ${s.scheduleCount} 个日程节点${s.hasOpening ? " · 已写开场白" : ""}${s.editable ? " · 可编辑" : ""}`)
+      el("div", "g", `${s.genre}${s.playStyle === "open-world" ? " · 开放世界" : ""} · ${s.scheduleCount} 个日程节点${s.hasOpening ? " · 已写开场白" : ""}${s.editable ? " · 可编辑" : ""}`)
     );
     card.appendChild(el("div", "b", s.blurb));
     card.addEventListener("click", () => {
@@ -362,6 +362,19 @@ $("jump-latest").addEventListener("click", () => {
   scrollLog(true);
 });
 
+function renderQuickActions() {
+  const box = $("quick");
+  const actions = Array.isArray(session?.scenario?.actions) ? session.scenario.actions : [];
+  if (!actions.length) return;
+  box.innerHTML = "";
+  for (const action of actions.slice(0, 8)) {
+    if (!action?.label || !action?.text) continue;
+    const button = el("button", "", action.label);
+    button.dataset.q = action.text;
+    box.appendChild(button);
+  }
+}
+
 function statBar(sel, value, max) {
   $(sel + "-text").textContent = `${value} / ${max}`;
   $(sel + "-fill").style.width = `${Math.max(0, Math.min(100, (value / max) * 100))}%`;
@@ -411,17 +424,16 @@ function renderSession() {
 
   const clues = $("clues");
   clues.innerHTML = "";
-  (session.clues.length ? session.clues : ["（还没有线索）"]).forEach((i) => clues.appendChild(el("span", "tag clue", i)));
+  $("clue-sect")?.classList.toggle("hidden", !(session.clues || []).length);
+  (session.clues || []).forEach((i) => clues.appendChild(el("span", "tag clue", i)));
 
   const sched = $("schedule");
   sched.innerHTML = "";
   const upcomingKeys = new Set((session.upcoming || []).map((u) => u.key));
   const nextKey = (session.upcoming || [])[0]?.key;
   for (const ev of session.schedule || []) {
-    const h = Math.floor(ev.minute / 60);
-    const m = ev.minute % 60;
     const row = el("div", "row" + (ev.fired ? " done" : upcomingKeys.has(ev.key) ? (ev.key === nextKey ? " next" : "") : ""));
-    row.appendChild(el("div", "when", `第 ${ev.day} 天 ${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}${ev.fired ? " · 已发生" : ""}`));
+    row.appendChild(el("div", "when", `${String(ev.at || "").replace("T", " ")}${ev.fired ? " · 已发生" : ""}`));
     row.appendChild(el("div", "", ev.title));
     sched.appendChild(row);
   }
@@ -450,7 +462,7 @@ function renderSession() {
   const obj = $("objectives");
   obj.innerHTML = "";
   const objectives = session.objectives || [];
-  if (!objectives.length) obj.appendChild(el("div", "hint", "（还没有明确目标）"));
+  $("objective-sect")?.classList.toggle("hidden", !objectives.length);
   for (const o of objectives) {
     const row = el("div", `obj-row${o.done ? " done" : ""}`);
     row.appendChild(el("span", "obj-dot", o.done ? "✓" : "•"));
@@ -464,13 +476,15 @@ function renderSession() {
   if (!events.length) evBox.appendChild(el("div", "hint", "（还没有触发事件）"));
   for (const e of events) {
     const row = el("div", "row done");
-    row.appendChild(el("div", "when", e.at || `第 ${e.day} 天`));
+    row.appendChild(el("div", "when", e.at || "时间未记录"));
     row.appendChild(el("div", "", e.title));
     evBox.appendChild(row);
   }
 
-  $("tb-title").textContent = `${session.scenario.title} · ${c.name}${session.mode === "free" ? " · 自由叙事" : ""}`;
+  const worldStyle = session.mode === "free" ? "自由叙事" : session.scenario?.playStyle === "open-world" ? "开放世界" : "";
+  $("tb-title").textContent = `${session.scenario.title} · ${c.name}${worldStyle ? " · " + worldStyle : ""}`;
   $("tb-clock").textContent = session.clock;
+  renderQuickActions();
 
   if (session.ended) showEnding(session.ended);
 }
@@ -575,9 +589,10 @@ $("input").addEventListener("input", () => {
   $("input").style.height = Math.min($("input").scrollHeight, 180) + "px";
 });
 
-for (const b of document.querySelectorAll("#quick button")) {
-  b.addEventListener("click", () => act(b.dataset.q));
-}
+$("quick").addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-q]");
+  if (button?.dataset.q) act(button.dataset.q);
+});
 
 $("roll-btn").addEventListener("click", async () => {
   if (!session || busy) return;
@@ -709,7 +724,10 @@ function showOpening() {
     `<div class="op-meta">随身：${(session.inventory || []).map(escHtml).join("、") || "空"}　生命 ${session.status?.hp}/${session.status?.hpMax}　理智 ${session.status?.san}/${session.status?.sanMax}</div>` +
     `<div class="op-meta">位置：${escHtml(session.location || "未记录")}　等级 ${session.growth?.level || 1}（${session.growth?.xp || 0} XP）</div>` +
     `<div class="op-sec">开场</div>` +
-    `<div class="op-story">${escHtml(opening)}</div>`;
+    `<div class="op-story">${escHtml(opening)}</div>` +
+    (Array.isArray(sc.actions) && sc.actions.length
+      ? `<div class="op-sec">可从这里开始</div><div class="op-meta">${sc.actions.map((action) => escHtml(action.label)).join(" · ")}。也可以完全不选，直接输入自己的目标。</div>`
+      : "");
   $("opening-modal").classList.remove("hidden");
 }
 
@@ -1598,7 +1616,7 @@ $("btn-export-play").addEventListener("click", () => {
   slide("角色卡", `姓名：${c.name}\n称呼：${c.gender || ""}　年龄：${c.age || ""}\n身份：${c.role || ""}\n外貌：${c.appearance || ""}\n性格：${c.personality || ""}\n背景：${c.background || ""}\n目标：${c.goal || ""}\n\n属性：${attrs}\n技能：${skills}`);
   slide("状态与成长", `生命：${session.status?.hp}/${session.status?.hpMax}\n理智：${session.status?.san}/${session.status?.sanMax}\n金钱：${session.status?.money}\n等级：${g.level || 1}　经验：${g.xp || 0}\n地点：${session.location || "未记录"}\n已认识：${(session.npcsKnown || []).join("、") || "无"}\n\n物品：${(session.inventory || []).join("、") || "空"}\n线索：${(session.clues || []).join("、") || "无"}`);
   slide("关系与任务", `人物关系：\n${Object.entries(session.relations || {}).map(([k, v]) => `${k}：${v.attitude || ""}（${v.value ?? 0}）${v.note ? " " + v.note : ""}`).join("\n") || "无"}\n\n目标：${(session.objectives || []).map((o) => o.text + (o.done ? "（已完成）" : "")).join("、") || "无"}\n任务：${(session.quests || []).map((o) => o.text + (o.done ? "（已完成）" : "")).join("、") || "无"}`);
-  slide("事件与日程", `已发生事件：\n${(session.eventLog || []).map((e) => `${e.at || ""} ${e.title}`).join("\n") || "无"}\n\n时间表：\n${(session.schedule || []).map((e) => `第${e.day}天 ${String(Math.floor(e.minute / 60)).padStart(2, "0")}:${String(e.minute % 60).padStart(2, "0")} ${e.title}${e.fired ? "（已发生）" : ""}`).join("\n")}`);
+  slide("事件与日程", `已发生事件：\n${(session.eventLog || []).map((e) => `${e.at || ""} ${e.title}`).join("\n") || "无"}\n\n时间表：\n${(session.schedule || []).map((e) => `${String(e.at || "").replace("T", " ")} ${e.title}${e.fired ? "（已发生）" : ""}`).join("\n")}`);
   const lines = (session.log || []).map((e) => {
     const tag = e.type === "player" ? "玩家" : e.type === "gm" ? "GM" : e.type === "dice" ? "判定" : e.type === "event" ? "事件" : e.type === "change" ? "变化" : "系统";
     return `[${tag}] ${e.text}`;
@@ -1831,6 +1849,17 @@ function minuteToTime(minute) {
   return `${String(Math.floor(n / 60)).padStart(2, "0")}:${String(n % 60).padStart(2, "0")}`;
 }
 
+function dateTimeLocalValue(value) {
+  const text = String(value || "").trim();
+  const full = text.match(/^(\d{1,4})[-/](\d{1,2})[-/](\d{1,2})[T\s](\d{1,2}):(\d{2})/);
+  if (full) {
+    return `${full[1].padStart(4, "0")}-${full[2].padStart(2, "0")}-${full[3].padStart(2, "0")}T${full[4].padStart(2, "0")}:${full[5]}`;
+  }
+  const time = text.match(/^(\d{1,2}):(\d{2})$/);
+  if (time) return `2026-01-01T${time[1].padStart(2, "0")}:${time[2]}`;
+  return "2026-01-01T18:00";
+}
+
 function makeScenarioField(label, field, value, options = {}) {
   const wrap = el("label", "editor-field");
   wrap.appendChild(el("span", "", label));
@@ -1900,7 +1929,7 @@ function scenarioRowTitle(type, data) {
 function scenarioRowMeta(type, data) {
   if (type === "npc") return [data.faction, data.role].filter(Boolean).join(" · ");
   if (type === "clue") return data.category || "";
-  if (type === "schedule") return `第${Number(data.day) || 1}天 ${minuteToTime(data.minute)}`;
+  if (type === "schedule") return String(data.at || "").replace("T", " ");
   if (type === "entity") return [data.group, data.kind].filter(Boolean).join(" · ");
   if (type === "status") return data.initial ? `初始 ${data.initial}` : "";
   if (type === "loop") return data.every || "";
@@ -1997,9 +2026,9 @@ function buildScenarioRow(type, data = {}, collapsed = true) {
       makeScenarioField("线索正文", "text", data.text || "", { placeholder: "药渣里有乌头的苦味" }),
     ]));
   } else if (type === "schedule") {
-    body.appendChild(scenarioGrid("editor-grid-4", [
-      makeScenarioField("第几天", "day", data.day || 1, { type: "number", min: 1 }),
-      makeScenarioField("时间", "time", minuteToTime(data.minute), { type: "time" }),
+    const defaultAt = data.at || ($("s-start-at") && $("s-start-at").value) || "2026-01-01T18:00";
+    body.appendChild(scenarioGrid("editor-grid-2", [
+      makeScenarioField("日期与时间", "at", dateTimeLocalValue(defaultAt), { type: "datetime-local" }),
       makeScenarioField("事件标题", "title", data.title || "", { placeholder: "后厅开宴" }),
       makeScenarioField("说明", "note", data.note || "", { placeholder: "所有人必须到场" }),
     ]));
@@ -2173,8 +2202,7 @@ function collectScenarioRows(type) {
     if (type === "clue") return { category: rowValue(card, "category"), text: rowValue(card, "text") };
     if (type === "schedule") {
       return {
-        day: Number(rowValue(card, "day")) || 1,
-        minute: timeToMinute(rowValue(card, "time")),
+        at: rowValue(card, "at"),
         title: rowValue(card, "title"),
         note: rowValue(card, "note"),
       };
@@ -2299,6 +2327,7 @@ function fillScenarioForm(s) {
   $("s-genre").value = s.genre || "";
   $("s-blurb").value = s.blurb || "";
   $("s-tone").value = s.tone || "";
+  $("s-play-style").value = s.playStyle === "open-world" ? "open-world" : "content";
   $("s-version").value = s.version || "1.0";
   $("s-tags").value = (s.tags || []).join(", ");
   $("s-version-note").value = s.versionNote || "";
@@ -2313,9 +2342,12 @@ function fillScenarioForm(s) {
   $("s-hook").value = s.hook || "";
   $("s-opening").value = s.opening || "";
   $("s-truth").value = s.truth || "";
+  $("s-continuity").value = (Array.isArray(s.continuity) ? s.continuity : []).join("\n");
   $("s-fixed-desc").value = rules.fixedOpeningDesc || s.fixedOpeningDesc || s.fixedOpening?.desc || "";
-  $("s-day").value = s.startDay || 1;
-  $("s-time").value = minuteToTime(s.startMinute ?? 540);
+  const legacyStart = s.startDay || s.startMinute !== undefined
+    ? `2026-01-${String(Math.max(1, Number(s.startDay) || 1)).padStart(2, "0")}T${minuteToTime(s.startMinute ?? 540)}`
+    : "";
+  $("s-start-at").value = dateTimeLocalValue(s.startAt || s.startDateTime || legacyStart);
   $("s-money").value = s.startMoney ?? 0;
   $("s-location").value = s.startLocation || "";
   $("s-items").value = (s.startItems || []).join(", ");
@@ -2347,6 +2379,7 @@ function readScenarioForm() {
     genre: $("s-genre").value,
     blurb: $("s-blurb").value,
     tone: $("s-tone").value,
+    playStyle: $("s-play-style").value,
     version: $("s-version").value,
     tags: String($("s-tags").value || "").split(/[,，、]/).map((x) => x.trim()).filter(Boolean),
     versionNote: $("s-version-note").value,
@@ -2363,6 +2396,7 @@ function readScenarioForm() {
     hook: $("s-hook").value,
     opening: $("s-opening").value,
     truth: $("s-truth").value,
+    continuity: String($("s-continuity").value || "").split(/\r?\n/).map((x) => x.trim()).filter(Boolean),
     openingOptions: collectScenarioRows("openingOption"),
     entities: collectScenarioRows("entity"),
     statuses: collectScenarioRows("status"),
@@ -2375,8 +2409,7 @@ function readScenarioForm() {
     lexicon: collectScenarioRows("lexicon"),
     actions: collectScenarioRows("action"),
     randomTables: collectScenarioRows("random"),
-    startDay: Number($("s-day").value) || 1,
-    startMinute: timeToMinute($("s-time").value),
+    startAt: $("s-start-at").value,
     startMoney: Number($("s-money").value) || 0,
     startLocation: $("s-location").value,
     startItems: String($("s-items").value || "")
@@ -2455,13 +2488,13 @@ $("btn-fetch-setting-links").addEventListener("click", () =>
 );
 
 function resetScenarioEditor() {
-  for (const id of ["s-title", "s-genre", "s-blurb", "s-tone", "s-version-note", "s-background", "s-hook", "s-opening", "s-truth", "s-world", "s-fixed-desc", "s-location", "s-items", "s-links"]) {
+  for (const id of ["s-title", "s-genre", "s-blurb", "s-tone", "s-version-note", "s-background", "s-hook", "s-opening", "s-truth", "s-continuity", "s-world", "s-fixed-desc", "s-location", "s-items", "s-links"]) {
     $(id).value = "";
   }
   $("s-version").value = "1.0";
   $("s-tags").value = "";
-  $("s-day").value = "1";
-  $("s-time").value = "18:00";
+  $("s-play-style").value = "open-world";
+  $("s-start-at").value = "2026-01-01T18:00";
   $("s-money").value = "100";
   $("s-rule-dice").checked = true;
   $("s-rule-dice-toggle").checked = true;
@@ -2721,10 +2754,10 @@ if ($("btn-export-ppt")) $("btn-export-ppt").addEventListener("click", () => {
     s.addText(body, { x: 0.5, y: 1.0, w: 9, h: 4.6, fontSize: 11, valign: "top" });
   };
   slide("世界设定", d.world || d.background || "");
-  slide("开局设定", `第 ${d.startDay} 天 ${$("s-time").value}\n${d.hook || ""}\n\n${d.opening || ""}`);
+  slide("开局设定", `${String(d.startAt || "").replace("T", " ")}\n${d.hook || ""}\n\n${d.opening || ""}`);
   slide("人物", (d.npcs || []).map((n) => `${n.name}：${n.desc}${n.secret ? "（内情：" + n.secret + "）" : ""}`).join("\n"));
   slide("线索与结局", `线索：\n${(d.clues || []).join("\n")}\n\n结局：\n${(d.endings || []).map((e) => `${e.name}：${e.condition}`).join("\n")}`);
-  slide("时间表", (d.schedule || []).map((e) => `第${e.day}天 ${String(Math.floor(e.minute / 60)).padStart(2, "0")}:${String(e.minute % 60).padStart(2, "0")} ${e.title} ${e.note || ""}`).join("\n"));
+  slide("时间表", (d.schedule || []).map((e) => `${String(e.at || "").replace("T", " ")} ${e.title} ${e.note || ""}`).join("\n"));
   slide("实体与状态", `实体：\n${(d.entities || []).map((e) => `${e.name}｜${e.info}｜初始：${e.initial}｜${e.rules}`).join("\n")}\n\n状态：\n${(d.statuses || []).map((s) => `${s.name} 初始${s.initial}：${s.desc}`).join("\n")}`);
   slide("剧情与词条", `循环事件：\n${(d.loopEvents || []).map((x) => `每 ${x.every} ${x.title}`).join("\n")}\n\n剧情点：\n${(d.plotPoints || []).map((x) => `${x.at || ""} ${x.title}：${x.note || ""}`).join("\n")}\n\n词条：\n${(d.lexicon || []).map((x) => `${x.term}：${x.def}`).join("\n")}`);
   slide("预设行动与规则", `预设行动：${(d.actions || []).map((a) => a.label).join("、")}\n\n规则：默认骰子${d.rules.diceDefault ? "开" : "关"}；可切换骰子${d.rules.allowDiceToggle ? "是" : "否"}；固定开局默认${d.rules.fixedOpeningDefault ? "开" : "关"}；可切换固定开局${d.rules.allowOpeningToggle ? "是" : "否"}；随机机制${d.rules.randomMode ? "开" : "关"}`);
