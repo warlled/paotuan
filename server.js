@@ -36,6 +36,14 @@ const MIME_EXT = {
 };
 const UPLOAD_MAX = 8 * 1024 * 1024;
 const AVATAR_MAX = 2 * 1024 * 1024;
+const EXT_MIME = Object.fromEntries(Object.entries(MIME_EXT).map(([mime, ext]) => [ext, mime]));
+/** 完整备份里上传文件的总量上限：超出就整体跳过并提示，避免把实例内存打满。 */
+const BACKUP_UPLOAD_LIMIT = Math.max(0, Number(process.env.BACKUP_UPLOAD_LIMIT) || 32 * 1024 * 1024);
+/** 恢复备份时允许的请求体上限。 */
+const RESTORE_BODY_LIMIT = Math.max(8 * 1024 * 1024, Number(process.env.RESTORE_BODY_LIMIT) || 128 * 1024 * 1024);
+const BACKUP_NAME_RULE = /^[\w\u4e00-\u9fa5-]{1,60}\.json$/;
+const BACKUP_SID_RULE = /^[A-Za-z0-9_-]{1,64}$/;
+const UPLOAD_NAME_RULE = /^[a-f0-9]{16}\.(png|jpg|gif|webp|mp4|webm)$/i;
 const communityLast = new Map();
 
 function userFile(sid) {
@@ -656,6 +664,46 @@ function readRaw(req) {
   });
 }
 
+/** 按字节收包：大 JSON 在分块边界被切断时，逐块拼字符串会弄坏多字节字符。 */
+function readBodyBuffer(req, limit = RESTORE_BODY_LIMIT) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    let settled = false;
+    const fail = (err) => {
+      if (settled) return;
+      settled = true;
+      reject(err);
+    };
+    req.on("data", (c) => {
+      if (settled) return;
+      size += c.length;
+      if (size > limit) {
+        fail(new Error("备份文件超过 " + Math.round(limit / 1048576) + "MB 上限"));
+        req.destroy();
+        return;
+      }
+      chunks.push(c);
+    });
+    req.on("end", () => {
+      if (settled) return;
+      settled = true;
+      resolve(Buffer.concat(chunks));
+    });
+    req.on("error", fail);
+  });
+}
+
+function parseJsonBody(buf) {
+  try {
+    const text = buf.toString("utf8").trim();
+    if (!text) return null;
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
 function parseCookies(header) {
   const out = {};
   String(header || "")
@@ -818,34 +866,323 @@ function dataStats() {
   };
 }
 
-function buildBackup() {
-  const readDir = (dir) => {
+function readJsonDirFiles(dir) {
+  let names = [];
+  try {
+    names = fs.readdirSync(dir).filter((f) => f.endsWith(".json"));
+  } catch {
+    return [];
+  }
+  return names
+    .map((f) => {
+      try {
+        return { name: f, data: JSON.parse(fs.readFileSync(path.join(dir, f), "utf8")) };
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+}
+
+/** 存档是加密文件，必须走 engine.loadSession 解密，备份里只存明文对象。 */
+function readSessionFiles(dir) {
+  let names = [];
+  try {
+    names = fs.readdirSync(dir).filter((f) => f.endsWith(".json"));
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const name of names) {
+    const data = engine.loadSession(path.join(dir, name));
+    if (data && typeof data === "object") out.push({ name, data });
+  }
+  return out;
+}
+
+function listChildDirs(dir) {
+  try {
+    return fs
+      .readdirSync(dir, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name);
+  } catch {
+    return [];
+  }
+}
+
+/** 后台备份：把全部可恢复数据打成一个 JSON（含上传、自定义剧本、角色预设、房主存档、全局设定）。 */
+function buildBackup(opts = {}) {
+  const withUploads = opts.uploads !== false;
+
+  const scenarios = [];
+  for (const f of readJsonDirFiles(engine.USER_SCENARIO_DIR)) scenarios.push({ scope: "owner", sid: "", ...f });
+  const guestRoot = path.join(engine.WORK, "guest-scenarios");
+  for (const sid of listChildDirs(guestRoot)) {
+    if (!BACKUP_SID_RULE.test(sid)) continue;
+    for (const f of readJsonDirFiles(path.join(guestRoot, sid))) scenarios.push({ scope: "guest", sid, ...f });
+  }
+
+  const presets = [];
+  for (const f of readJsonDirFiles(engine.PRESET_DIR)) presets.push({ scope: "owner", sid: "", ...f });
+  for (const dir of listChildDirs(USERS_DIR)) {
+    if (!dir.endsWith("-presets")) continue;
+    const sid = dir.slice(0, -"-presets".length);
+    if (!BACKUP_SID_RULE.test(sid)) continue;
+    for (const f of readJsonDirFiles(path.join(USERS_DIR, dir))) presets.push({ scope: "guest", sid, ...f });
+  }
+
+  let uploadNames = [];
+  try {
+    uploadNames = fs.readdirSync(UPLOAD_DIR).filter((n) => UPLOAD_NAME_RULE.test(n));
+  } catch {}
+  let uploadBytes = 0;
+  for (const name of uploadNames) {
     try {
-      return fs
-        .readdirSync(dir)
-        .filter((f) => f.endsWith(".json"))
-        .map((f) => {
-          try {
-            return { name: f, data: JSON.parse(fs.readFileSync(path.join(dir, f), "utf8")) };
-          } catch {
-            return null;
-          }
-        })
-        .filter(Boolean);
-    } catch {
-      return [];
+      uploadBytes += fs.statSync(path.join(UPLOAD_DIR, name)).size;
+    } catch {}
+  }
+
+  const uploads = [];
+  let uploadsSkipped = null;
+  if (!withUploads) {
+    uploadsSkipped = { count: uploadNames.length, bytes: uploadBytes, limit: 0, reason: "本次选择了不含上传文件" };
+  } else if (uploadBytes > BACKUP_UPLOAD_LIMIT) {
+    uploadsSkipped = {
+      count: uploadNames.length,
+      bytes: uploadBytes,
+      limit: BACKUP_UPLOAD_LIMIT,
+      reason:
+        "上传文件共 " +
+        Math.round(uploadBytes / 1048576) +
+        "MB，超过单次备份上限 " +
+        Math.round(BACKUP_UPLOAD_LIMIT / 1048576) +
+        "MB",
+    };
+  } else {
+    for (const name of uploadNames) {
+      try {
+        const buf = fs.readFileSync(path.join(UPLOAD_DIR, name));
+        uploads.push({
+          name,
+          type: EXT_MIME[path.extname(name).toLowerCase()] || "",
+          size: buf.length,
+          data: buf.toString("base64"),
+        });
+      } catch {}
     }
-  };
+  }
+
   return {
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
+    platform: {
+      dataDir: engine.WORK,
+      persistent: process.env.PERSISTENT === "1" || !process.env.RENDER,
+      model: String(engine.config.model || ""),
+    },
+    counts: {
+      feedback: feedback.length,
+      community: community.length,
+      rooms: Object.keys(rooms).length,
+      scenarios: scenarios.length,
+      presets: presets.length,
+      uploads: uploads.length,
+      uploadsBytes: uploadBytes,
+    },
     feedback,
     votes,
     community,
     rooms,
-    users: readDir(USERS_DIR),
-    sessions: readDir(SESS_DIR),
+    users: readJsonDirFiles(USERS_DIR),
+    sessions: readSessionFiles(SESS_DIR),
+    ownerSession: engine.loadSession(path.join(engine.WORK, "session.json")),
+    scenarios,
+    presets,
+    uploads,
+    uploadsSkipped,
+    settings: readJsonFile(path.join(engine.WORK, "settings.json"), null),
   };
+}
+
+/** 从备份恢复；兼容旧版（没有 scenarios/presets/uploads 的）备份，坏条目计入 skipped 而不中断整次恢复。 */
+function restoreBackup(b) {
+  const out = {
+    feedback: 0,
+    votes: 0,
+    community: 0,
+    rooms: 0,
+    users: 0,
+    sessions: 0,
+    ownerSession: 0,
+    scenarios: 0,
+    presets: 0,
+    uploads: 0,
+    settings: 0,
+    skipped: 0,
+  };
+  const jsonName = /^[\w-]+\.json$/;
+
+  // 恢复前先确保数据目录存在：目录被清掉时也要能自愈
+  try {
+    fs.mkdirSync(engine.WORK, { recursive: true });
+    fs.mkdirSync(USERS_DIR, { recursive: true });
+    fs.mkdirSync(SESS_DIR, { recursive: true });
+    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+  } catch {}
+
+  if (Array.isArray(b.feedback)) {
+    feedback = b.feedback.slice(0, 500);
+    writeJsonFile(FEEDBACK_FILE, feedback);
+    out.feedback = feedback.length;
+  }
+  if (b.votes && typeof b.votes === "object") {
+    votes = {
+      up: Number(b.votes.up) || 0,
+      down: Number(b.votes.down) || 0,
+      voters: b.votes.voters && typeof b.votes.voters === "object" ? b.votes.voters : {},
+    };
+    writeJsonFile(VOTES_FILE, votes);
+    out.votes = 1;
+  }
+  if (Array.isArray(b.community)) {
+    community = b.community.slice(0, 200);
+    writeJsonFile(COMMUNITY_FILE, community);
+    out.community = community.length;
+  }
+  if (b.rooms && typeof b.rooms === "object" && !Array.isArray(b.rooms)) {
+    rooms = b.rooms;
+    saveRooms();
+    out.rooms = Object.keys(rooms).length;
+  }
+  for (const u of Array.isArray(b.users) ? b.users : []) {
+    const name = String(u?.name || "");
+    if (!jsonName.test(name) || !u?.data || typeof u.data !== "object") {
+      out.skipped += 1;
+      continue;
+    }
+    const file = path.join(USERS_DIR, name);
+    writeJsonFile(file, u.data);
+    if (fs.existsSync(file)) out.users += 1;
+    else out.skipped += 1;
+  }
+  for (const s of Array.isArray(b.sessions) ? b.sessions : []) {
+    const name = String(s?.name || "");
+    if (!jsonName.test(name) || !s?.data || typeof s.data !== "object") {
+      out.skipped += 1;
+      continue;
+    }
+    const file = path.join(SESS_DIR, name);
+    engine.saveSession(s.data, file);
+    if (fs.existsSync(file)) out.sessions += 1;
+    else out.skipped += 1;
+  }
+  if (out.sessions > 0) {
+    for (const cached of store.values()) {
+      if (cached.sid === "owner") continue;
+      const file = sessFile(cached.sid);
+      if (fs.existsSync(file)) cached.session = engine.loadSession(file);
+    }
+  }
+  for (const item of Array.isArray(b.scenarios) ? b.scenarios : []) {
+    const name = String(item?.name || "");
+    if (!BACKUP_NAME_RULE.test(name) || !item?.data || typeof item.data !== "object") {
+      out.skipped += 1;
+      continue;
+    }
+    let dir = engine.USER_SCENARIO_DIR;
+    if (item.scope === "guest") {
+      const sid = String(item.sid || "");
+      if (!BACKUP_SID_RULE.test(sid)) {
+        out.skipped += 1;
+        continue;
+      }
+      dir = path.join(engine.WORK, "guest-scenarios", sid);
+    }
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      writeJsonFile(path.join(dir, name), item.data);
+      out.scenarios += 1;
+    } catch {
+      out.skipped += 1;
+    }
+  }
+  for (const item of Array.isArray(b.presets) ? b.presets : []) {
+    const name = String(item?.name || "");
+    if (!BACKUP_NAME_RULE.test(name) || !item?.data || typeof item.data !== "object") {
+      out.skipped += 1;
+      continue;
+    }
+    let dir = engine.PRESET_DIR;
+    if (item.scope === "guest") {
+      const sid = String(item.sid || "");
+      if (!BACKUP_SID_RULE.test(sid)) {
+        out.skipped += 1;
+        continue;
+      }
+      dir = path.join(USERS_DIR, sid + "-presets");
+    }
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      writeJsonFile(path.join(dir, name), item.data);
+      out.presets += 1;
+    } catch {
+      out.skipped += 1;
+    }
+  }
+  for (const item of Array.isArray(b.uploads) ? b.uploads : []) {
+    const name = String(item?.name || "");
+    const ext = path.extname(name).toLowerCase();
+    if (!UPLOAD_NAME_RULE.test(name) || !EXT_MIME[ext] || !item?.data) {
+      out.skipped += 1;
+      continue;
+    }
+    let buf;
+    try {
+      buf = Buffer.from(String(item.data), "base64");
+    } catch {
+      out.skipped += 1;
+      continue;
+    }
+    if (!buf.length || buf.length > UPLOAD_MAX) {
+      out.skipped += 1;
+      continue;
+    }
+    const sniffed = sniffMime(buf);
+    if (sniffed !== EXT_MIME[ext]) {
+      out.skipped += 1;
+      continue;
+    }
+    try {
+      const file = path.join(UPLOAD_DIR, name);
+      fs.writeFileSync(file, buf);
+      if (fs.existsSync(file)) out.uploads += 1;
+      else out.skipped += 1;
+    } catch {
+      out.skipped += 1;
+    }
+  }
+  if (b.ownerSession && typeof b.ownerSession === "object" && !Array.isArray(b.ownerSession)) {
+    try {
+      const file = sessFile("owner");
+      engine.saveSession(b.ownerSession, file);
+      if (!fs.existsSync(file)) throw new Error("房主存档写入失败");
+      const owner = getEntry("owner", true);
+      if (owner) owner.session = engine.loadSession(file);
+      out.ownerSession = 1;
+    } catch {
+      out.skipped += 1;
+    }
+  }
+  if (b.settings && typeof b.settings === "object" && !Array.isArray(b.settings)) {
+    try {
+      engine.saveSettings(b.settings);
+      out.settings = 1;
+    } catch {
+      out.skipped += 1;
+    }
+  }
+  return out;
 }
 
 function adminPage() {
@@ -883,7 +1220,8 @@ function adminPage() {
     "作品 <b id=\"d-cm\">-</b> · 房间 <b id=\"d-rooms\">-</b> · 存档 <b id=\"d-sessions\">-</b> · 上传 <b id=\"d-uploads\">-</b><br>",
     '<span id="d-persist"></span>',
     '<div class="row" style="margin-top:10px">',
-    '<button id="btn-backup">下载全部数据备份</button>',
+    '<button id="btn-backup">下载完整备份</button>',
+    '<label style="display:inline-flex;align-items:center;gap:6px;color:#8b90a0;font-size:12.5px;cursor:pointer"><input id="backup-files" type="checkbox" checked>含上传文件</label>',
     '<label style="display:inline-block;border:1px solid #262b3a;border-radius:9px;padding:6px 12px;color:#8b90a0;font-size:12.5px;cursor:pointer">从备份恢复<input id="restore-file" type="file" accept="application/json,.json" hidden></label>',
     '<span id="d-status" style="color:#8b90a0;font-size:12px"></span>',
     "</div></div>",
@@ -928,23 +1266,56 @@ function adminPage() {
     '  p.style.color = s.persistent ? "#8fd8ac" : "#f0a3b4";',
     '  p.textContent = s.persistent ? "数据目录：" + s.dataDir + "（已使用持久目录）" : "⚠ 当前没有持久盘：重启/部署会清空留言、票数、用户与作品。请定期备份，或在 Render 挂载 /data 磁盘。";',
     "}",
+    'function fmtSize(bytes){ return bytes >= 1048576 ? (bytes/1048576).toFixed(1) + "MB" : Math.max(1, Math.round(bytes/1024)) + "KB"; }',
+    'function restoreSummary(x){',
+    '  const parts = [];',
+    '  if (x.feedback) parts.push("留言 " + x.feedback);',
+    '  if (x.community) parts.push("作品 " + x.community);',
+    '  if (x.rooms) parts.push("房间 " + x.rooms);',
+    '  if (x.users) parts.push("用户 " + x.users);',
+    '  if (x.sessions) parts.push("存档 " + x.sessions);',
+    '  if (x.scenarios) parts.push("剧本 " + x.scenarios);',
+    '  if (x.presets) parts.push("预设 " + x.presets);',
+    '  if (x.uploads) parts.push("上传 " + x.uploads);',
+    '  if (x.ownerSession) parts.push("房主存档");',
+    '  if (x.settings) parts.push("全局设定");',
+    '  if (x.skipped) parts.push("跳过 " + x.skipped + " 条");',
+    '  return parts.length ? parts.join(" · ") : "没有可恢复的数据";',
+    "}",
     'document.getElementById("btn-backup").onclick = async () => {',
-    '  const b = await (await fetch("/api/admin/backup")).json();',
-    '  const blob = new Blob([JSON.stringify(b, null, 2)], { type: "application/json" });',
-    '  const url = URL.createObjectURL(blob);',
-    '  const a = document.createElement("a");',
-    '  a.href = url; a.download = "paotuan-backup-" + new Date().toISOString().slice(0,10) + ".json";',
-    "  document.body.appendChild(a); a.click(); a.remove();",
-    "  setTimeout(() => URL.revokeObjectURL(url), 3000);",
-    '  document.getElementById("d-status").textContent = "备份已下载";',
+    '  const btn = document.getElementById("btn-backup");',
+    '  const status = document.getElementById("d-status");',
+    '  const box = document.getElementById("backup-files");',
+    "  const withFiles = box ? box.checked : true;",
+    "  btn.disabled = true;",
+    '  status.textContent = withFiles ? "正在打包（含上传文件）…" : "正在打包…";',
+    "  try {",
+    '    const r = await fetch("/api/admin/backup?files=" + (withFiles ? "1" : "0"));',
+    '    if (!r.ok) throw new Error("接口返回 " + r.status);',
+    "    const b = await r.json();",
+    '    const blob = new Blob([JSON.stringify(b, null, 2)], { type: "application/json" });',
+    "    const url = URL.createObjectURL(blob);",
+    '    const a = document.createElement("a");',
+    '    a.href = url; a.download = "paotuan-backup-" + new Date().toISOString().slice(0,10) + ".json";',
+    "    document.body.appendChild(a); a.click(); a.remove();",
+    "    setTimeout(() => URL.revokeObjectURL(url), 3000);",
+    '    let msg = "备份已下载（" + fmtSize(blob.size) + "，" + b.counts.scenarios + " 个剧本 / " + b.counts.presets + " 个预设 / " + b.counts.uploads + " 个上传）";',
+    '    if (b.uploadsSkipped) msg += "；上传未包含：" + b.uploadsSkipped.reason;',
+    "    status.textContent = msg;",
+    '  } catch (err) { status.textContent = "备份失败：" + (err.message || err); }',
+    "  finally { btn.disabled = false; }",
     "};",
     'document.getElementById("restore-file").onchange = async (e) => {',
     "  const f = e.target.files[0]; e.target.value = ''; if (!f) return;",
-    '  if (!confirm("恢复会覆盖当前数据，确定吗？")) return;',
-    "  const backup = JSON.parse(await f.text());",
-    '  const r = await fetch("/api/admin/restore", { method: "POST", headers: {"content-type":"application/json"}, body: JSON.stringify({ backup }) });',
-    '  const d = await r.json();',
-    '  document.getElementById("d-status").textContent = r.ok ? "恢复完成" : (d.error || "恢复失败");',
+    '  if (!confirm("恢复会覆盖当前数据（留言、作品、房间、用户存档、剧本、预设、上传），确定吗？")) return;',
+    '  const status = document.getElementById("d-status");',
+    '  status.textContent = "正在恢复…";',
+    "  try {",
+    "    const backup = JSON.parse(await f.text());",
+    '    const r = await fetch("/api/admin/restore", { method: "POST", headers: {"content-type":"application/json"}, body: JSON.stringify({ backup }) });',
+    "    const d = await r.json();",
+    '    status.textContent = r.ok ? "恢复完成：" + restoreSummary(d.restored || {}) : (d.error || "恢复失败");',
+    '  } catch (err) { status.textContent = "恢复失败：" + (err.message || err); }',
     "  refreshStats();",
     "};",
     "refreshStats();",
@@ -1130,45 +1501,24 @@ const server = http.createServer(async (req, res) => {
 
   if (p === "/api/admin/backup") {
     if (!adminOk) return send(res, 403, { error: "没有管理权限" });
-    return send(res, 200, buildBackup());
+    const files = url.searchParams.get("files");
+    return send(res, 200, buildBackup({ uploads: files === null ? true : files !== "0" }));
   }
 
   if (req.method === "POST" && p === "/api/admin/restore") {
     if (!adminOk) return send(res, 403, { error: "没有管理权限" });
-    const body = await readBody(req);
+    let raw;
+    try {
+      raw = await readBodyBuffer(req);
+    } catch (err) {
+      return send(res, 413, { error: String((err && err.message) || err) });
+    }
+    const body = parseJsonBody(raw);
+    if (!body) return send(res, 400, { error: "备份文件不是有效的 JSON" });
     const b = body.backup || body;
-    if (!b || typeof b !== "object") return send(res, 400, { error: "备份文件格式不对" });
-    if (Array.isArray(b.feedback)) {
-      feedback = b.feedback.slice(0, 500);
-      writeJsonFile(FEEDBACK_FILE, feedback);
-    }
-    if (b.votes && typeof b.votes === "object") {
-      votes = {
-        up: Number(b.votes.up) || 0,
-        down: Number(b.votes.down) || 0,
-        voters: b.votes.voters && typeof b.votes.voters === "object" ? b.votes.voters : {},
-      };
-      writeJsonFile(VOTES_FILE, votes);
-    }
-    if (Array.isArray(b.community)) {
-      community = b.community.slice(0, 200);
-      writeJsonFile(COMMUNITY_FILE, community);
-    }
-    if (b.rooms && typeof b.rooms === "object" && !Array.isArray(b.rooms)) {
-      rooms = b.rooms;
-      saveRooms();
-    }
-    for (const u of Array.isArray(b.users) ? b.users : []) {
-      if (u && typeof u.name === "string" && /^[\w-]+\.json$/.test(u.name)) {
-        writeJsonFile(path.join(USERS_DIR, u.name), u.data);
-      }
-    }
-    for (const s of Array.isArray(b.sessions) ? b.sessions : []) {
-      if (s && typeof s.name === "string" && /^[\w-]+\.json$/.test(s.name)) {
-        writeJsonFile(path.join(SESS_DIR, s.name), s.data);
-      }
-    }
-    return send(res, 200, { ok: true, stats: dataStats() });
+    if (!b || typeof b !== "object" || Array.isArray(b)) return send(res, 400, { error: "备份文件格式不对" });
+    const restored = restoreBackup(b);
+    return send(res, 200, { ok: true, restored, stats: dataStats() });
   }
 
   if (!entry.owner && !siteOpen()) {
