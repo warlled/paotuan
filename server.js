@@ -1626,7 +1626,26 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "GET" && (p === "/app.js" || p === "/i18n.js" || p === "/style.css")) {
     const type = p.endsWith(".css") ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8";
     if (!fs.existsSync(path.join(PUBLIC, p))) return send(res, 404, "not found", "text/plain; charset=utf-8");
+    res.setHeader("cache-control", "no-cache");
     return send(res, 200, fs.readFileSync(path.join(PUBLIC, p), "utf8"), type);
+  }
+
+  // 第三方库（PPT 导出）放本地，避免依赖外部 CDN
+  if (req.method === "GET" && p.startsWith("/vendor/")) {
+    const name = p.slice("/vendor/".length);
+    if (!/^[a-z0-9._-]+$/i.test(name)) return send(res, 404, "not found", "text/plain; charset=utf-8");
+    const file = path.join(PUBLIC, "vendor", name);
+    if (!fs.existsSync(file)) return send(res, 404, "not found", "text/plain; charset=utf-8");
+    const type = name.endsWith(".css")
+      ? "text/css; charset=utf-8"
+      : name.endsWith(".js")
+        ? "text/javascript; charset=utf-8"
+        : "application/octet-stream";
+    res.setHeader("content-type", type);
+    res.setHeader("cache-control", "public, max-age=2592000");
+    res.setHeader("x-content-type-options", "nosniff");
+    res.end(fs.readFileSync(file));
+    return;
   }
   if (p === "/api/ping") {
     return send(res, 200, {

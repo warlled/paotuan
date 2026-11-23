@@ -1636,7 +1636,7 @@ $("btn-export-play").addEventListener("click", () => {
     return;
   }
   if (typeof PptxGenJS === "undefined") {
-    alert("PPT 组件加载失败，请检查网络后重试。");
+    alert("PPT 组件还没加载好，等一秒再点，或者刷新页面重试。");
     return;
   }
   const pptx = new PptxGenJS();
@@ -2787,7 +2787,7 @@ $("btn-save-scenario").addEventListener("click", async () => {
 
 if ($("btn-export-ppt")) $("btn-export-ppt").addEventListener("click", () => {
   if (typeof PptxGenJS === "undefined") {
-    alert("PPT 组件加载失败，请检查网络后重试。");
+    alert("PPT 组件还没加载好，等一秒再点，或者刷新页面重试。");
     return;
   }
   const d = readScenarioForm();
