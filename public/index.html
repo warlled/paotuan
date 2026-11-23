@@ -4,13 +4,21 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>玩家自由创作游玩社区网站平台</title>
-<link rel="stylesheet" href="/style.css?v=20261124-8lang6">
+<link rel="stylesheet" href="/style.css?v=20261124-8lang8">
 </head>
 <body>
 
 <div id="hud">
   <div id="hud-left">
-    <div class="hud-row hud-drag"><span class="hud-grip" title="按住拖动">⠿</span></div>
+    <div class="hud-row hud-drag">
+      <span class="hud-grip" title="按住拖动">⠿</span>
+      <span class="hud-caption">玩家状态栏</span>
+      <span class="hud-controls">
+        <button id="hud-compact" type="button" title="缩小状态栏">−</button>
+        <button id="hud-alpha" type="button" title="切换半透明">◐</button>
+        <button id="hud-hide" type="button" title="隐藏状态栏">×</button>
+      </span>
+    </div>
     <div class="hud-row">
       <button id="vote-up" class="vote-btn up" title="给个好评">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M2 21h4V9H2v12zm20-11c0-1.1-.9-2-2-2h-6.3l.9-4.3.1-.7c0-.4-.2-.8-.4-1.1L13 1 6.6 7.4C6.2 7.8 6 8.4 6 9v10c0 1.1.9 2 2 2h9c.8 0 1.5-.5 1.8-1.2l3-7c.1-.3.2-.6.2-.8v-1z"/></svg>
@@ -31,6 +39,7 @@
       <a href="/room" target="_blank" rel="noopener" class="fb-open">联机</a>
     </div>
   </div>
+  <button id="hud-restore" class="hidden" type="button" title="显示玩家状态栏">状态栏</button>
   <div id="hud-right" title="当前在线人数">
     <span class="online-dot"></span><b id="online-count">1</b>
   </div>
@@ -717,8 +726,8 @@
   </div>
 </section>
 
-<script src="/i18n.js?v=20261124-8lang6"></script>
-<script src="/app.js?v=20261124-8lang6"></script>
+<script src="/i18n.js?v=20261124-8lang8"></script>
+<script src="/app.js?v=20261124-8lang8"></script>
 <script src="/vendor/pptxgen.bundle.js?v=3.12.0" async></script>
 </body>
 </html>

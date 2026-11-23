@@ -66,6 +66,45 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent2); }
   flex-direction: column; align-items: stretch; gap: 3px;
   max-width: calc(100vw - 96px); border-radius: 14px;
   position: fixed; left: 10px; top: 44px; z-index: 61;
+  transition: opacity .18s ease, padding .18s ease, box-shadow .18s ease;
+}
+#hud-left.hud-soft { opacity: .58; }
+#hud-left.hud-ghost { opacity: .28; }
+#hud-left.hud-soft:hover,
+#hud-left.hud-ghost:hover,
+#hud-left.hud-soft:focus-within,
+#hud-left.hud-ghost:focus-within { opacity: 1; }
+#hud-left.compact {
+  gap: 1px;
+  padding: 2px 5px;
+  font-size: 10.5px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.2);
+}
+#hud-left.compact .hud-caption,
+#hud-left.compact .vote-btn span,
+#hud-left.compact .vote-btn b,
+#hud-left.compact #fb-count { display: none; }
+#hud-left.compact .hud-row { gap: 1px; }
+#hud-left.compact .fb-open,
+#hud-left.compact .vote-btn { padding: 1px 3px; font-size: 10.5px; }
+#hud-left.compact .hud-actions { padding-top: 1px; }
+.hud-caption {
+  min-width: 0; flex: 1; overflow: hidden;
+  color: var(--muted); font-size: 9.5px; letter-spacing: .4px;
+  white-space: nowrap; text-overflow: ellipsis;
+}
+.hud-controls { display: inline-flex; align-items: center; gap: 1px; flex: 0 0 auto; }
+.hud-controls button {
+  width: 20px; height: 20px; padding: 0;
+  border: 0; border-radius: 6px; background: transparent;
+  color: var(--muted); line-height: 1; font-size: 13px; cursor: pointer;
+}
+.hud-controls button:hover { color: var(--text); background: rgba(255,255,255,.08); }
+#hud-restore {
+  position: fixed; left: 10px; top: 44px; z-index: 61;
+  pointer-events: auto; padding: 4px 8px; border-radius: 999px;
+  border: 1px solid var(--line); background: rgba(21,24,35,.72);
+  color: var(--muted); font-size: 10.5px; backdrop-filter: blur(6px);
 }
 .hud-drag { justify-content: center; cursor: grab; touch-action: none; user-select: none; }
 .hud-drag:active { cursor: grabbing; }

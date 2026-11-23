@@ -941,6 +941,14 @@ function askDeepSeek(prompt, settings) {
             try {
               detail = JSON.parse(raw).error?.message || detail;
             } catch {}
+            if (res.statusCode === 402) {
+              reject(new Error("网站默认模型账户余额不足。请联系站长充值，或在「我的」中填写自己的 API Key。"));
+              return;
+            }
+            if (res.statusCode === 429) {
+              reject(new Error(`模型请求过于频繁或并发已满，请稍后重试。${detail}`));
+              return;
+            }
             reject(new Error(`DeepSeek API ${res.statusCode}：${detail}`));
             return;
           }
@@ -974,16 +982,38 @@ function askDeepSeek(prompt, settings) {
   });
 }
 
-function askModel(prompt, settings) {
+function isRetryableModelError(error) {
+  const text = String(error?.message || error || "");
+  if (/余额不足|未授权|没有权限|402|401|403/.test(text)) return false;
+  return /429|500|502|503|504|ECONNRESET|ECONNREFUSED|EPIPE|fetch failed|empty|空内容|overloaded|繁忙|请求过于频繁/i.test(text);
+}
+
+async function askModel(prompt, settings) {
+  let invoke;
   if (arguments.length > 2) {
     const override = arguments[2];
     if (override && override.enabled && override.apiKey && override.baseUrl && override.model) {
-      return askCompatible(prompt, override);
+      invoke = () => askCompatible(prompt, override);
     }
   }
   const provider = String(config.provider || "codex").toLowerCase();
-  if (provider === "deepseek" || provider === "api") return askDeepSeek(prompt, settings);
-  return askCodex(prompt, settings);
+  if (!invoke) {
+    invoke =
+      provider === "deepseek" || provider === "api"
+        ? () => askDeepSeek(prompt, settings)
+        : () => askCodex(prompt, settings);
+  }
+  let lastError;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      return await invoke();
+    } catch (error) {
+      lastError = error;
+      if (attempt >= 3 || provider === "codex" || !isRetryableModelError(error)) throw error;
+      await sleep(900 * attempt);
+    }
+  }
+  throw lastError;
 }
 
 function askCompatible(prompt, cfg) {
@@ -1047,6 +1077,14 @@ function askCompatible(prompt, cfg) {
             try {
               detail = JSON.parse(raw).error?.message || detail;
             } catch {}
+            if (res.statusCode === 402) {
+              reject(new Error("你的模型账户余额不足，请充值或更换 API Key。"));
+              return;
+            }
+            if (res.statusCode === 429) {
+              reject(new Error(`模型接口请求过于频繁，请稍后重试。${detail}`));
+              return;
+            }
             reject(new Error(`模型接口 ${res.statusCode}：${detail}`));
             return;
           }

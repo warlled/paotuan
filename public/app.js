@@ -1632,8 +1632,43 @@ try {
 (function initHudDrag() {
   const box = $("hud-left");
   const grip = document.querySelector(".hud-grip");
+  const compact = $("hud-compact");
+  const alpha = $("hud-alpha");
+  const hide = $("hud-hide");
+  const restore = $("hud-restore");
   if (!box || !grip) return;
   const KEY = "pt-hud-pos";
+  const VIEW_KEY = "pt-hud-view";
+  let view = { alpha: "solid", compact: false, hidden: false };
+  try {
+    const saved = JSON.parse(localStorage.getItem(VIEW_KEY) || "null");
+    if (saved && typeof saved === "object") {
+      view.alpha = ["solid", "soft", "ghost"].includes(saved.alpha) ? saved.alpha : "solid";
+      view.compact = Boolean(saved.compact);
+      view.hidden = Boolean(saved.hidden);
+    }
+  } catch {}
+
+  function placeRestoreAtBox() {
+    if (!restore) return;
+    restore.style.left = Math.max(4, box.offsetLeft) + "px";
+    restore.style.top = Math.max(4, box.offsetTop) + "px";
+  }
+
+  function applyView() {
+    box.classList.toggle("hud-soft", view.alpha === "soft");
+    box.classList.toggle("hud-ghost", view.alpha === "ghost");
+    box.classList.toggle("compact", view.compact);
+    box.classList.toggle("hidden", view.hidden);
+    restore?.classList.toggle("hidden", !view.hidden);
+    compact?.setAttribute("aria-pressed", view.compact ? "true" : "false");
+    alpha?.setAttribute("aria-pressed", view.alpha !== "solid" ? "true" : "false");
+    if (restore) placeRestoreAtBox();
+    try {
+      localStorage.setItem(VIEW_KEY, JSON.stringify(view));
+    } catch {}
+  }
+
   try {
     const p = JSON.parse(localStorage.getItem(KEY) || "null");
     if (p && Number.isFinite(p.left) && Number.isFinite(p.top)) {
@@ -1641,6 +1676,26 @@ try {
       box.style.top = p.top + "px";
     }
   } catch {}
+  applyView();
+
+  compact?.addEventListener("click", () => {
+    view.compact = !view.compact;
+    applyView();
+  });
+  alpha?.addEventListener("click", () => {
+    const modes = ["solid", "soft", "ghost"];
+    view.alpha = modes[(modes.indexOf(view.alpha) + 1) % modes.length];
+    applyView();
+  });
+  hide?.addEventListener("click", () => {
+    view.hidden = true;
+    applyView();
+  });
+  restore?.addEventListener("click", () => {
+    view.hidden = false;
+    applyView();
+  });
+
   let drag = null;
   grip.addEventListener("pointerdown", (e) => {
     e.preventDefault();
@@ -1656,6 +1711,10 @@ try {
     const top = Math.max(4, Math.min(window.innerHeight - h - 4, drag.top + e.clientY - drag.y));
     box.style.left = left + "px";
     box.style.top = top + "px";
+    if (restore) {
+      restore.style.left = left + "px";
+      restore.style.top = top + "px";
+    }
   });
   const end = () => {
     if (!drag) return;
@@ -1666,6 +1725,16 @@ try {
   };
   grip.addEventListener("pointerup", end);
   grip.addEventListener("pointercancel", end);
+  window.addEventListener("resize", () => {
+    const left = Math.max(4, Math.min(window.innerWidth - box.offsetWidth - 4, box.offsetLeft));
+    const top = Math.max(4, Math.min(window.innerHeight - box.offsetHeight - 4, box.offsetTop));
+    box.style.left = left + "px";
+    box.style.top = top + "px";
+    if (restore) {
+      restore.style.left = left + "px";
+      restore.style.top = top + "px";
+    }
+  });
 })();
 
 $("btn-export-play").addEventListener("click", () => {
