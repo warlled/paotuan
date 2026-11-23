@@ -46,6 +46,7 @@ const BACKUP_NAME_RULE = /^[\w\u4e00-\u9fa5-]{1,60}\.json$/;
 const BACKUP_SID_RULE = /^[A-Za-z0-9_-]{1,64}$/;
 const UPLOAD_NAME_RULE = /^[a-f0-9]{16}\.(png|jpg|gif|webp|mp4|webm)$/i;
 const communityLast = new Map();
+const i18nBusy = new Set();
 
 function userFile(sid) {
   return path.join(USERS_DIR, `${sid.replace(/[^a-z0-9]/gi, "")}.json`);
@@ -1650,6 +1651,9 @@ const server = http.createServer(async (req, res) => {
     if (!entry.owner && guestQuotaLeft() <= 0) {
       return send(res, 429, { error: "今天的翻译额度已经用完，明天再来吧。" });
     }
+    if (entry.busy || i18nBusy.has(entry.sid)) {
+      return send(res, 429, { error: "翻译正在排队，请稍后再试。", retry: true });
+    }
     const languageName = engine.LANGUAGES[language].name;
     const prompt = [
       `You are a professional game localisation translator. Translate each numbered string into ${languageName}.`,
@@ -1660,9 +1664,10 @@ const server = http.createServer(async (req, res) => {
       "Return one item for every input item, keep the same ids, add no commentary and no code fences.",
       ...missing.map((text, index) => `${index}. ${text}`),
     ].join("\n");
-    await acquireSlot();
-    if (!entry.owner) addGuestCalls(1);
+    i18nBusy.add(entry.sid);
     try {
+      await acquireSlot();
+      if (!entry.owner) addGuestCalls(1);
       const raw = await engine.askModel(prompt, { reasoningEffort: "low" }, loadModelFor(entry.sid));
       const parsed = parseTranslationReply(raw.text, missing.length);
       for (const [index, translated] of parsed) {
@@ -1676,6 +1681,7 @@ const server = http.createServer(async (req, res) => {
     } catch (err) {
       return send(res, 502, { error: `翻译失败：${err.message || err}` });
     } finally {
+      i18nBusy.delete(entry.sid);
       releaseSlot();
     }
   }

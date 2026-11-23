@@ -1103,6 +1103,7 @@
   const remoteMisses = new Set();
   let remoteTimer = 0;
   let remoteToken = 0;
+  let remoteRunning = false;
   let translationStatusNode = null;
 
   const TRANSLATION_STATUS = {
@@ -1338,28 +1339,32 @@
       hideTranslationStatus();
       return;
     }
-    const token = ++remoteToken;
-    const language = current;
-    const texts = new Set();
-    collectRemote(document.documentElement, texts);
-    const queue = [...texts].slice(0, 108);
-    if (!queue.length) {
-      hideTranslationStatus();
+    if (remoteRunning) {
+      scheduleRemoteTranslation(1400);
       return;
     }
-    showTranslationStatus();
-    for (let offset = 0; offset < queue.length; offset += 36) {
-      if (token !== remoteToken || language !== current) return;
-      const batch = queue.slice(offset, offset + 36);
+    remoteRunning = true;
+    const token = ++remoteToken;
+    const language = current;
+    try {
+      const texts = new Set();
+      collectRemote(document.documentElement, texts);
+      const batch = [...texts].slice(0, 36);
+      if (!batch.length) {
+        hideTranslationStatus();
+        return;
+      }
+      showTranslationStatus();
       try {
         await translateRemoteBatch(language, batch, token);
       } catch {
         for (const text of batch) remoteMisses.add(`${language}\n${text}`);
-        break;
       }
+      if (token === remoteToken && language === current) apply();
+    } finally {
+      remoteRunning = false;
+      if (token === remoteToken) hideTranslationStatus();
     }
-    if (token === remoteToken && language === current) apply();
-    if (token === remoteToken) hideTranslationStatus();
   }
 
   function scheduleRemoteTranslation(delay = 450) {
