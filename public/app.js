@@ -10,6 +10,8 @@ const el = (tag, cls, text) => {
 let meta = null;
 let session = null;
 let busy = false;
+let metaLoading = false;
+let metaRetryTimer = 0;
 
 const setupState = {
   scenarioId: null,
@@ -32,7 +34,7 @@ function scenarioSeries(s) {
 }
 
 function filteredScenarios() {
-  const all = meta.scenarios || [];
+  const all = meta?.scenarios || [];
   return scFilter === "all" ? all : all.filter((s) => scenarioSeries(s) === scFilter);
 }
 
@@ -61,6 +63,16 @@ function renderScenarioTabs() {
 
 function renderScenarios(selectId) {
   renderScenarioTabs();
+  if (!meta) {
+    const box = $("scenarios");
+    box.innerHTML = "";
+    box.appendChild(el("div", "hint", "正在加载剧本…如果长时间没有出现，会自动重试。"));
+    $("sc-page").textContent = "正在加载";
+    $("sc-prev").disabled = true;
+    $("sc-next").disabled = true;
+    $("start").disabled = true;
+    return;
+  }
   if (selectId && !filteredScenarios().some((s) => s.id === selectId)) {
     scFilter = "all";
     renderScenarioTabs();
@@ -111,6 +123,7 @@ function renderScenarios(selectId) {
   $("sc-page").textContent = `第 ${scPage + 1} / ${pages} 页`;
   $("sc-prev").disabled = scPage <= 0;
   $("sc-next").disabled = scPage >= pages - 1;
+  $("start").disabled = false;
 }
 
 $("sc-prev").addEventListener("click", () => {
@@ -120,6 +133,10 @@ $("sc-prev").addEventListener("click", () => {
   }
 });
 $("sc-next").addEventListener("click", () => {
+  if (!meta) {
+    loadMeta();
+    return;
+  }
   scPage += 1;
   renderScenarios();
 });
@@ -134,6 +151,7 @@ document.addEventListener("keydown", (e) => {
 function renderDiffs() {
   const box = $("diffs");
   box.innerHTML = "";
+  if (!meta?.difficulty) return;
   for (const [key, d] of Object.entries(meta.difficulty)) {
     const card = el("button", "card");
     card.appendChild(el("div", "t", d.label));
@@ -152,6 +170,7 @@ function renderDiffs() {
 function renderAttrs() {
   const box = $("attrs");
   box.innerHTML = "";
+  if (!meta?.attrs) return;
   for (const a of meta.attrs) {
     if (setupState.attrs[a.key] === undefined) setupState.attrs[a.key] = 5;
     const row = el("div", "attr-row");
@@ -206,22 +225,46 @@ function updateDerived() {
 /* ---------- 开局/继续 ---------- */
 
 async function loadMeta() {
-  const res = await fetch("/api/meta");
-  meta = await res.json();
+  if (metaLoading || meta) return;
+  metaLoading = true;
+  clearTimeout(metaRetryTimer);
   renderScenarios();
-  renderDiffs();
-  renderAttrs();
-  renderPresets();
-  fillSettings();
-  for (const name of meta.narrativeLengths || []) {
-    const opt = el("option", "", `${name}篇幅`);
-    opt.value = name;
-    $("set-length").appendChild(opt);
-  }
-  for (const s of meta.skills) {
-    const opt = el("option", "", `${s.name}（${meta.attrs.find((a) => a.key === s.attr).label}）`);
-    opt.value = s.name;
-    $("roll-skill").appendChild(opt);
+  try {
+    const res = await fetch("/api/meta", { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (!Array.isArray(data.scenarios) || !data.difficulty || !Array.isArray(data.attrs)) {
+      throw new Error("返回数据不完整");
+    }
+    meta = data;
+    renderScenarios();
+    renderDiffs();
+    renderAttrs();
+    renderPresets();
+    fillSettings();
+    for (const name of meta.narrativeLengths || []) {
+      const opt = el("option", "", `${name}篇幅`);
+      opt.value = name;
+      $("set-length").appendChild(opt);
+    }
+    for (const s of meta.skills) {
+      const opt = el("option", "", `${s.name}（${meta.attrs.find((a) => a.key === s.attr).label}）`);
+      opt.value = s.name;
+      $("roll-skill").appendChild(opt);
+    }
+  } catch (err) {
+    const box = $("scenarios");
+    box.innerHTML = "";
+    box.appendChild(el("div", "err", `剧本加载失败：${err.message || err}。3 秒后自动重试。`));
+    $("sc-page").textContent = "加载失败";
+    $("start").disabled = true;
+    metaRetryTimer = setTimeout(() => {
+      metaLoading = false;
+      loadMeta();
+    }, 3000);
+    return;
+  } finally {
+    metaLoading = false;
   }
   if (meta.hasSave) {
     $("resume").classList.remove("hidden");
@@ -1787,6 +1830,10 @@ $("btn-del-preset").addEventListener("click", async () => {
 /* ---------- 属性随机 ---------- */
 
 $("btn-random-attrs").addEventListener("click", () => {
+  if (!meta?.attrs) {
+    loadMeta();
+    return;
+  }
   const keys = meta.attrs.map((a) => a.key);
   for (const k of keys) setupState.attrs[k] = meta.attrMin;
   let left = meta.attrPoints - keys.length * meta.attrMin;
@@ -1800,6 +1847,10 @@ $("btn-random-attrs").addEventListener("click", () => {
 });
 
 $("btn-reset-attrs").addEventListener("click", () => {
+  if (!meta?.attrs) {
+    loadMeta();
+    return;
+  }
   for (const a of meta.attrs) setupState.attrs[a.key] = 5;
   renderAttrs();
 });
