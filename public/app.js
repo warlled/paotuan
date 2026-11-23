@@ -12,6 +12,9 @@ let session = null;
 let busy = false;
 let metaLoading = false;
 let metaRetryTimer = 0;
+const META_CACHE_KEY = "pt-meta-cache-v1";
+let scenarioLinks = [];
+let settingLinks = [];
 
 const setupState = {
   scenarioId: null,
@@ -224,49 +227,42 @@ function updateDerived() {
 
 /* ---------- 开局/继续 ---------- */
 
-async function loadMeta() {
-  if (metaLoading || meta) return;
-  metaLoading = true;
-  clearTimeout(metaRetryTimer);
-  renderScenarios();
+function readMetaCache() {
   try {
-    const res = await fetch("/api/meta", { cache: "no-store" });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    if (!Array.isArray(data.scenarios) || !data.difficulty || !Array.isArray(data.attrs)) {
-      throw new Error("返回数据不完整");
-    }
-    meta = data;
-    renderScenarios();
-    renderDiffs();
-    renderAttrs();
-    renderPresets();
-    fillSettings();
-    for (const name of meta.narrativeLengths || []) {
-      const opt = el("option", "", `${name}篇幅`);
-      opt.value = name;
-      $("set-length").appendChild(opt);
-    }
-    for (const s of meta.skills) {
-      const opt = el("option", "", `${s.name}（${meta.attrs.find((a) => a.key === s.attr).label}）`);
-      opt.value = s.name;
-      $("roll-skill").appendChild(opt);
-    }
-  } catch (err) {
-    const box = $("scenarios");
-    box.innerHTML = "";
-    box.appendChild(el("div", "err", `剧本加载失败：${err.message || err}。3 秒后自动重试。`));
-    $("sc-page").textContent = "加载失败";
-    $("start").disabled = true;
-    metaRetryTimer = setTimeout(() => {
-      metaLoading = false;
-      loadMeta();
-    }, 3000);
-    return;
-  } finally {
-    metaLoading = false;
+    const data = JSON.parse(localStorage.getItem(META_CACHE_KEY) || "null");
+    if (data && Array.isArray(data.scenarios) && data.difficulty && Array.isArray(data.attrs)) return data;
+  } catch {}
+  return null;
+}
+
+function applyMetaData(data, cached = false) {
+  meta = data;
+  renderScenarios();
+  renderDiffs();
+  renderAttrs();
+  renderPresets();
+  fillSettings();
+  $("set-length").innerHTML = "";
+  $("roll-skill").innerHTML = "";
+  for (const name of meta.narrativeLengths || []) {
+    const opt = el("option", "", `${name}篇幅`);
+    opt.value = name;
+    $("set-length").appendChild(opt);
   }
-  if (meta.hasSave) {
+  for (const s of meta.skills || []) {
+    const attr = (meta.attrs || []).find((a) => a.key === s.attr);
+    const opt = el("option", "", `${s.name}（${attr?.label || s.attr}）`);
+    opt.value = s.name;
+    $("roll-skill").appendChild(opt);
+  }
+  if (!cached) {
+    try {
+      localStorage.setItem(META_CACHE_KEY, JSON.stringify(data));
+    } catch {}
+  }
+
+  if (meta.hasSave && !$("resume").dataset.ptBound) {
+    $("resume").dataset.ptBound = "1";
     $("resume").classList.remove("hidden");
     $("resume").addEventListener("click", async () => {
       const r = await fetch("/api/state");
@@ -286,19 +282,61 @@ async function loadMeta() {
     $("btn-quit").classList.add("hidden");
     $("settings-sect")?.classList.add("hidden");
     const sub = document.querySelector(".setup-sub");
-    if (sub) {
+    if (sub && !$("guest-limit-hint")) {
       sub.insertAdjacentHTML(
         "beforeend",
-        `<div style="margin-top:8px;color:#c8a06a">你是访客：这一局最多 ${meta.guestTurnLimit || 60} 回合，进度只保存在你自己的浏览器里。</div>`
+        `<div id="guest-limit-hint" style="margin-top:8px;color:#c8a06a">你是访客：这一局最多 ${meta.guestTurnLimit || 60} 回合，进度只保存在你自己的浏览器里。</div>`
       );
     }
   }
 
-  if (meta.isOwner === true && meta.siteOpen === false) {
+  if (meta.isOwner === true && meta.siteOpen === false && !document.querySelector(".owner-closed-banner")) {
     const bar = document.createElement("div");
     bar.className = "owner-closed-banner";
     bar.textContent = "入口已关闭：你是房主所以仍可进入，访客会看到“今日暂停营业”。";
     document.body.prepend(bar);
+  }
+}
+
+async function loadMeta() {
+  if (metaLoading || meta) return;
+  metaLoading = true;
+  clearTimeout(metaRetryTimer);
+  const cached = readMetaCache();
+  if (cached) applyMetaData(cached, true);
+  else renderScenarios();
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    let data;
+    try {
+      const res = await fetch("/api/meta", { cache: "no-store", signal: controller.signal });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      data = await res.json();
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!Array.isArray(data.scenarios) || !data.difficulty || !Array.isArray(data.attrs)) {
+      throw new Error("返回数据不完整");
+    }
+    applyMetaData(data);
+  } catch (err) {
+    if (!meta) {
+      const box = $("scenarios");
+      box.innerHTML = "";
+      box.appendChild(el("div", "err", `剧本加载失败：${err.message || err}。3 秒后自动重试。`));
+      $("sc-page").textContent = "加载失败";
+      $("start").disabled = true;
+    }
+    const delay = meta ? 15000 : 3000;
+    metaRetryTimer = setTimeout(() => {
+      metaLoading = false;
+      if (meta) meta = null;
+      loadMeta();
+    }, delay);
+    return;
+  } finally {
+    metaLoading = false;
   }
 }
 
@@ -2472,9 +2510,6 @@ function readScenarioForm() {
 }
 
 /* ---------- 外部链接 ---------- */
-
-let scenarioLinks = [];
-let settingLinks = [];
 
 function renderLinkList(listId, list, noteId) {
   const box = $(listId);
