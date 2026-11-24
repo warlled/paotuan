@@ -254,7 +254,6 @@ function newRoomState(scenario = {}) {
   return {
     time: engine.scenarioStartParts(scenario),
     location: scenario.startLocation || "",
-    firedEvents: [],
     status: {},
     items: {},
     events: [],
@@ -299,7 +298,6 @@ function publicRoom(room, sid) {
       clock: engine.clockText(room.state.time),
     },
     opening: room.opening || room.scenario.hook || "",
-    upcoming: engine.upcomingEvents({ time: room.state.time, firedEvents: room.state.firedEvents || [] }, scenario).slice(0, 3),
     myActionSubmitted: Boolean(room.actions[sid]),
     busy: Boolean(room.busy),
   };
@@ -310,14 +308,23 @@ function applyRoomState(room, st, options = {}) {
   const allowClues = options.allowClues === true;
   const allowObjectives = options.allowObjectives === true;
   if (Number.isFinite(Number(st.advance_minutes))) {
-    const mock = { time: state.time, firedEvents: state.firedEvents || [], eventLog: state.events };
-    const fired = engine.advanceTime(mock, room.scenario, Number(st.advance_minutes));
+    const mock = { time: state.time, history: [], eventLog: state.events };
+    engine.advanceTime(mock, room.scenario, Number(st.advance_minutes));
     state.time = mock.time;
-    state.firedEvents = mock.firedEvents;
-    for (const ev of fired) {
-      state.events.push({ at: engine.clockText(state.time), title: ev.title, note: ev.note || "" });
+  }
+  const historyInput = st.history_add || st.events_add || st.events;
+  if (Array.isArray(historyInput)) {
+    const at = engine.clockText(state.time);
+    for (const input of historyInput.slice(0, 4)) {
+      const item = typeof input === "string" ? { title: input } : input;
+      const title = String(item?.title || item?.text || "").trim().slice(0, 80);
+      if (!title) continue;
+      const note = String(item?.note || item?.desc || "").trim().slice(0, 240);
+      if (state.events.some((event) => event.title === title && event.note === note && event.at === at)) continue;
+      state.events.push({ at, title, note, importance: "normal" });
     }
   }
+  while (state.events.length > 120) state.events.shift();
   const players = st.players && typeof st.players === "object" ? st.players : {};
   for (const [pid, upd] of Object.entries(players)) {
     if (!upd || typeof upd !== "object") continue;
@@ -429,19 +436,19 @@ function roomPrompt(room) {
     `【剧本】${sc.title}（${sc.genre}）`,
     ...(sc.playStyle === "open-world"
       ? [
-          "【开放世界规则】没有唯一主线、必查案件或强制结局。玩家自行确定目标，选择地点、阵营、交易、冲突与结束时机。时间表只是世界变化，不是任务清单。",
+          "【开放世界规则】没有唯一主线、必查案件或强制结局。玩家自行确定目标，选择地点、阵营、交易、冲突与结束时机。",
         ]
       : []),
     `背景：${sc.background}`,
     `玩家处境：${sc.hook || ""}`,
     `${sc.playStyle === "open-world" ? "开放世界事实边界" : "真相（不可直接说破）"}：${sc.truth || ""}`,
     `人物：${(sc.npcs || []).map((n) => n.name + "：" + n.desc).join("；")}`,
-    `时间表：${engine.scenarioSchedule(sc).map((e) => `${e.at} ${e.title}`).join("；")}`,
     modeLine,
     `玩家人数：${count} 人。${diffLine} 人数越多，敌人与障碍应越强，但奖励和线索也要相应增加。`,
     `【当前时间】${engine.clockText(room.state.time)}`,
+    "【时间与事件规则】没有预设时间表、循环事件或按期自动发生的剧情点。时间只根据玩家行动的合理耗时、等待、休息和赶路推进；事件必须由当前局面、NPC 自身计划和玩家行动自然产生。",
     `【玩家角色】\n${sheets}`,
-    `【已有事件】${room.state.events.map((e) => e.title).join("、") || "无"}`,
+    `【本局重要历史与实际事件】\n${room.state.events.map((e) => `- ${e.at || "时间未记录"} ${e.title}${e.note ? "：" + e.note : ""}`).join("\n") || "无"}`,
     `【线索/图鉴】${room.state.codex.join("、") || "无"}`,
     `【情节线】${room.state.plot.join("、") || "无"}`,
     `【当前目标】${room.state.objectives.join("、") || "无"}`,
@@ -451,8 +458,9 @@ function roomPrompt(room) {
     `【最近发生】\n${recent || "（刚开始）"}`,
     `【本轮玩家行动】\n${actions}`,
     "【登记限制】不要主动替玩家建立目标或线索。只有当本轮行动明确调查、搜索、收集并获得具体线索时，才可写 codex；只有玩家明确接受委托、答应请求、立下目标或完成任务时，才可写 objectives / quests_add / quests_done。仅仅进入地点、听到暗示或 GM 建议调查，不算玩家已接取。",
-    "请写一段照顾到所有玩家行动的叙述（每人都有戏份），结尾输出状态块：",
-    '<state>{"advance_minutes":15,"location":"新地点","players":{"玩家pid":{"hp":0,"san":-1,"money":0,"items_add":[],"items_remove":[],"xp":2,"attrs_add":{}}},"events":["..."],"relations":{"NPC":"态度"},"plot":["..."],"npcs_add":["新认识的人"]}</state>',
+    "请写一段照顾到所有玩家行动的叙述（每人都有戏份）。正文后另起一行写“推荐行动：”，给出 2—4 条仅供玩家选择的、具体可执行的下一步，每条独占一行并用 1. 2. 3. 开头；不要把推荐行动写成已发生事实。最后输出状态块：",
+    '<state>{"advance_minutes":15,"location":"新地点","players":{"玩家pid":{"hp":0,"san":-1,"money":0,"items_add":[],"items_remove":[],"xp":2,"attrs_add":{}}},"history_add":[{"title":"本回合形成的重要经历","note":"实际发生了什么","importance":"normal"}],"relations":{"NPC":"态度"},"plot":["..."],"npcs_add":["新认识的人"]}</state>',
+    "history_add 只登记本回合已经发生、以后仍需记住的重要节点；最多 4 条，没有就省略。",
     "不要输出任何其他标签。",
   ].join("\n");
 }
@@ -1531,7 +1539,6 @@ function publicSession(entry) {
   return {
     ...session,
     scenario: scenarioMeta(entry, session.scenarioId),
-    upcoming: engine.upcomingEvents(session, scenario).slice(0, 6),
     clock: engine.clockText(session.time),
     limits: {
       logKeep: 800,
@@ -1542,11 +1549,6 @@ function publicSession(entry) {
       avgInputK: Math.round(((session.usage?.input || 0) / Math.max(1, session.usage?.calls || 1)) / 100),
     },
     settings: engine.getSettings(),
-    schedule: engine.scenarioSchedule(scenario).map((ev, index) => {
-      const key = `${ev.at}-${index}`;
-      const legacyKey = ev.day !== undefined ? `${ev.day}-${ev.minute}-${index}` : "";
-      return { ...ev, key, fired: session.firedEvents.includes(key) || Boolean(legacyKey && session.firedEvents.includes(legacyKey)) };
-    }),
   };
 }
 
@@ -2168,7 +2170,6 @@ const server = http.createServer(async (req, res) => {
       title: s.title,
       genre: s.genre || "",
       blurb: s.blurb || "",
-      scheduleCount: (s.schedule || []).length,
       npcs: (s.npcs || []).length,
     }));
     return send(res, 200, { scenarios: list.sort((a, b) => a.title.localeCompare(b.title, "zh")) });
@@ -2353,7 +2354,7 @@ const server = http.createServer(async (req, res) => {
       const result = await engine.askModel(roomPrompt(room), { reasoningEffort: "low" }, loadModelFor(room.hostSid));
       const parsed = engine.parseModelTurn(result.text);
       const narration = parsed.narrative || String(result.text || "").slice(0, 4000);
-      if (narration) room.log.push({ type: "gm", text: narration, at: Date.now() });
+      if (narration) room.log.push({ type: "gm", text: narration, suggestions: parsed.suggestions, at: Date.now() });
       const actionGate = engine.actionStateGate(Object.values(room.actions).join("\n"));
       applyRoomState(room, parsed.state || {}, actionGate);
       room.turn += 1;
@@ -2462,6 +2463,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 429, { error: "今天大家的试玩额度已经用完了，明天再来吧。" });
     }
     const body = await readBody(req);
+    const playerProtocol = engine.normalizePlayerProtocol(body.protocol);
     let fresh;
     try {
       fresh = engine.createSession({
@@ -2472,6 +2474,7 @@ const server = http.createServer(async (req, res) => {
         scenarioDir: guestDir(entry),
         language: body.language,
       });
+      fresh.playerProtocol = playerProtocol;
     } catch (err) {
       return send(res, 400, { error: String(err.message || err) });
     }
@@ -2516,6 +2519,9 @@ const server = http.createServer(async (req, res) => {
     const body = await readBody(req);
     const text = String(body.text || "").trim().slice(0, 500);
     if (!text) return send(res, 400, { error: "先说要做的事。" });
+    if (Array.isArray(body.protocol)) {
+      entry.session.playerProtocol = engine.normalizePlayerProtocol(body.protocol);
+    }
     if (body.language != null) entry.session.language = engine.normalizeLanguage(body.language);
     entry.session.promptProfile = loadPromptProfileFor(entry.sid);
     const scenario = engine.loadScenario(entry.session.scenarioId, guestDir(entry));
@@ -2544,7 +2550,7 @@ const server = http.createServer(async (req, res) => {
     const dc = Number(body.dc) || 15;
     const result = engine.rollCheck(entry.session.character, skill, dc, entry.session.difficulty);
     const line = `${result.skill}（主动判定）：d20=${result.roll}＋技能${result.skillBonus}=${result.total}　难度${result.dc}　${result.grade}`;
-    entry.session.log.push({ type: "dice", text: line });
+      entry.session.log.push({ type: "dice", text: line, at: engine.clockText(entry.session.time) });
     saveEntry(entry);
     return send(res, 200, {
       result,

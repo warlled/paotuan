@@ -117,7 +117,7 @@ function renderScenarios(selectId) {
     const card = el("button", "card");
     card.appendChild(el("div", "t", s.title));
     card.appendChild(
-      el("div", "g", `${s.genre}${s.playStyle === "open-world" ? " · 开放世界" : ""} · ${s.scheduleCount} 个日程节点${s.hasOpening ? " · 已写开场白" : ""}${s.editable ? " · 可编辑" : ""}`)
+      el("div", "g", `${s.genre}${s.playStyle === "open-world" ? " · 开放世界" : ""}${s.hasOpening ? " · 已写开场白" : ""}${s.editable ? " · 可编辑" : ""}`)
     );
     card.appendChild(el("div", "b", s.blurb));
     card.addEventListener("click", () => {
@@ -173,6 +173,12 @@ document.addEventListener("keydown", (e) => {
   if (["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) return;
   if (e.key === "ArrowLeft" && !$("sc-prev").disabled) $("sc-prev").click();
   if (e.key === "ArrowRight" && !$("sc-next").disabled) $("sc-next").click();
+});
+document.addEventListener("keydown", (event) => {
+  if (!$("game")?.classList.contains("on")) return;
+  if (["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) return;
+  if (event.key === "ArrowLeft" && !$("turn-prev").disabled) $("turn-prev").click();
+  if (event.key === "ArrowRight" && !$("turn-next").disabled) $("turn-next").click();
 });
 
 function renderDiffs() {
@@ -297,7 +303,7 @@ function applyMetaData(data, cached = false) {
         $("game").classList.add("on");
         renderSession();
         session.log.forEach((entry) => appendSegment(entry, true));
-        scrollLog();
+        renderTurnView(-1, true);
       }
     });
   }
@@ -305,6 +311,8 @@ function applyMetaData(data, cached = false) {
   if (meta.isOwner === false) {
     $("btn-quit").classList.add("hidden");
     $("settings-sect")?.classList.add("hidden");
+    document.querySelector('#side-tabs button[data-side-tab="settings"]')?.classList.add("hidden");
+    if (activeSideTab === "settings") applySideTab("player");
     const sub = document.querySelector(".setup-sub");
     if (sub && !$("guest-limit-hint")) {
       sub.insertAdjacentHTML(
@@ -391,8 +399,9 @@ async function startGame() {
         character,
         scenarioId: setupState.scenarioId,
         difficulty: setupState.difficulty,
-        mode: $("mode-select")?.value || "trpg",
+        mode: $("mode-select")?.value || "free",
         language: currentUiLanguage(),
+        protocol: protocolState.enabled ? protocolRules() : [],
       }),
     });
     const data = await res.json();
@@ -410,7 +419,7 @@ async function startGame() {
     renderSession();
     appendSegment({ type: "sys", text: `${session.scenario.title} · ${meta.difficulty[session.difficulty].label}难度 · 游戏开始` }, true);
     (data.segments || []).forEach(appendSegment);
-    scrollLog();
+    renderTurnView(-1, true);
     showOpening();
   } catch (e) {
     $("err").textContent = "启动失败：" + e.message;
@@ -426,9 +435,23 @@ function appendSegment(seg, silent) {
   const log = $("log");
   const row = el("div", `seg ${seg.type === "change" ? "change" : seg.type}`);
   if (seg.type === "player") {
+    row.appendChild(el("div", "seg-label", "我的行动"));
     row.appendChild(el("div", "b", seg.text));
   } else if (seg.type === "gm") {
-    row.textContent = seg.text;
+    row.appendChild(el("div", "gm-text", seg.text));
+    if (Array.isArray(seg.suggestions) && seg.suggestions.length) {
+      const card = el("div", "suggestions-card");
+      card.appendChild(el("div", "suggestions-title", "推荐行动"));
+      seg.suggestions.forEach((text, index) => {
+        const button = el("button", "suggestion-action");
+        button.type = "button";
+        button.dataset.action = text;
+        button.appendChild(el("span", "suggestion-no", String(index + 1)));
+        button.appendChild(el("span", "suggestion-text", text));
+        card.appendChild(button);
+      });
+      row.appendChild(card);
+    }
   } else {
     const cls = seg.type === "dice" ? `b ${seg.grade === "失败" || seg.grade === "大失败" ? "lose" : "win"}` : "b";
     row.appendChild(el("div", cls, seg.text));
@@ -467,6 +490,118 @@ $("jump-latest").addEventListener("click", () => {
   scrollLog(true);
 });
 
+let historyReadonly = false;
+let currentTurnView = 0;
+let turnGroupsCache = [];
+
+function buildTurnGroups(source) {
+  const groups = [];
+  let group = null;
+  let lastExplicitTurn = null;
+  for (const entry of source?.log || []) {
+    const explicitTurn = Number.isInteger(entry?.turn) ? entry.turn : null;
+    const startsExplicitGroup = explicitTurn !== null && explicitTurn !== lastExplicitTurn;
+    if (entry.type === "player" || startsExplicitGroup) {
+      group = {
+        turn: explicitTurn !== null ? explicitTurn : groups.filter((item) => item.turn > 0).length + 1,
+        entries: [],
+      };
+      groups.push(group);
+    } else if (!group) {
+      group = { turn: 0, entries: [] };
+      groups.push(group);
+    }
+    if (explicitTurn !== null) lastExplicitTurn = explicitTurn;
+    group.entries.push(entry);
+  }
+  return groups;
+}
+
+function compactClock(value) {
+  const text = String(value || "").trim();
+  const chinese = text.match(/^(\d{4})年(\d{1,2})月(\d{1,2})日\s+(\d{1,2}):(\d{2})$/);
+  if (chinese) {
+    return `${chinese[1]}.${chinese[2].padStart(2, "0")}.${chinese[3].padStart(2, "0")} · ${chinese[4].padStart(2, "0")}:${chinese[5]}`;
+  }
+  const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (iso) return `${iso[1]}.${iso[2]}.${iso[3]} · ${iso[4]}:${iso[5]}`;
+  return text;
+}
+
+function turnGroupClock(group, groups) {
+  const timedEntry = group?.entries?.find((entry) => entry?.at);
+  if (timedEntry?.at) return compactClock(timedEntry.at);
+  if (group?.turn === 0) return compactClock(session?.openingAt);
+  const fromTurnTimes = session?.turnTimes?.[String(group?.turn)];
+  if (fromTurnTimes) return compactClock(fromTurnTimes);
+  const fromHistory = [...(session?.history || []), ...(session?.eventLog || [])]
+    .find((entry) => Number(entry?.turn) === Number(group?.turn) && entry?.at);
+  if (fromHistory?.at) return compactClock(fromHistory.at);
+  const latestTurn = Math.max(0, ...(groups || []).map((item) => Number(item.turn) || 0));
+  if (Number(group?.turn) === latestTurn) return compactClock(session?.clock);
+  return "";
+}
+
+function renderTurnView(index, keepBottom = false) {
+  if (!session) {
+    turnGroupsCache = [];
+    $("turn-indicator").textContent = "尚无回合";
+    $("turn-prev").disabled = true;
+    $("turn-next").disabled = true;
+    return;
+  }
+  turnGroupsCache = buildTurnGroups(session);
+  if (!turnGroupsCache.length) {
+    const opening = {
+      turn: 0,
+      entries: [{ type: "gm", text: session.opening || "等待第一回合…" }],
+    };
+    turnGroupsCache = [opening];
+  }
+  currentTurnView =
+    index === -1 || index == null
+      ? turnGroupsCache.length - 1
+      : Math.max(0, Math.min(turnGroupsCache.length - 1, Number(index) || 0));
+  const active = turnGroupsCache[currentTurnView];
+  $("log").innerHTML = "";
+  const heading = el("div", "turn-heading");
+  heading.appendChild(el("span", "turn-heading-no", active.turn ? `第 ${active.turn} 回合` : "开场"));
+  heading.appendChild(el("span", "turn-heading-title", active.turn ? "叙事记录" : "故事从这里开始"));
+  const turnClock = turnGroupClock(active, turnGroupsCache);
+  if (turnClock) {
+    const clock = el("span", "turn-heading-time", turnClock);
+    clock.title = active.entries.find((entry) => entry?.at)?.at || session.openingAt || session.clock || turnClock;
+    heading.appendChild(clock);
+  }
+  $("log").appendChild(heading);
+  active.entries.forEach((entry) => appendSegment(entry, true));
+  $("turn-indicator").textContent = active.turn
+    ? `第 ${active.turn} / ${turnGroupsCache.filter((item) => item.turn > 0).length} 回合`
+    : "开场";
+  $("turn-prev").disabled = currentTurnView <= 0;
+  $("turn-next").disabled = currentTurnView >= turnGroupsCache.length - 1;
+  historyReadonly = currentTurnView < turnGroupsCache.length - 1;
+  $("input").readOnly = historyReadonly;
+  $("input").placeholder = historyReadonly
+    ? "正在回看旧回合；回到最新回合后才能继续行动。"
+    : "你要做什么？（Enter 发送，Shift+Enter 换行）";
+  $("send").disabled = historyReadonly || busy || Boolean(session.ended);
+  $("turn-latest").disabled = !historyReadonly;
+  document.querySelectorAll("#log .suggestion-action").forEach((button) => {
+    button.disabled = historyReadonly || busy || Boolean(session.ended);
+  });
+  if (keepBottom && !historyReadonly) scrollLog(true);
+  archiveSearch();
+}
+
+$("turn-prev").addEventListener("click", () => renderTurnView(currentTurnView - 1));
+$("turn-next").addEventListener("click", () => renderTurnView(currentTurnView + 1));
+$("turn-latest").addEventListener("click", () => renderTurnView(-1, true));
+$("log").addEventListener("click", (event) => {
+  const button = event.target.closest(".suggestion-action");
+  if (button?.dataset.action) act(button.dataset.action);
+});
+
 function renderQuickActions() {
   const box = $("quick");
   const actions = Array.isArray(session?.scenario?.actions) ? session.scenario.actions : [];
@@ -494,6 +629,8 @@ function renderSession() {
   statBar("san", session.status.san, session.status.sanMax);
   $("money").textContent = String(session.status.money);
   $("turns").textContent = `${session.turns || 0} 回合`;
+  const vitals = $("mobile-vitals");
+  if (vitals) vitals.textContent = `♥ ${session.status.hp}/${session.status.hpMax} · ◇ ${session.status.san}/${session.status.sanMax}`;
 
   const attrBox = $("attr-list");
   attrBox.innerHTML = "";
@@ -532,17 +669,6 @@ function renderSession() {
   $("clue-sect")?.classList.toggle("hidden", !(session.clues || []).length);
   (session.clues || []).forEach((i) => clues.appendChild(el("span", "tag clue", i)));
 
-  const sched = $("schedule");
-  sched.innerHTML = "";
-  const upcomingKeys = new Set((session.upcoming || []).map((u) => u.key));
-  const nextKey = (session.upcoming || [])[0]?.key;
-  for (const ev of session.schedule || []) {
-    const row = el("div", "row" + (ev.fired ? " done" : upcomingKeys.has(ev.key) ? (ev.key === nextKey ? " next" : "") : ""));
-    row.appendChild(el("div", "when", `${String(ev.at || "").replace("T", " ")}${ev.fired ? " · 已发生" : ""}`));
-    row.appendChild(el("div", "", ev.title));
-    sched.appendChild(row);
-  }
-
   const rel = $("relations");
   rel.innerHTML = "";
   const relEntries = Object.entries(session.relations || {});
@@ -577,18 +703,31 @@ function renderSession() {
 
   const evBox = $("eventlog");
   evBox.innerHTML = "";
-  const events = (session.eventLog || []).slice(-8).reverse();
-  if (!events.length) evBox.appendChild(el("div", "hint", "（还没有触发事件）"));
+  const seenEvents = new Set();
+  const events = [...(session.eventLog || []), ...(session.history || [])]
+    .filter((event) => {
+      const title = String(event?.title || event?.text || "").trim();
+      if (!title) return false;
+      const key = `${event.at || ""}|${title}|${event.note || ""}`;
+      if (seenEvents.has(key)) return false;
+      seenEvents.add(key);
+      return true;
+    })
+    .slice(-20)
+    .reverse();
+  if (!events.length) evBox.appendChild(el("div", "hint", "（重要经历会随着你的行动在这里形成）"));
   for (const e of events) {
     const row = el("div", "row done");
     row.appendChild(el("div", "when", e.at || "时间未记录"));
-    row.appendChild(el("div", "", e.title));
+    row.appendChild(el("div", "", e.title || e.text));
+    if (e.note) row.appendChild(el("div", "hint", e.note));
     evBox.appendChild(row);
   }
 
   const worldStyle = session.mode === "free" ? "自由叙事" : session.scenario?.playStyle === "open-world" ? "开放世界" : "";
   $("tb-title").textContent = `${session.scenario.title} · ${c.name}${worldStyle ? " · " + worldStyle : ""}`;
-  $("tb-clock").textContent = session.clock;
+  $("tb-clock").textContent = compactClock(session.clock);
+  $("tb-clock").title = session.clock || "";
   renderQuickActions();
 
   if (session.ended) showEnding(session.ended);
@@ -607,8 +746,11 @@ function showEnding(name) {
 
 function setBusy(on, note) {
   busy = on;
-  $("send").disabled = on || Boolean(session?.ended);
+  $("send").disabled = on || Boolean(session?.ended) || historyReadonly;
   $("input").disabled = on || Boolean(session?.ended);
+  document.querySelectorAll("#log .suggestion-action").forEach((button) => {
+    button.disabled = on || Boolean(session?.ended) || historyReadonly;
+  });
   if (note) {
     if (on) {
       const row = el("div", "seg gm busy", note);
@@ -621,7 +763,42 @@ function setBusy(on, note) {
   }
 }
 
+let pendingProtocolAction = "";
+
+function openProtocolConfirmation(action) {
+  pendingProtocolAction = action;
+  const list = $("protocol-confirm-list");
+  list.innerHTML = "";
+  for (const rule of protocolRules()) list.appendChild(el("div", "protocol-item", rule));
+  $("protocol-confirm-check").checked = false;
+  $("protocol-confirm").disabled = true;
+  $("protocol-modal").classList.remove("hidden");
+}
+
 async function act(text) {
+  if (historyReadonly || !text.trim() || busy || session?.ended) return;
+  if (protocolState.enabled) {
+    openProtocolConfirmation(text);
+    return;
+  }
+  await submitAction(text);
+}
+
+$("protocol-confirm-check").addEventListener("change", () => {
+  $("protocol-confirm").disabled = !$("protocol-confirm-check").checked;
+});
+$("protocol-cancel").addEventListener("click", () => {
+  pendingProtocolAction = "";
+  $("protocol-modal").classList.add("hidden");
+});
+$("protocol-confirm").addEventListener("click", async () => {
+  const action = pendingProtocolAction;
+  pendingProtocolAction = "";
+  $("protocol-modal").classList.add("hidden");
+  if (action) await submitAction(action);
+});
+
+async function submitAction(text) {
   if (!text.trim() || busy || session?.ended) return;
   stickToBottom = true;
   appendSegment({ type: "player", text });
@@ -632,7 +809,11 @@ async function act(text) {
     let res = await fetch("/api/action", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text, language: currentUiLanguage() }),
+      body: JSON.stringify({
+        text,
+        language: currentUiLanguage(),
+        protocol: protocolState.enabled ? protocolRules() : [],
+      }),
     });
     let data = await res.json();
     if (!res.ok && data.needNewGame) {
@@ -653,7 +834,11 @@ async function act(text) {
           res = await fetch("/api/action", {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ text, language: currentUiLanguage() }),
+            body: JSON.stringify({
+              text,
+              language: currentUiLanguage(),
+              protocol: protocolState.enabled ? protocolRules() : [],
+            }),
           });
           data = await res.json();
         }
@@ -670,6 +855,7 @@ async function act(text) {
     } catch {}
     (data.segments || []).forEach(appendSegment);
     renderSession();
+    renderTurnView(-1, true);
   } catch (e) {
     setBusy(false);
     appendSegment({ type: "sys", text: "请求失败：" + e.message });
@@ -739,7 +925,7 @@ function showSession(sess) {
   renderSession();
   (session.log || []).forEach((entry) => appendSegment(entry, true));
   stickToBottom = true;
-  scrollLog(true);
+  renderTurnView(-1, true);
 }
 
 $("btn-save-file").addEventListener("click", async () => {
@@ -804,6 +990,169 @@ $("save-file-input").addEventListener("change", async (e) => {
   }
 });
 
+/* ---------- 正文 TXT 导入 / 导出 ---------- */
+
+function downloadPlainText(fileName, content) {
+  const blob = new Blob([String(content || "")], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 3000);
+}
+
+function parseReplayText(raw) {
+  const lines = String(raw || "").replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").split("\n");
+  const turns = [];
+  let current = null;
+  let mode = "body";
+  const pushCurrent = () => {
+    if (!current) return;
+    const body = current.body.join("\n").trim();
+    const action = current.action.join("\n").trim();
+    if (body || action || current.options.length) turns.push({ ...current, body, action });
+  };
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    const heading = line.match(/^第\s*(\d+)\s*回合\s*$/) || (/^开场\s*$/.test(line) ? [line, "0"] : null);
+    if (heading) {
+      pushCurrent();
+      current = { n: Number(heading[1]) || (heading[1] === "0" ? 0 : turns.length + 1), body: [], options: [], action: [] };
+      mode = "body";
+      continue;
+    }
+    if (!current) continue;
+    if (/^(?:推荐行动|推荐选项|可选行动|行动建议)\s*[：:]?\s*$/i.test(line)) {
+      mode = "options";
+      continue;
+    }
+    if (/^我的行动\s*[：:]?\s*(.*)$/i.test(line)) {
+      mode = "action";
+      const rest = line.replace(/^我的行动\s*[：:]?\s*/i, "").trim();
+      if (rest) current.action.push(rest);
+      continue;
+    }
+    if (mode === "options") {
+      const option = line.match(/^(?:\d{1,2}\s*[.)、．]|[-*•])\s*(.+)$/);
+      if (option) current.options.push(option[1].trim().slice(0, 300));
+      else if (line && current.options.length && !/^<(?:state|checks)>/i.test(line)) {
+        current.options[current.options.length - 1] += line;
+      }
+      continue;
+    }
+    if (mode === "action") {
+      if (line) current.action.push(line);
+      continue;
+    }
+    if (line) current.body.push(rawLine.trimEnd());
+  }
+  pushCurrent();
+  return turns;
+}
+
+function replayTextFromSession(sess) {
+  const out = [
+    `【${sess.scenario?.title || "跑团"} · 游玩正文】`,
+    `角色：${sess.character?.name || "未记录"}`,
+    `导出时间：${new Date().toLocaleString("zh-CN")}`,
+    "",
+  ];
+  const groups = buildTurnGroups(sess);
+  const totalTurns = Math.max(1, groups.filter((group) => group.turn > 0).length);
+  for (const group of groups) {
+    out.push(group.turn ? `第 ${group.turn} 回合` : "开场");
+    const suggestions = [];
+    for (const entry of group.entries) {
+      if (entry.type === "player") continue;
+      if (Array.isArray(entry.suggestions)) suggestions.push(...entry.suggestions);
+      if (entry.type === "gm") out.push(String(entry.text || ""));
+      else if (entry.type === "dice") out.push(`【判定】${entry.text || ""}`);
+      else if (entry.type === "event") out.push(`【事件】${entry.text || ""}`);
+      else if (entry.type === "change") out.push(`【状态变化】${entry.text || ""}`);
+      else if (entry.type === "sys") out.push(`【系统】${entry.text || ""}`);
+      out.push("");
+    }
+    if (suggestions.length) {
+      out.push("推荐选项：");
+      suggestions.slice(0, 4).forEach((option, index) => out.push(`${index + 1}. ${option}`));
+      out.push("");
+    }
+    const player = [...group.entries].reverse().find((entry) => entry.type === "player");
+    if (player) {
+      out.push("我的行动：");
+      out.push(String(player.text || ""));
+      out.push("");
+    }
+  }
+  out.push(`共 ${totalTurns} 回合`);
+  return out.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd() + "\n";
+}
+
+$("btn-export-txt").addEventListener("click", () => {
+  if (!session) {
+    alert("先开始一局游戏，再导出正文。");
+    return;
+  }
+  const title = session.scenario?.title || "跑团";
+  const name = session.character?.name || "角色";
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+  downloadPlainText(`${title}-${name}-正文-${stamp}.txt`, replayTextFromSession(session));
+});
+
+$("btn-import-replay").addEventListener("click", () => $("replay-file-input").click());
+$("replay-file-input").addEventListener("change", async (event) => {
+  const file = event.target.files && event.target.files[0];
+  event.target.value = "";
+  if (!file) return;
+  if (!session) {
+    alert("请先创建角色并开始一局，再导入正文。");
+    return;
+  }
+  const turns = parseReplayText(await file.text());
+  if (!turns.length) {
+    alert("没有识别到“第 N 回合”结构。请选择参考程序导出的《正文.txt》。");
+    return;
+  }
+  if (!confirm(`识别到 ${turns.length} 个回合。导入会替换当前剧情正文记录；完整属性、关系和历史记录仍以 JSON 存档为准。继续吗？`)) return;
+  const log = [];
+  for (const turn of turns) {
+    if (turn.action) log.push({ type: "player", text: turn.action, turn: turn.n });
+    if (turn.body || turn.options.length) {
+      log.push({
+        type: "gm",
+        text: turn.body || "（该回合没有正文）",
+        suggestions: turn.options.slice(0, 4),
+        turn: turn.n,
+      });
+    }
+  }
+  const next = {
+    ...session,
+    log,
+    turns: Math.max(...turns.map((turn) => turn.n)),
+    opening: log.find((entry) => entry.type === "gm")?.text || session.opening,
+    updatedAt: new Date().toISOString(),
+  };
+  try {
+    const response = await fetch("/api/save/import", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ session: next }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "导入失败");
+    try {
+      localStorage.setItem("pt-autosave", JSON.stringify({ savedAt: Date.now(), session: data.session }));
+    } catch {}
+    showSession(data.session);
+  } catch (error) {
+    alert(`正文导入失败：${error.message || error}`);
+  }
+});
+
 /* ---------- 开局面板 ---------- */
 
 function showOpening() {
@@ -821,7 +1170,7 @@ function showOpening() {
   const diff = meta?.difficulty?.[session.difficulty]?.label || "标准";
   $("op-title").textContent = `${sc.title || "剧本"} · 开场`;
   $("op-body").innerHTML =
-    `<div class="op-meta">${escHtml(sc.genre || "")} · ${diff}难度 · ${session.mode === "free" ? "自由叙事" : "跑团规则"} · ${escHtml(session.clock || "")}</div>` +
+    `<div class="op-meta">${escHtml(sc.genre || "")} · ${diff}难度 · ${session.mode === "free" ? "自由叙事" : "跑团规则"} · ${escHtml(compactClock(session.clock))}</div>` +
     (sc.blurb ? `<div class="op-meta">${escHtml(sc.blurb)}</div>` : "") +
     `<div class="op-sec">你的角色</div>` +
     `<div>${escHtml(c.name || "无名旅人")}${c.role ? " · " + escHtml(c.role) : ""}</div>` +
@@ -1902,6 +2251,121 @@ try {
   });
 })();
 
+let activeSideTab = "player";
+try {
+  const saved = localStorage.getItem("pt-side-tab");
+  if (["player", "chars", "archive", "protocol", "settings"].includes(saved)) activeSideTab = saved;
+} catch {}
+
+function applySideTab(tab) {
+  activeSideTab = ["player", "chars", "archive", "protocol", "settings"].includes(tab) ? tab : "player";
+  document.querySelectorAll("#side .sect[data-side-tab]").forEach((section) => {
+    section.classList.toggle("side-tab-off", section.dataset.sideTab !== activeSideTab);
+  });
+  document.querySelectorAll("#side-tabs button").forEach((button) => {
+    button.classList.toggle("on", button.dataset.sideTab === activeSideTab);
+  });
+  try {
+    localStorage.setItem("pt-side-tab", activeSideTab);
+  } catch {}
+}
+
+document.querySelectorAll("#side-tabs button").forEach((button) => {
+  button.addEventListener("click", () => applySideTab(button.dataset.sideTab));
+});
+applySideTab(activeSideTab);
+
+function archiveSearch() {
+  const q = $("archive-search").value.trim().toLowerCase();
+  const box = $("archive-search-results");
+  box.innerHTML = "";
+  if (!q || !session) return;
+  const hits = [];
+  const add = (title, text) => {
+    const value = String(text || "").trim();
+    if (!value || !value.toLowerCase().includes(q)) return;
+    const index = value.toLowerCase().indexOf(q);
+    hits.push({
+      title,
+      text: (index > 24 ? "…" : "") + value.slice(Math.max(0, index - 24), index + 120),
+    });
+  };
+  for (const entry of session.log || []) {
+    const labels = { gm: "剧情正文", player: "玩家行动", dice: "判定", event: "事件", change: "状态变化", sys: "系统" };
+    add(labels[entry.type] || "记录", entry.text);
+  }
+  for (const [name, rel] of Object.entries(session.relations || {})) add(`人物关系 · ${name}`, `${rel.attitude || ""} ${rel.note || ""}`);
+  for (const clue of session.clues || []) add("线索", clue);
+  for (const npc of session.npcsKnown || []) add("已认识", npc);
+  for (const event of [...(session.eventLog || []), ...(session.history || [])]) {
+    add(`重要经历 · ${event.title || ""}`, `${event.note || ""} ${event.at || ""}`);
+  }
+  for (const term of session.scenario?.lexicon || []) add(`词条 · ${term.term || ""}`, term.def || "");
+  if (!hits.length) {
+    box.appendChild(el("div", "hint", "没有找到匹配内容。"));
+    return;
+  }
+  for (const hit of hits.slice(0, 40)) {
+    const row = el("div", "archive-hit");
+    row.appendChild(el("b", "", hit.title));
+    row.appendChild(el("span", "", hit.text));
+    box.appendChild(row);
+  }
+}
+
+let archiveTimer = 0;
+$("archive-search").addEventListener("input", () => {
+  clearTimeout(archiveTimer);
+  archiveTimer = setTimeout(archiveSearch, 180);
+});
+
+const PROTOCOL_KEY = "pt-player-protocol-v1";
+const PROTOCOL_DEFAULT = [
+  "不替玩家决定行动、台词或内心想法。",
+  "世界、人物、能力和时间线保持连续，不无解释地重置。",
+  "NPC 按自身目标与知情范围行动，不原地等待玩家发布命令。",
+  "危险行动有代价，结果符合世界规则与已建立的能力边界。",
+  "不直接泄露幕后真相，只通过可观察、可验证的细节逐步揭示。",
+];
+let protocolState = { enabled: true, extra: [] };
+try {
+  const saved = JSON.parse(localStorage.getItem(PROTOCOL_KEY) || "null");
+  if (saved) protocolState = { enabled: saved.enabled !== false, extra: Array.isArray(saved.extra) ? saved.extra.slice(0, 20) : [] };
+} catch {}
+
+function protocolRules() {
+  return [...PROTOCOL_DEFAULT, ...protocolState.extra].slice(0, 25);
+}
+
+function renderProtocolSettings() {
+  const list = $("protocol-list");
+  list.innerHTML = "";
+  for (const rule of protocolRules()) {
+    const item = el("div", "protocol-item", rule);
+    list.appendChild(item);
+  }
+  $("protocol-enabled").checked = protocolState.enabled;
+  $("protocol-extra").value = protocolState.extra.join("\n");
+}
+
+function saveProtocolSettings() {
+  protocolState.enabled = $("protocol-enabled").checked;
+  protocolState.extra = String($("protocol-extra").value || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 20);
+  try {
+    localStorage.setItem(PROTOCOL_KEY, JSON.stringify(protocolState));
+  } catch {}
+  renderProtocolSettings();
+  $("protocol-status").textContent = "已保存";
+  setTimeout(() => ($("protocol-status").textContent = ""), 2000);
+}
+
+$("protocol-save").addEventListener("click", saveProtocolSettings);
+renderProtocolSettings();
+
 $("btn-export-play").addEventListener("click", () => {
   if (!session) {
     alert("先开始一局游戏，再导出游玩记录。");
@@ -1931,7 +2395,9 @@ $("btn-export-play").addEventListener("click", () => {
   slide("角色卡", `姓名：${c.name}\n称呼：${c.gender || ""}　年龄：${c.age || ""}\n身份：${c.role || ""}\n外貌：${c.appearance || ""}\n性格：${c.personality || ""}\n背景：${c.background || ""}\n目标：${c.goal || ""}\n\n属性：${attrs}\n技能：${skills}`);
   slide("状态与成长", `生命：${session.status?.hp}/${session.status?.hpMax}\n理智：${session.status?.san}/${session.status?.sanMax}\n金钱：${session.status?.money}\n等级：${g.level || 1}　经验：${g.xp || 0}\n地点：${session.location || "未记录"}\n已认识：${(session.npcsKnown || []).join("、") || "无"}\n\n物品：${(session.inventory || []).join("、") || "空"}\n线索：${(session.clues || []).join("、") || "无"}`);
   slide("关系与任务", `人物关系：\n${Object.entries(session.relations || {}).map(([k, v]) => `${k}：${v.attitude || ""}（${v.value ?? 0}）${v.note ? " " + v.note : ""}`).join("\n") || "无"}\n\n目标：${(session.objectives || []).map((o) => o.text + (o.done ? "（已完成）" : "")).join("、") || "无"}\n任务：${(session.quests || []).map((o) => o.text + (o.done ? "（已完成）" : "")).join("、") || "无"}`);
-  slide("事件与日程", `已发生事件：\n${(session.eventLog || []).map((e) => `${e.at || ""} ${e.title}`).join("\n") || "无"}\n\n时间表：\n${(session.schedule || []).map((e) => `${String(e.at || "").replace("T", " ")} ${e.title}${e.fired ? "（已发生）" : ""}`).join("\n")}`);
+  slide("重要经历与历史", `${[...(session.eventLog || []), ...(session.history || [])]
+    .map((e) => `${e.at || ""} ${e.title || e.text || ""}${e.note ? "：" + e.note : ""}`)
+    .join("\n") || "无"}`);
   const lines = (session.log || []).map((e) => {
     const tag = e.type === "player" ? "玩家" : e.type === "gm" ? "GM" : e.type === "dice" ? "判定" : e.type === "event" ? "事件" : e.type === "change" ? "变化" : "系统";
     return `[${tag}] ${e.text}`;
@@ -2144,23 +2610,12 @@ function splitCols(line, max) {
     .slice(0, max);
 }
 
-function timeToMinute(text) {
-  const m = String(text || "").match(/(\d{1,2})\s*[:：]\s*(\d{1,2})/);
-  if (!m) return 9 * 60;
-  const h = Math.max(0, Math.min(23, Number(m[1])));
-  const mi = Math.max(0, Math.min(59, Number(m[2])));
-  return h * 60 + mi;
-}
-
 const SCENARIO_ROW_META = {
   npc: { container: "editor-npcs", count: "count-npcs", empty: "未添加人物", noun: "人物" },
   clue: { container: "editor-clues", count: "count-clues", empty: "未添加线索", noun: "线索" },
-  schedule: { container: "editor-schedule", count: "count-schedule", empty: "未添加时间节点", noun: "节点" },
   ending: { container: "editor-endings", count: "count-endings", empty: "未添加结局", noun: "结局" },
   entity: { container: "editor-entity-list", count: "count-entities", empty: "未添加实体", noun: "实体" },
   status: { container: "editor-statuses", count: "count-statuses", empty: "未添加状态", noun: "状态" },
-  loop: { container: "editor-loops", count: "count-loops", empty: "未添加循环事件", noun: "事件" },
-  plot: { container: "editor-plots", count: "count-plots", empty: "未添加剧情点", noun: "剧情点" },
   lexicon: { container: "editor-lexicon-list", count: "count-lexicon", empty: "未添加词条", noun: "词条" },
   action: { container: "editor-actions", count: "count-actions", empty: "未添加预设行动", noun: "行动" },
   random: { container: "editor-randoms", count: "count-randoms", empty: "未添加随机项", noun: "随机项" },
@@ -2237,12 +2692,9 @@ function scenarioRowTitle(type, data) {
   };
   if (type === "npc") return value("name") || "新人物";
   if (type === "clue") return value("text") || "新线索";
-  if (type === "schedule") return value("title") || "新时间节点";
   if (type === "ending") return value("name") || "新结局";
   if (type === "entity") return value("name") || "新实体";
   if (type === "status") return value("name") || "新持续状态";
-  if (type === "loop") return value("title") || "新循环事件";
-  if (type === "plot") return value("title") || "新剧情点";
   if (type === "lexicon") return value("term") || "新词条";
   if (type === "action") return value("label") || "新预设行动";
   if (type === "random") return value("name") || "新随机项";
@@ -2252,11 +2704,8 @@ function scenarioRowTitle(type, data) {
 function scenarioRowMeta(type, data) {
   if (type === "npc") return [data.faction, data.role].filter(Boolean).join(" · ");
   if (type === "clue") return data.category || "";
-  if (type === "schedule") return String(data.at || "").replace("T", " ");
   if (type === "entity") return [data.group, data.kind].filter(Boolean).join(" · ");
   if (type === "status") return data.initial ? `初始 ${data.initial}` : "";
-  if (type === "loop") return data.every || "";
-  if (type === "plot") return data.at || "";
   if (type === "lexicon") return data.path || "";
   if (type === "action") return data.kind || "";
   if (type === "random") return `${Number(data.diceCount) || 1}d${Number(data.diceSides) || 100}`;
@@ -2348,13 +2797,6 @@ function buildScenarioRow(type, data = {}, collapsed = true) {
       makeScenarioField("分类", "category", data.category || "", { placeholder: "物证 / 传闻 / 地点" }),
       makeScenarioField("线索正文", "text", data.text || "", { placeholder: "药渣里有乌头的苦味" }),
     ]));
-  } else if (type === "schedule") {
-    const defaultAt = data.at || ($("s-start-at") && $("s-start-at").value) || "2026-01-01T18:00";
-    body.appendChild(scenarioGrid("editor-grid-2", [
-      makeScenarioField("日期与时间", "at", dateTimeLocalValue(defaultAt), { type: "datetime-local" }),
-      makeScenarioField("事件标题", "title", data.title || "", { placeholder: "后厅开宴" }),
-      makeScenarioField("说明", "note", data.note || "", { placeholder: "所有人必须到场" }),
-    ]));
   } else if (type === "ending") {
     body.appendChild(scenarioGrid("editor-grid-2", [
       makeScenarioField("结局名称", "name", data.name || "", { placeholder: "当众揭破" }),
@@ -2396,21 +2838,6 @@ function buildScenarioRow(type, data = {}, collapsed = true) {
       makeScenarioField("初始值", "initial", data.initial || "", { placeholder: "1 层 / 50" }),
       makeScenarioField("过期时间", "expiresAt", data.expiresAt || "", { placeholder: "第 2 天后 / 治疗时结束" }),
       makeScenarioField("说明", "desc", data.desc || "", { multiline: true, placeholder: "每回合产生什么效果，如何解除" }),
-    ]));
-  } else if (type === "loop") {
-    body.appendChild(scenarioGrid("editor-grid-3", [
-      makeScenarioField("频率", "every", data.every || "每天", { placeholder: "每天 23:00 / 每周一次" }),
-      makeScenarioField("事件标题", "title", data.title || "", { placeholder: "钟声" }),
-      makeScenarioField("下次触发", "nextAt", data.nextAt || "", { placeholder: "第1天 23:00" }),
-      makeScenarioField("过期时间", "expiresAt", data.expiresAt || "", { placeholder: "留空表示长期循环" }),
-      makeScenarioField("说明", "note", data.note || "", { multiline: true, placeholder: "全城都能听见，听到后会……" }),
-    ]));
-  } else if (type === "plot") {
-    body.appendChild(scenarioGrid("editor-grid-3", [
-      makeScenarioField("剧情点标题", "title", data.title || "", { placeholder: "第一封信" }),
-      makeScenarioField("触发时间", "at", data.at || "", { placeholder: "第1天 20:00" }),
-      makeScenarioField("生效效果", "effect", data.effect || "", { placeholder: "解锁线索 / 改变关系 / 推进时间" }),
-      makeScenarioField("内容", "note", data.note || "", { multiline: true, placeholder: "信从门缝里塞进来……" }),
     ]));
   } else if (type === "lexicon") {
     body.appendChild(scenarioGrid("editor-grid-3", [
@@ -2523,13 +2950,6 @@ function collectScenarioRows(type) {
       };
     }
     if (type === "clue") return { category: rowValue(card, "category"), text: rowValue(card, "text") };
-    if (type === "schedule") {
-      return {
-        at: rowValue(card, "at"),
-        title: rowValue(card, "title"),
-        note: rowValue(card, "note"),
-      };
-    }
     if (type === "ending") return { name: rowValue(card, "name"), condition: rowValue(card, "condition") };
     if (type === "entity") {
       return {
@@ -2553,23 +2973,6 @@ function collectScenarioRows(type) {
         initial: rowValue(card, "initial"),
         expiresAt: rowValue(card, "expiresAt"),
         desc: rowValue(card, "desc"),
-      };
-    }
-    if (type === "loop") {
-      return {
-        every: rowValue(card, "every"),
-        title: rowValue(card, "title"),
-        nextAt: rowValue(card, "nextAt"),
-        expiresAt: rowValue(card, "expiresAt"),
-        note: rowValue(card, "note"),
-      };
-    }
-    if (type === "plot") {
-      return {
-        title: rowValue(card, "title"),
-        at: rowValue(card, "at"),
-        effect: rowValue(card, "effect"),
-        note: rowValue(card, "note"),
       };
     }
     if (type === "lexicon") {
@@ -2680,9 +3083,6 @@ function fillScenarioForm(s) {
   renderScenarioRows("entity", s.entities || []);
   renderScenarioRows("status", s.statuses || []);
   renderScenarioRows("npc", s.npcs || []);
-  renderScenarioRows("schedule", s.schedule || []);
-  renderScenarioRows("loop", s.loopEvents || []);
-  renderScenarioRows("plot", s.plotPoints || []);
   renderScenarioRows("clue", (s.clues || []).map((clue) => (typeof clue === "string" ? { text: clue } : clue)));
   renderScenarioRows("ending", s.endings || []);
   renderScenarioRows("lexicon", s.lexicon || []);
@@ -2726,9 +3126,6 @@ function readScenarioForm() {
     entities: collectScenarioRows("entity"),
     statuses: collectScenarioRows("status"),
     npcs: collectScenarioRows("npc"),
-    schedule: collectScenarioRows("schedule"),
-    loopEvents: collectScenarioRows("loop"),
-    plotPoints: collectScenarioRows("plot"),
     clues: collectScenarioRows("clue"),
     endings: collectScenarioRows("ending"),
     lexicon: collectScenarioRows("lexicon"),
@@ -2880,23 +3277,24 @@ function updateScenarioPreview() {
   const tags = $("s-tags").value.trim();
   const npcs = collectScenarioRows("npc").length;
   const clues = collectScenarioRows("clue").length;
-  const schedule = collectScenarioRows("schedule").length;
   const endings = collectScenarioRows("ending").length;
   const entities = collectScenarioRows("entity").length;
   const statuses = collectScenarioRows("status").length;
-  const loops = collectScenarioRows("loop").length;
-  const plots = collectScenarioRows("plot").length;
   const lexicon = collectScenarioRows("lexicon").length;
   const actions = collectScenarioRows("action").length;
   const randoms = collectScenarioRows("random").length;
+  const startAt = $("s-start-at")?.value || "";
   box.innerHTML =
     `<div class="sp-title">${escHtml(title)}</div>` +
     `<div class="sp-genre">v${escHtml(version)} · ${escHtml(genre)}${tags ? " · " + escHtml(tags) : ""}</div>` +
     `<div class="sp-blurb">${escHtml(blurb)}</div>` +
     `<div class="sp-meta">人物 ${npcs} · 实体 ${entities} · 状态 ${statuses} · 线索 ${clues}</div>` +
-    `<div class="sp-meta">时间节点 ${schedule} · 循环事件 ${loops} · 剧情点 ${plots} · 结局 ${endings}</div>` +
+    `<div class="sp-meta">开始 ${startAt ? compactClock(startAt) : "未设置"} · 动态事件 · 玩家行动驱动时间 · 结局 ${endings}</div>` +
     `<div class="sp-meta">词条 ${lexicon} · 预设行动 ${actions} · 随机项 ${randoms} · 参考链接 ${scenarioLinks.length}</div>`;
 }
+
+$("s-start-at")?.addEventListener("input", updateScenarioPreview);
+$("s-start-at")?.addEventListener("change", updateScenarioPreview);
 
 for (const section of document.querySelectorAll(".editor-section")) {
   section.addEventListener("toggle", () => {
@@ -3079,9 +3477,9 @@ if ($("btn-export-ppt")) $("btn-export-ppt").addEventListener("click", () => {
   slide("开局设定", `${String(d.startAt || "").replace("T", " ")}\n${d.hook || ""}\n\n${d.opening || ""}`);
   slide("人物", (d.npcs || []).map((n) => `${n.name}：${n.desc}${n.secret ? "（内情：" + n.secret + "）" : ""}`).join("\n"));
   slide("线索与结局", `线索：\n${(d.clues || []).join("\n")}\n\n结局：\n${(d.endings || []).map((e) => `${e.name}：${e.condition}`).join("\n")}`);
-  slide("时间表", (d.schedule || []).map((e) => `${String(e.at || "").replace("T", " ")} ${e.title} ${e.note || ""}`).join("\n"));
+  slide("动态时间与事件", "本剧本没有预设时间表、循环事件或固定剧情点。时间随玩家行动推进，重要经历在游玩中形成并持续记录。");
   slide("实体与状态", `实体：\n${(d.entities || []).map((e) => `${e.name}｜${e.info}｜初始：${e.initial}｜${e.rules}`).join("\n")}\n\n状态：\n${(d.statuses || []).map((s) => `${s.name} 初始${s.initial}：${s.desc}`).join("\n")}`);
-  slide("剧情与词条", `循环事件：\n${(d.loopEvents || []).map((x) => `每 ${x.every} ${x.title}`).join("\n")}\n\n剧情点：\n${(d.plotPoints || []).map((x) => `${x.at || ""} ${x.title}：${x.note || ""}`).join("\n")}\n\n词条：\n${(d.lexicon || []).map((x) => `${x.term}：${x.def}`).join("\n")}`);
+  slide("词条", (d.lexicon || []).map((x) => `${x.term}：${x.def}`).join("\n"));
   slide("预设行动与规则", `预设行动：${(d.actions || []).map((a) => a.label).join("、")}\n\n规则：默认骰子${d.rules.diceDefault ? "开" : "关"}；可切换骰子${d.rules.allowDiceToggle ? "是" : "否"}；固定开局默认${d.rules.fixedOpeningDefault ? "开" : "关"}；可切换固定开局${d.rules.allowOpeningToggle ? "是" : "否"}；随机机制${d.rules.randomMode ? "开" : "关"}`);
   pptx.writeFile({ fileName: `${title}.pptx` }).catch(() => alert("导出失败，请重试。"));
 });

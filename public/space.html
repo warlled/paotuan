@@ -11,22 +11,27 @@
   .wrap { max-width: 980px; margin: 0 auto; }
   .top { display:flex; align-items:center; gap:12px; margin-bottom:18px; }
   .top h1 { font-size:18px; margin:0; letter-spacing:2px; }
-  .top a { margin-left:auto; color:var(--accent); text-decoration:none; font-size:13px; }
-  .top a + a { margin-left: 14px; }
+  .top-links { display:flex; align-items:center; gap:10px; margin-left:auto; }
+  .top a { color:var(--accent); text-decoration:none; font-size:13px; white-space:nowrap; }
   .grid { display:grid; grid-template-columns: 320px 1fr; gap:16px; }
   @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
   .card { background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:18px; }
-  .avatar { width:88px; height:88px; border-radius:50%; background:#10131b; border:1px solid var(--line); overflow:hidden; display:grid; place-items:center; margin:0 auto 10px; position:relative; }
+  .profile-head { display:grid; grid-template-columns:88px minmax(0,1fr); gap:13px; align-items:center; }
+  .avatar { width:88px; height:88px; border-radius:50%; background:#10131b; border:1px solid var(--line); overflow:hidden; display:grid; place-items:center; position:relative; cursor:pointer; }
+  .avatar:hover { border-color:var(--accent); }
+  .avatar:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
   .avatar img { width:100%; height:100%; object-fit:cover; display:none; }
   .avatar img.on { display:block; }
   .avatar span { position:absolute; color:var(--muted); font-size:12px; }
   .avatar img.on + span { display:none; }
-  .name { text-align:center; font-size:18px; font-weight:600; }
-  .bio { text-align:center; color:var(--muted); font-size:13px; margin:4px 0 14px; min-height:20px; }
+  .name { font-size:18px; font-weight:600; }
+  .bio { color:var(--muted); font-size:13px; margin:4px 0 0; min-height:20px; }
   label { display:block; font-size:12px; color:var(--muted); margin:10px 0 4px; }
-  input, textarea { width:100%; padding:8px 10px; border-radius:9px; border:1px solid var(--line); background:#10131b; color:var(--text); font:inherit; outline:none; }
-  input:focus, textarea:focus { border-color:var(--accent); }
+  input, textarea, select { width:100%; padding:8px 10px; border-radius:9px; border:1px solid var(--line); background:#10131b; color:var(--text); font:inherit; outline:none; }
+  input:focus, textarea:focus, select:focus { border-color:var(--accent); }
   textarea { resize:vertical; }
+  .color-row { display:flex; align-items:center; gap:10px; }
+  .color-row .hint { line-height:1.4; }
   .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:12px; }
   button.primary { background:var(--accent); color:#1a1408; border:0; border-radius:9px; padding:8px 18px; font-weight:600; cursor:pointer; }
   .file { border:1px solid var(--line); border-radius:9px; padding:6px 12px; font-size:12.5px; color:var(--muted); cursor:pointer; }
@@ -48,22 +53,35 @@
     padding:3px 9px; font-size:11.5px; color:var(--muted); cursor:pointer;
   }
   @media (max-width: 640px) {
-    body { padding: 16px 10px calc(36px + env(safe-area-inset-bottom)); }
-    .top { flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
-    .top h1 { flex: 1 1 100%; font-size: 17px; }
-    .top select { flex: 1 1 auto; min-width: 0 !important; min-height: 42px; }
-    .top a { margin-left: 0 !important; min-height: 40px; display: inline-flex; align-items: center; }
+    body { padding: 14px 10px calc(36px + env(safe-area-inset-bottom)); }
+    .top { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; margin-bottom: 14px; }
+    .top h1 { grid-column:1; grid-row:1; font-size: 17px; }
+    .top-links { grid-column:2; grid-row:1; margin-left:0; gap:6px; }
+    .top a { margin-left: 0 !important; min-height: 44px; padding:0 10px; display: inline-flex; align-items: center; justify-content:center; border:1px solid var(--line); border-radius:9px; }
+    .top select { grid-column:1 / -1; grid-row:2; width:100% !important; min-width: 0 !important; min-height: 44px; }
     .card { padding: 14px; border-radius: 14px; }
-    input, textarea { min-height: 44px; font-size: 16px; }
-    .row button, .row .file { min-height: 42px; }
+    input, textarea, select { min-height: 44px; font-size: 16px; background:#10131b; color:var(--text); }
+    label { color: color-mix(in srgb, var(--muted) 72%, var(--text)); font-size: 12.5px; }
+    textarea { resize:none; }
+    .profile-head { grid-template-columns:72px minmax(0,1fr); gap:11px; }
+    .name { font-size:17px; }
+    #in-theme { width:44px !important; height:44px !important; }
+    .row button, .row .file { min-height: 44px; }
+    #owner-tools > .row:first-of-type .file { display:none; }
+    #owner-tools > .row:first-of-type .primary,
+    #notes-card .row .primary { width:100%; }
     #owner-tools .row .file,
     #owner-tools .row .primary { flex: 1 1 100%; text-align: center; }
-    .avatar { width: 78px; height: 78px; }
+    .avatar { width: 72px; height: 72px; }
     .post { padding: 11px; }
     .post p { font-size: 14px; line-height: 1.7; }
     .scn { flex-wrap: wrap; }
     .scn .t { flex: 1 1 100%; }
     .scn button { min-height: 36px; padding: 5px 12px; }
+  }
+  @media (pointer: coarse) {
+    .top select, .top a, input, textarea, button.primary, .file, .scn button { min-height: 42px; }
+    #in-theme { min-height: 42px; }
   }
 </style>
 </head>
@@ -77,25 +95,34 @@
       <option value="ko">한국어</option><option value="de">Deutsch</option>
       <option value="fr">Français</option><option value="ru">Русский</option>
     </select>
-    <a id="public-link" href="#" target="_blank" rel="noopener" style="display:none">我的公开主页</a>
-    <a href="/">← 回到游戏</a>
+    <div class="top-links">
+      <a id="public-link" href="#" target="_blank" rel="noopener" style="display:none">我的公开主页</a>
+      <a href="/">← 回到游戏</a>
+    </div>
   </div>
   <div class="grid">
     <div>
-      <div class="card">
-        <div class="avatar">
-          <img id="avatar" alt="">
-          <span>头像</span>
+      <div class="card profile-card">
+        <div class="profile-head">
+          <div class="avatar" id="avatar-picker" role="button" tabindex="0" title="点击更换头像">
+            <img id="avatar" alt="">
+            <span>头像</span>
+          </div>
+          <div class="profile-copy">
+            <div class="name" id="name">匿名旅人</div>
+            <div class="bio" id="bio"></div>
+          </div>
         </div>
-        <div class="name" id="name">匿名旅人</div>
-        <div class="bio" id="bio"></div>
         <div id="owner-tools">
           <label>昵称</label>
           <input id="in-name" maxlength="24" placeholder="你的昵称">
           <label>个人简介</label>
           <input id="in-bio" maxlength="200" placeholder="一句话介绍自己">
           <label>主题色</label>
-          <input id="in-theme" type="color" value="#c8a06a" style="width:52px;height:30px;padding:0">
+          <div class="color-row">
+            <input id="in-theme" type="color" value="#c8a06a" style="width:52px;height:30px;padding:0">
+            <span class="hint">点击色块更换主题色</span>
+          </div>
           <div class="row">
             <label class="file">上传头像<input id="in-avatar" type="file" accept="image/*" hidden></label>
             <button class="primary" id="save">保存资料</button>
@@ -122,7 +149,7 @@
     </div>
   </div>
 </div>
-<script src="/i18n.js?v=20261124-8lang13"></script>
+<script src="/i18n.js?v=20261125-timeui1"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 let me = null;
@@ -281,6 +308,18 @@ $("save-notes").addEventListener("click", async () => {
     }),
   });
   $("notes-status").textContent = r.ok ? "笔记已保存" : "保存失败";
+});
+
+function pickAvatar() {
+  if ($("owner-tools").style.display === "none") return;
+  $("in-avatar").click();
+}
+$("avatar-picker").addEventListener("click", pickAvatar);
+$("avatar-picker").addEventListener("keydown", (event) => {
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    pickAvatar();
+  }
 });
 
 $("in-avatar").addEventListener("change", async (e) => {

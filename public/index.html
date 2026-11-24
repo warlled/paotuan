@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>玩家自由创作游玩社区网站平台</title>
-<link rel="stylesheet" href="/style.css?v=20261124-8lang13">
+<link rel="stylesheet" href="/style.css?v=20261125-timeui1">
 </head>
 <body>
 
@@ -249,6 +249,22 @@
   </div>
 </div>
 
+<div id="protocol-modal" class="hidden modal2">
+  <div class="panel2">
+    <div class="fb-head">
+      <h2>生成前确认 · 玩家协议</h2>
+      <button data-close="protocol-modal" title="关闭">✕</button>
+    </div>
+    <div class="hint" style="margin-bottom:10px">本回合推演将遵守以下协议。确认后才会发送给 GM。</div>
+    <div class="protocol-list" id="protocol-confirm-list"></div>
+    <label class="checkbox" style="margin-top:12px"><input id="protocol-confirm-check" type="checkbox"> 我确认本回合按以上协议生成</label>
+    <div class="start-bar">
+      <button id="protocol-confirm" class="primary" type="button" disabled>确认并生成</button>
+      <button id="protocol-cancel" class="ghost" type="button">取消</button>
+    </div>
+  </div>
+</div>
+
 <section id="setup">
   <div class="setup-wrap">
     <h1>玩家自由创作游玩<span>社区网站平台</span></h1>
@@ -314,11 +330,10 @@
             <button type="button" data-editor-target="editor-rules"><b>03</b><span>规则配置</span></button>
             <button type="button" data-editor-target="editor-entities"><b>04</b><span>实体与属性</span></button>
             <button type="button" data-editor-target="editor-relations"><b>05</b><span>人物与关系</span></button>
-            <button type="button" data-editor-target="editor-timeline"><b>06</b><span>时间与事件</span></button>
-            <button type="button" data-editor-target="editor-story"><b>07</b><span>剧情与结局</span></button>
-            <button type="button" data-editor-target="editor-lexicon"><b>08</b><span>词条与行动</span></button>
-            <button type="button" data-editor-target="editor-random"><b>09</b><span>随机机制</span></button>
-            <button type="button" data-editor-target="editor-resources"><b>10</b><span>资料与导入</span></button>
+            <button type="button" data-editor-target="editor-story"><b>06</b><span>线索与结局</span></button>
+            <button type="button" data-editor-target="editor-lexicon"><b>07</b><span>词条与行动</span></button>
+            <button type="button" data-editor-target="editor-random"><b>08</b><span>随机机制</span></button>
+            <button type="button" data-editor-target="editor-resources"><b>09</b><span>资料与导入</span></button>
             <div class="editor-rail-help">旧版 JSON 剧本可直接导入，字段会自动映射到对应层级。</div>
           </nav>
 
@@ -451,38 +466,13 @@
               </div>
             </details>
 
-            <details class="editor-section" id="editor-timeline" data-editor-section="timeline">
-              <summary>
-                <span class="editor-section-index">06</span>
-                <span class="editor-section-title"><b>时间与事件</b><small>按完整年月日与时刻推进的时间表，以及循环发生的事件</small></span>
-                <span class="editor-section-state" data-section-state>已收起</span>
-              </summary>
-              <div class="editor-section-body">
-                <div class="editor-subsection">
-                  <div class="editor-subhead"><div><b>时间表</b><span>使用年-月-日 时:分；触发后进入对局事件流，并同步到右侧状态栏</span></div><span class="editor-count" id="count-schedule">0 个节点</span></div>
-                  <div class="editor-repeat-list" id="editor-schedule"></div>
-                  <button type="button" class="editor-add" data-add-row="schedule">＋ 添加时间节点</button>
-                </div>
-                <div class="editor-subsection">
-                  <div class="editor-subhead"><div><b>循环事件</b><span>按天、周或月重复的钟声、潮汐、巡逻或仪式</span></div><span class="editor-count" id="count-loops">0 项</span></div>
-                  <div class="editor-repeat-list" id="editor-loops"></div>
-                  <button type="button" class="editor-add" data-add-row="loop">＋ 添加循环事件</button>
-                </div>
-              </div>
-            </details>
-
             <details class="editor-section" id="editor-story" data-editor-section="story">
               <summary>
-                <span class="editor-section-index">07</span>
-                <span class="editor-section-title"><b>剧情与结局</b><small>一次性剧情点、线索池与可抵达的收束方式</small></span>
+                <span class="editor-section-index">06</span>
+                <span class="editor-section-title"><b>线索与结局</b><small>可被发现的信息，以及由玩家行动自然抵达的收束方式</small></span>
                 <span class="editor-section-state" data-section-state>已收起</span>
               </summary>
               <div class="editor-section-body">
-                <div class="editor-subsection">
-                  <div class="editor-subhead"><div><b>剧情点</b><span>在特定时间或条件下触发的一次性节点</span></div><span class="editor-count" id="count-plots">0 个节点</span></div>
-                  <div class="editor-repeat-list" id="editor-plots"></div>
-                  <button type="button" class="editor-add" data-add-row="plot">＋ 添加剧情点</button>
-                </div>
                 <div class="editor-subsection">
                   <div class="editor-subhead"><div><b>线索池</b><span>GM 只能通过场景和对话逐步放出</span></div><span class="editor-count" id="count-clues">0 条</span></div>
                   <div class="editor-repeat-list" id="editor-clues"></div>
@@ -498,7 +488,7 @@
 
             <details class="editor-section" id="editor-lexicon" data-editor-section="lexicon">
               <summary>
-                <span class="editor-section-index">08</span>
+                <span class="editor-section-index">07</span>
                 <span class="editor-section-title"><b>词条与预设行动</b><small>可检索的世界资料，以及一键填入的行动模板</small></span>
                 <span class="editor-section-state" data-section-state>已收起</span>
               </summary>
@@ -518,7 +508,7 @@
 
             <details class="editor-section" id="editor-random" data-editor-section="random">
               <summary>
-                <span class="editor-section-index">09</span>
+                <span class="editor-section-index">08</span>
                 <span class="editor-section-title"><b>随机机制</b><small>骰池、修正值与分段结果，交给引擎执行</small></span>
                 <span class="editor-section-state" data-section-state>已收起</span>
               </summary>
@@ -534,7 +524,7 @@
 
             <details class="editor-section" id="editor-resources" data-editor-section="resources">
               <summary>
-                <span class="editor-section-index">10</span>
+                <span class="editor-section-index">09</span>
                 <span class="editor-section-title"><b>资料与导入</b><small>外部链接、正文抓取与旧剧本迁移</small></span>
                 <span class="editor-section-state" data-section-state>已收起</span>
               </summary>
@@ -631,7 +621,14 @@
   <div id="side-scrim" class="hidden"></div>
   <aside id="side">
     <button id="side-close" class="mobile-side-close" type="button" title="关闭状态面板">✕</button>
-    <div class="sect">
+    <nav class="side-tabs" id="side-tabs">
+      <button type="button" data-side-tab="player" class="on">玩家</button>
+      <button type="button" data-side-tab="chars">角色</button>
+      <button type="button" data-side-tab="archive">档案</button>
+      <button type="button" data-side-tab="protocol">协议</button>
+      <button type="button" data-side-tab="settings">设定</button>
+    </nav>
+    <div class="sect" data-side-tab="player">
       <div class="bigname" id="pc-name"></div>
       <div class="sub" id="pc-sub"></div>
       <div class="bar hp"><div class="lab"><span>生命</span><span id="hp-text"></span></div><div class="track"><div class="fill" id="hp-fill"></div></div></div>
@@ -640,17 +637,17 @@
       <div class="kv"><span>已进行</span><span id="turns"></span></div>
     </div>
 
-    <div class="sect">
+    <div class="sect" data-side-tab="player">
       <h3>属性</h3>
       <div id="attr-list"></div>
     </div>
 
-    <div class="sect">
+    <div class="sect" data-side-tab="player">
       <h3>技能值</h3>
       <div class="tags" id="skill-list"></div>
     </div>
 
-    <div class="sect">
+    <div class="sect" data-side-tab="player">
       <h3>探索</h3>
       <div class="kv"><span>当前位置</span><span id="p-location">未记录</span></div>
       <div class="kv"><span>等级</span><span id="p-level">1</span></div>
@@ -659,7 +656,7 @@
       <div class="tags" id="p-npcs" style="margin-top:6px"></div>
     </div>
 
-    <div class="sect">
+    <div class="sect" data-side-tab="player">
       <h3>主动掷骰</h3>
       <div class="dice-panel">
         <select id="roll-skill"></select>
@@ -673,37 +670,53 @@
       </div>
     </div>
 
-    <div class="sect">
+    <div class="sect" data-side-tab="player">
       <h3>背包</h3>
       <div class="tags" id="inventory"></div>
     </div>
 
-    <div class="sect hidden" id="clue-sect">
+    <div class="sect" data-side-tab="archive">
+      <h3>叙事检索</h3>
+      <input id="archive-search" placeholder="搜索正文、人物、事件或设定…">
+      <div class="archive-results" id="archive-search-results"></div>
+    </div>
+
+    <div class="sect hidden" id="clue-sect" data-side-tab="archive">
       <h3>线索</h3>
       <div class="tags" id="clues"></div>
     </div>
 
-      <div class="sect">
-        <h3>时间表</h3>
-        <div class="sched" id="schedule"></div>
-      </div>
-
-      <div class="sect">
+      <div class="sect" data-side-tab="chars">
         <h3>人物关系</h3>
         <div class="rel-list" id="relations"></div>
       </div>
 
-      <div class="sect hidden" id="objective-sect">
+      <div class="sect hidden" id="objective-sect" data-side-tab="chars">
         <h3>当前目标</h3>
         <div class="obj-list" id="objectives"></div>
       </div>
 
-      <div class="sect">
-        <h3>已发生事件</h3>
+      <div class="sect" data-side-tab="archive">
+        <h3>重要经历</h3>
         <div class="sched" id="eventlog"></div>
       </div>
 
-      <div class="sect" id="settings-sect">
+      <div class="sect" data-side-tab="protocol">
+        <h3>玩家协议</h3>
+        <div class="hint protocol-hint">每次行动前确认后，协议会随本回合一起发送给 GM；它只约束叙事体验，不替代引擎结算、输出语言和状态格式。</div>
+        <div class="protocol-list" id="protocol-list"></div>
+        <label class="checkbox protocol-toggle"><input id="protocol-enabled" type="checkbox" checked> 每次提交行动前确认协议</label>
+        <div class="field" style="margin-top:8px">
+          <label>自定义协议（每行一条，最多 20 条）</label>
+          <textarea id="protocol-extra" placeholder="例如：NPC 会按自己的计划行动；不要替玩家决定台词。"></textarea>
+        </div>
+        <div class="start-bar">
+          <button id="protocol-save" class="ghost" type="button">保存协议</button>
+          <span class="hint" id="protocol-status"></span>
+        </div>
+      </div>
+
+      <div class="sect" id="settings-sect" data-side-tab="settings">
         <h3>设定（下一回合生效）</h3>
       <div class="field"><label>叙事篇幅</label><select id="set-length"></select></div>
       <div class="field" style="margin-top:8px"><label>思考强度</label>
@@ -743,32 +756,45 @@
 
   <div id="main">
     <div id="topbar">
-      <span class="title" id="tb-title"></span>
-      <span class="clock" id="tb-clock"></span>
-      <span class="spacer"></span>
-      <select id="game-lang-select" data-language-select title="网站语言">
-        <option value="zh-Hans">简体中文</option>
-        <option value="zh-Hant">繁體中文</option>
-        <option value="en">English</option>
-        <option value="ja">日本語</option>
-        <option value="ko">한국어</option>
-        <option value="de">Deutsch</option>
-        <option value="fr">Français</option>
-        <option value="ru">Русский</option>
-      </select>
-      <button id="btn-side-toggle" class="mobile-only" type="button" aria-expanded="false">状态</button>
-      <span class="hint" id="tb-save">自动存档</span>
-      <button id="btn-opening">开场</button>
-      <button id="btn-export-play">导出</button>
-      <button id="btn-save-file">存档</button>
-      <button id="btn-load-file">读档</button>
-      <input id="save-file-input" type="file" accept="application/json,.json" hidden>
-      <button id="btn-new">重新开始</button>
-      <button id="btn-quit">退出</button>
+      <div class="topbar-head">
+        <span class="title" id="tb-title"></span>
+        <span class="clock" id="tb-clock"></span>
+        <span id="mobile-vitals" class="mobile-vitals mobile-only"></span>
+      </div>
+      <div class="topbar-actions">
+        <select id="game-lang-select" data-language-select title="网站语言">
+          <option value="zh-Hans">简体中文</option>
+          <option value="zh-Hant">繁體中文</option>
+          <option value="en">English</option>
+          <option value="ja">日本語</option>
+          <option value="ko">한국어</option>
+          <option value="de">Deutsch</option>
+          <option value="fr">Français</option>
+          <option value="ru">Русский</option>
+        </select>
+        <button id="btn-side-toggle" class="mobile-only" type="button" aria-expanded="false">状态</button>
+        <span class="hint" id="tb-save">自动存档</span>
+        <button id="btn-opening">开场</button>
+        <button id="btn-import-replay" type="button" title="导入“第 N 回合 / 推荐选项 / 我的行动”结构的纯文本正文">导入回合</button>
+        <button id="btn-export-txt" type="button" title="导出当前全部正文和游玩记录为 TXT">正文 TXT</button>
+        <button id="btn-export-play">导出</button>
+        <button id="btn-save-file">存档</button>
+        <button id="btn-load-file">读档</button>
+        <input id="save-file-input" type="file" accept="application/json,.json" hidden>
+        <input id="replay-file-input" type="file" accept=".txt,text/plain" hidden>
+        <button id="btn-new">重新开始</button>
+        <button id="btn-quit">退出</button>
+      </div>
     </div>
     <div id="log"></div>
     <button id="jump-latest" class="jump hidden">↓ 有新内容，回到最新</button>
     <div id="composer">
+      <div id="turn-pager" class="turn-pager">
+        <button id="turn-prev" type="button">‹ 上回合</button>
+        <span id="turn-indicator">开场</span>
+        <button id="turn-next" type="button">下回合 ›</button>
+        <button id="turn-latest" type="button">回到最新</button>
+      </div>
       <div id="quick">
         <button data-q="我先观察一下四周，看看有没有不对劲的地方。">观察四周</button>
         <button data-q="我找个身边的人搭话，试探一下他的反应。">找人搭话</button>
@@ -783,8 +809,8 @@
   </div>
 </section>
 
-<script src="/i18n.js?v=20261124-8lang13"></script>
-<script src="/app.js?v=20261124-8lang13"></script>
+<script src="/i18n.js?v=20261125-timeui1"></script>
+<script src="/app.js?v=20261125-timeui1"></script>
 <script src="/vendor/pptxgen.bundle.js?v=3.12.0" async></script>
 </body>
 </html>

@@ -31,8 +31,14 @@
   .hint { color:var(--muted); font-size:12px; }
   .err { color:var(--bad); font-size:12.5px; min-height:18px; }
   .attrs { display:grid; grid-template-columns: repeat(3, 1fr); gap:6px; margin-top:6px; }
-  .attrs label { margin:0; font-size:11.5px; display:flex; align-items:center; gap:6px; }
-  .attrs input { width:52px; padding:4px 6px; text-align:center; }
+  .attrs label { margin:0; font-size:11.5px; display:flex; align-items:center; gap:6px; justify-content:space-between; }
+  .attrs input { width:48px; padding:4px 5px; text-align:center; font-size:12px; }
+  .attr-control { display:inline-flex; align-items:center; gap:3px; }
+  .attr-step {
+    width:28px; height:28px; padding:0; display:grid; place-items:center;
+    border:1px solid var(--line); border-radius:7px; background:var(--panel2); color:var(--text);
+    line-height:1;
+  }
   .pool { font-size:12px; color:var(--muted); margin-top:6px; }
   .pool b { color:var(--accent); }
   .pool.over b { color:var(--bad); }
@@ -63,6 +69,12 @@
   .seg.gm { background:#12151e; border:1px solid var(--line); }
   .seg.player { background:#1d2432; border:1px solid #2f4664; }
   .seg.sys { background:transparent; color:var(--muted); font-size:12px; text-align:center; }
+  .room-suggestions { margin-top:9px; padding:8px 10px; border:1px solid var(--line); border-radius:9px; background:var(--panel2); }
+  .room-suggestions-title { color:var(--accent); font-size:10.5px; letter-spacing:.15em; margin-bottom:4px; }
+  .room-suggestion { display:flex; gap:8px; width:100%; padding:7px 0; border:0; border-top:1px solid var(--line); border-radius:0; background:transparent; color:var(--muted); text-align:left; line-height:1.65; }
+  .room-suggestion:first-of-type { border-top:0; }
+  .room-suggestion:hover { color:var(--text); }
+  .room-suggestion b { color:var(--accent); font-weight:600; }
   #actionRow { display:flex; gap:8px; align-items:flex-end; }
   #actionRow textarea { flex:1; min-height:56px; }
   .room-modal {
@@ -79,32 +91,42 @@
   .ro-story { white-space:pre-wrap; font-size:14px; line-height:1.85; margin:8px 0 14px; }
   .ro-sec { color:var(--accent); font-size:12px; letter-spacing:1px; margin:12px 0 4px; }
   @media (max-width: 640px) {
-    body { padding: 12px 10px calc(28px + env(safe-area-inset-bottom)); }
-    .top { flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
-    .top h1 { flex: 1 1 100%; font-size: 17px; }
-    .top select { flex: 1 1 auto; min-width: 0 !important; min-height: 42px; }
-    .top a { margin-left: 0; min-height: 42px; display: inline-flex; align-items: center; }
-    .card { padding: 14px; border-radius: 14px; }
+    body { padding: 14px 10px calc(30px + env(safe-area-inset-bottom)); }
+    .top { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; margin-bottom:14px; }
+    .top h1 { grid-column:1; grid-row:1; font-size:17px; }
+    .top a { grid-column:2; grid-row:1; margin-left:0; min-height:44px; padding:0 12px; display:inline-flex; align-items:center; justify-content:center; border:1px solid var(--line); border-radius:9px; }
+    .top select { grid-column:1 / -1; grid-row:2; width:100% !important; min-width:0 !important; min-height:44px; }
+    .card { padding:13px; border-radius:14px; }
     input, select, textarea { min-height: 44px; font-size: 16px; }
+    textarea { resize:none; }
+    label { font-size:12.5px; margin-top:12px; }
     .attrs { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-    .attrs label { min-height: 44px; justify-content: space-between; padding: 0 8px; border: 1px solid var(--line); border-radius: 9px; }
-    .attrs input { width: 64px; min-height: 40px; font-size: 15px; }
+    .attrs label { min-height: 84px; display:grid; grid-template-rows:auto auto; justify-content:stretch; padding: 8px; border: 1px solid var(--line); border-radius: 10px; font-size:12.5px; }
+    .attr-control { width:100%; display:grid; grid-template-columns:44px minmax(0,1fr) 44px; gap:3px; }
+    .attrs input { width: 100%; min-height: 44px; padding: 2px; font-size: 16px; border:0; background:transparent; }
+    .attr-step { width: 44px; height: 44px; font-size: 18px; }
     #c-opening { min-height: 120px; }
     .room-head { gap: 8px; }
     .room-head button { min-height: 40px; padding: 7px 12px; }
     #btn-leave { margin-left: 0 !important; }
     #r-tabs { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
     #r-tabs::-webkit-scrollbar { display: none; }
-    #r-tabs button { flex: 0 0 auto; min-height: 36px; padding: 6px 14px; }
+    #r-tabs button { flex: 0 0 auto; min-height: 40px; padding: 7px 14px; }
     #log { max-height: 34vh; }
     #actionRow { flex-direction: column; align-items: stretch; }
     #actionRow textarea { min-height: 72px; }
     #actionRow .primary { width: 100%; min-height: 44px; }
     #quickActions { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
     #quickActions::-webkit-scrollbar { display: none; }
-    #quickActions button { flex: 0 0 auto; min-height: 36px; }
+    #quickActions button { flex: 0 0 auto; min-height: 40px; padding: 7px 13px; }
     .room-modal { align-items: flex-end; padding: 8px; }
     .room-modal-panel { max-height: 94vh; border-radius: 16px; padding: 14px; }
+  }
+  @media (pointer: coarse) {
+    .top select, .top a, .primary, .ghost { min-height: 42px; }
+    .tabs button, .room-head button, #quickActions button { min-height: 40px; }
+    .attr-step { width: 40px; height: 40px; }
+    .attrs input { min-height: 38px; }
   }
   .hidden { display:none !important; }
 </style>
@@ -213,8 +235,6 @@
           <div class="list" id="r-quests"></div>
           <div class="meta" style="margin-top:8px">已认识</div>
           <div class="mini" id="r-npcs"></div>
-          <div class="meta" style="margin-top:8px">即将发生</div>
-          <div class="list" id="r-upcoming"></div>
         </div>
       </div>
       <div class="card">
@@ -249,7 +269,7 @@
     </div>
   </div>
 </div>
-<script src="/i18n.js?v=20261124-8lang13"></script>
+<script src="/i18n.js?v=20261125-timeui1"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const ATTR_DEFS = [["str","力量"],["dex","敏捷"],["con","体质"],["int","智力"],["per","感知"],["cha","魅力"]];
@@ -259,6 +279,15 @@ let tab = "events";
 let roomScenarios = [];
 const params = new URLSearchParams(location.search);
 const inviteKey = params.get("k") || (document.cookie.match(/(?:^|;\s*)rk=([^;]+)/) || [])[1] || "";
+
+function compactClock(value) {
+  const text = String(value || "").trim();
+  const chinese = text.match(/^(\d{4})年(\d{1,2})月(\d{1,2})日\s+(\d{1,2}):(\d{2})$/);
+  if (chinese) return `${chinese[1]}.${chinese[2].padStart(2,"0")}.${chinese[3].padStart(2,"0")} · ${chinese[4].padStart(2,"0")}:${chinese[5]}`;
+  const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (iso) return `${iso[1]}.${iso[2]}.${iso[3]} · ${iso[4]}:${iso[5]}`;
+  return text;
+}
 
 function withKey(path) {
   if (!inviteKey) return path;
@@ -277,11 +306,28 @@ function buildAttrs(containerId, poolId) {
   box.innerHTML = "";
   for (const [key, label] of ATTR_DEFS) {
     const lab = document.createElement("label");
-    lab.textContent = label;
+    const name = document.createElement("span");
+    name.textContent = label;
+    const control = document.createElement("span");
+    control.className = "attr-control";
+    const minus = document.createElement("button");
+    minus.type = "button"; minus.className = "attr-step"; minus.textContent = "−"; minus.setAttribute("aria-label", `减少${label}`);
     const inp = document.createElement("input");
     inp.type = "number"; inp.min = "1"; inp.max = "10"; inp.value = "5"; inp.dataset.attr = key;
+    inp.inputMode = "numeric";
+    const plus = document.createElement("button");
+    plus.type = "button"; plus.className = "attr-step"; plus.textContent = "+"; plus.setAttribute("aria-label", `增加${label}`);
     inp.addEventListener("input", () => updatePool(containerId, poolId));
-    lab.appendChild(inp);
+    minus.addEventListener("click", () => {
+      inp.value = String(Math.max(1, Math.min(10, (Number(inp.value) || 5) - 1)));
+      updatePool(containerId, poolId);
+    });
+    plus.addEventListener("click", () => {
+      inp.value = String(Math.max(1, Math.min(10, (Number(inp.value) || 5) + 1)));
+      updatePool(containerId, poolId);
+    });
+    control.append(minus, inp, plus);
+    lab.append(name, control);
     box.appendChild(lab);
   }
   updatePool(containerId, poolId);
@@ -381,7 +427,7 @@ function render() {
   $("r-code").textContent = r.code;
   $("r-scenario").textContent = r.scenario.title;
   $("r-mode").textContent = (r.mode === "free" ? "自由探索" : "跑团") + " · " + ({ easy:"轻松", normal:"标准", hard:"硬核" }[r.difficulty] || "");
-  $("r-turn").textContent = "第 " + r.turn + " 回合 · " + r.state.clock;
+  $("r-turn").textContent = "第 " + r.turn + " 回合 · " + compactClock(r.state.clock);
   $("btn-start").style.display = r.isHost && r.status === "lobby" ? "inline-block" : "none";
   $("btn-advance").style.display = r.isHost && r.status === "playing" ? "inline-block" : "none";
   $("btn-action").disabled = r.status !== "playing";
@@ -409,7 +455,8 @@ function render() {
     $("r-players").appendChild(el);
   }
 
-  $("r-clock").textContent = r.state.clock;
+  $("r-clock").textContent = compactClock(r.state.clock);
+  $("r-clock").title = r.state.clock || "";
   $("r-location").textContent = r.state.location || "未记录";
   renderTab();
 
@@ -417,11 +464,6 @@ function render() {
   const objs = r.state.objectives || [];
   objBox.classList.toggle("hidden", !objs.length);
   objBox.innerHTML = objs.map((o) => `<div class="item">${esc(o)}</div>`).join("");
-  const upBox = $("r-upcoming");
-  const ups = r.upcoming || [];
-  upBox.innerHTML = ups.length
-    ? ups.map((e) => `<div class="item"><b>${esc(e.title)}</b> · ${esc(String(e.at || "").replace("T", " "))} · ${e.minutesAway > 0 ? `还有 ${human(e.minutesAway)}` : "已到点"}</div>`).join("")
-    : '<div class="hint">暂无后续日程</div>';
   const qBox = $("r-quests");
   const qs = r.state.quests || [];
   qBox.innerHTML = qs.length
@@ -445,6 +487,30 @@ function render() {
     const el = document.createElement("div");
     el.className = "seg " + (e.type === "gm" ? "gm" : e.type === "player" ? "player" : "sys");
     el.textContent = e.type === "player" ? (e.who + "：" + e.text) : e.text;
+    if (e.type === "gm" && Array.isArray(e.suggestions) && e.suggestions.length) {
+      const box = document.createElement("div");
+      box.className = "room-suggestions";
+      const title = document.createElement("div");
+      title.className = "room-suggestions-title";
+      title.textContent = "推荐行动";
+      box.appendChild(title);
+      e.suggestions.forEach((text, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "room-suggestion";
+        const no = document.createElement("b");
+        no.textContent = String(index + 1);
+        const label = document.createElement("span");
+        label.textContent = text;
+        button.append(no, label);
+        button.addEventListener("click", () => {
+          $("r-action").value = text;
+          $("r-action").focus();
+        });
+        box.appendChild(button);
+      });
+      el.appendChild(box);
+    }
     log.appendChild(el);
   }
   log.scrollTop = log.scrollHeight;
@@ -455,7 +521,7 @@ function renderTab() {
   const st = room.state;
   const list = (arr) => `<div class="list">${arr.length ? arr.map((x) => `<div class="item">${esc(x)}</div>`).join("") : '<div class="hint">暂无</div>'}</div>`;
   if (tab === "events") {
-    body.innerHTML = list((st.events || []).map((e) => `<b>${esc(e.title)}</b>${e.note ? " · " + esc(e.note) : ""} <span class="meta">${esc(e.at || "")}</span>`));
+    body.innerHTML = list((st.events || []).map((e) => `<b>${esc(e.title)}</b>${e.note ? " · " + esc(e.note) : ""} <span class="meta">${esc(compactClock(e.at))}</span>`));
   } else if (tab === "plot") {
     body.innerHTML = list(st.plot || []);
   } else if (tab === "codex") {
@@ -472,14 +538,6 @@ function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
 
-function human(minutes) {
-  if (minutes <= 0) return "就是现在";
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  if (!h) return m + " 分钟";
-  return m ? `${h} 小时 ${m} 分` : `${h} 小时`;
-}
-
 function showRoomOpening() {
   if (!room) return;
   const firstGm = room.log.find((e) => e.type === "gm");
@@ -493,7 +551,7 @@ function showRoomOpening() {
     .join("");
   $("ro-title").textContent = room.scenario.title + " · 开场";
   $("ro-body").innerHTML =
-    `<div class="meta">${esc(room.scenario.genre || "")}${room.scenario.playStyle === "open-world" ? " · 开放世界" : ""} · ${room.mode === "free" ? "自由叙事" : "跑团"} · ${({ easy:"轻松", normal:"标准", hard:"硬核" }[room.difficulty]) || ""} · ${esc(room.state.clock)}</div>` +
+    `<div class="meta">${esc(room.scenario.genre || "")}${room.scenario.playStyle === "open-world" ? " · 开放世界" : ""} · ${room.mode === "free" ? "自由叙事" : "跑团"} · ${({ easy:"轻松", normal:"标准", hard:"硬核" }[room.difficulty]) || ""} · ${esc(compactClock(room.state.clock))}</div>` +
     (room.scenario.blurb ? `<div class="meta">${esc(room.scenario.blurb)}</div>` : "") +
     `<div class="ro-sec">玩家角色</div>${players || '<div class="hint">暂无</div>'}` +
     `<div class="ro-sec">开场</div><div class="ro-story">${esc(opening)}</div>`;
