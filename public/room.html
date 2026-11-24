@@ -129,9 +129,8 @@
       <select id="c-scenario"></select>
       <label>玩法</label>
       <select id="c-mode">
-        <option value="default" selected>网站默认选项（按剧本自动推荐）</option>
+        <option value="free" selected>自由叙事（不掷骰，随选择推进）</option>
         <option value="trpg">跑团模式（判定与代价）</option>
-        <option value="free">自由叙事（不掷骰，随选择推进）</option>
       </select>
       <div id="c-difficulty-wrap">
         <label>难度</label>
@@ -250,7 +249,7 @@
     </div>
   </div>
 </div>
-<script src="/i18n.js?v=20261124-8lang12"></script>
+<script src="/i18n.js?v=20261124-8lang13"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const ATTR_DEFS = [["str","力量"],["dex","敏捷"],["con","体质"],["int","智力"],["per","感知"],["cha","魅力"]];
@@ -320,9 +319,7 @@ async function loadScenarios() {
 
 function effectiveRoomMode() {
   const selected = $("c-mode").value;
-  if (selected === "free" || selected === "trpg") return selected;
-  const scenario = roomScenarios.find((item) => item.id === $("c-scenario").value);
-  return scenario?.playStyle === "open-world" ? "free" : "trpg";
+  return selected === "trpg" ? "trpg" : "free";
 }
 
 function updateRoomModeControls() {

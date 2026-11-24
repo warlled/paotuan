@@ -28,10 +28,7 @@ function selectedScenario() {
 }
 
 function effectiveMode() {
-  const selected = $("mode-select")?.value || "default";
-  if (selected === "trpg" || selected === "free") return selected;
-  const scenario = selectedScenario();
-  return scenario?.playStyle === "open-world" ? "free" : "trpg";
+  return $("mode-select")?.value === "trpg" ? "trpg" : "free";
 }
 
 function updateModeControls() {
@@ -42,12 +39,9 @@ function updateModeControls() {
   if ($("mode-step-title")) $("mode-step-title").textContent = trpg ? "四、玩法与难度" : "四、玩法";
   const note = $("mode-note");
   if (note) {
-    note.textContent =
-      $("mode-select").value === "default"
-        ? `网站默认推荐：${trpg ? "跑团规则" : "自由探索"}，你可以随时手动切换。`
-        : trpg
-          ? "当前为跑团规则，难度与目标/动机会参与角色和推演。"
-          : "当前为自由探索，难度与目标/动机已隐藏。";
+    note.textContent = trpg
+      ? "当前为跑团规则，难度与目标/动机会参与角色和推演。"
+      : "当前为自由探索，难度与目标/动机已隐藏。";
   }
 }
 

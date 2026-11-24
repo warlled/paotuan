@@ -1429,7 +1429,7 @@ function modeBlock(session) {
 
 function resolveMode(mode, scenario) {
   if (mode === "free" || mode === "trpg") return mode;
-  return scenario?.playStyle === "open-world" ? "free" : "trpg";
+  return "free";
 }
 
 function worldBlock(session) {
