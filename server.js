@@ -2246,7 +2246,7 @@ const server = http.createServer(async (req, res) => {
       hostSid: entry.sid,
       hostPid: prof.pid,
       scenario: sc,
-      mode: body.mode === "free" ? "free" : "trpg",
+      mode: engine.resolveMode(body.mode, sc),
       difficulty: ["easy", "normal", "hard"].includes(body.difficulty) ? body.difficulty : "normal",
       opening: String(body.opening || "").slice(0, 500),
       language: engine.normalizeLanguage(body.language),

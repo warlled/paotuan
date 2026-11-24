@@ -129,15 +129,18 @@
       <select id="c-scenario"></select>
       <label>玩法</label>
       <select id="c-mode">
+        <option value="default" selected>网站默认选项（按剧本自动推荐）</option>
         <option value="trpg">跑团模式（判定与代价）</option>
         <option value="free">自由叙事（不掷骰，随选择推进）</option>
       </select>
-      <label>难度</label>
-      <select id="c-diff">
-        <option value="easy">轻松</option>
-        <option value="normal" selected>标准</option>
-        <option value="hard">硬核</option>
-      </select>
+      <div id="c-difficulty-wrap">
+        <label>难度</label>
+        <select id="c-diff">
+          <option value="easy">轻松</option>
+          <option value="normal" selected>标准</option>
+          <option value="hard">硬核</option>
+        </select>
+      </div>
       <label>开局设定（可选）</label>
       <textarea id="c-opening" rows="2" placeholder="所有人怎么聚到一起、开场从哪一刻开始"></textarea>
 
@@ -247,13 +250,14 @@
     </div>
   </div>
 </div>
-<script src="/i18n.js?v=20261124-8lang11"></script>
+<script src="/i18n.js?v=20261124-8lang12"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const ATTR_DEFS = [["str","力量"],["dex","敏捷"],["con","体质"],["int","智力"],["per","感知"],["cha","魅力"]];
 let room = null;
 let code = "";
 let tab = "events";
+let roomScenarios = [];
 const params = new URLSearchParams(location.search);
 const inviteKey = params.get("k") || (document.cookie.match(/(?:^|;\s*)rk=([^;]+)/) || [])[1] || "";
 
@@ -305,11 +309,24 @@ function validAttrs(containerId) {
 async function loadScenarios() {
   const r = await api("/api/meta");
   const list = (r.body && r.body.scenarios) || [];
+  roomScenarios = list;
   $("c-scenario").innerHTML = list.map((s) => `<option value="${s.id}">${s.title}（${s.genre}）</option>`).join("");
   if (!list.length) {
     $("c-scenario").innerHTML = '<option value="">（剧本加载失败，请从首页进入）</option>';
     $("c-err").textContent = "剧本列表没加载出来，点右上角“回到单机”重新进入。";
   }
+  updateRoomModeControls();
+}
+
+function effectiveRoomMode() {
+  const selected = $("c-mode").value;
+  if (selected === "free" || selected === "trpg") return selected;
+  const scenario = roomScenarios.find((item) => item.id === $("c-scenario").value);
+  return scenario?.playStyle === "open-world" ? "free" : "trpg";
+}
+
+function updateRoomModeControls() {
+  $("c-difficulty-wrap")?.classList.toggle("hidden", effectiveRoomMode() !== "trpg");
 }
 
 async function createRoom() {
@@ -531,6 +548,8 @@ $("btn-export").onclick = exportLog;
 $("btn-opening-room").onclick = showRoomOpening;
 $("ro-close").onclick = () => $("roomOpening").classList.add("hidden");
 $("ro-start").onclick = () => $("roomOpening").classList.add("hidden");
+$("c-mode").addEventListener("change", updateRoomModeControls);
+$("c-scenario").addEventListener("change", updateRoomModeControls);
 document.querySelectorAll("#quickActions button").forEach((b) => {
   b.addEventListener("click", () => {
     $("r-action").value = b.dataset.q || "";

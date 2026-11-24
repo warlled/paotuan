@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>玩家自由创作游玩社区网站平台</title>
-<link rel="stylesheet" href="/style.css?v=20261124-8lang11">
+<link rel="stylesheet" href="/style.css?v=20261124-8lang12">
 </head>
 <body>
 
@@ -580,7 +580,7 @@
         <div class="field"><label>外貌</label><textarea id="c-appearance" placeholder="衣着、体态、一眼会被记住的地方"></textarea></div>
         <div class="field"><label>性格</label><textarea id="c-personality" placeholder="平时什么样，急起来什么样"></textarea></div>
         <div class="field"><label>背景</label><textarea id="c-background" placeholder="你从哪来，为什么到这里"></textarea></div>
-        <div class="field"><label>目标 / 动机</label><textarea id="c-goal" placeholder="你最想弄清或得到什么"></textarea></div>
+        <div class="field" id="goal-field"><label>目标 / 动机</label><textarea id="c-goal" placeholder="你最想弄清或得到什么"></textarea></div>
       </div>
       <div class="start-bar" style="margin-top:12px">
         <input id="preset-name" placeholder="预设名（存角色用）" style="width:200px">
@@ -602,15 +602,20 @@
       </div>
     </div>
 
-    <div class="step">
-      <h2>四、难度</h2>
-      <div class="cards" id="diffs" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))"></div>
-      <div class="start-bar" style="margin-top:12px">
+    <div class="step" id="mode-step">
+      <h2 id="mode-step-title">四、玩法与难度</h2>
+      <div class="start-bar" style="margin-top:0">
         <span class="hint">玩法</span>
         <select id="mode-select">
+          <option value="default" selected>网站默认选项（按剧本自动推荐，可随时切换）</option>
           <option value="trpg">跑团规则（有判定与代价）</option>
           <option value="free">自由探索（ARPG：不掷骰，但有世界、任务、NPC 与成长）</option>
         </select>
+        <span class="hint" id="mode-note">默认会按剧本类型选择跑团或自由探索。</span>
+      </div>
+      <div id="difficulty-options" style="margin-top:14px">
+        <div class="hint" style="margin-bottom:8px">跑团规则难度</div>
+        <div class="cards" id="diffs" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))"></div>
       </div>
     </div>
 
@@ -779,8 +784,8 @@
   </div>
 </section>
 
-<script src="/i18n.js?v=20261124-8lang11"></script>
-<script src="/app.js?v=20261124-8lang11"></script>
+<script src="/i18n.js?v=20261124-8lang12"></script>
+<script src="/app.js?v=20261124-8lang12"></script>
 <script src="/vendor/pptxgen.bundle.js?v=3.12.0" async></script>
 </body>
 </html>

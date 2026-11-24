@@ -1427,6 +1427,11 @@ function modeBlock(session) {
   return "【本局模式：跑团规则】按判定规则与难度进行。";
 }
 
+function resolveMode(mode, scenario) {
+  if (mode === "free" || mode === "trpg") return mode;
+  return scenario?.playStyle === "open-world" ? "free" : "trpg";
+}
+
 function worldBlock(session) {
   const quests = (session.quests || [])
     .map((q) => `${q.text}${q.done ? "（已完成）" : ""}`)
@@ -1913,7 +1918,7 @@ function createSession({ character, scenarioId, difficulty, mode, scenarioDir, l
   const session = {
     scenarioId,
     difficulty,
-    mode: mode === "free" ? "free" : "trpg",
+    mode: resolveMode(mode, scenario),
     language: normalizeLanguage(language || character.language),
     character: {
       name: clip(character.name, CLI.characterName),
@@ -2019,7 +2024,7 @@ module.exports = {
   listScenarios, loadScenario, clockText, upcomingEvents, humanDuration,
   parseDateTime, formatDateTime, scenarioStartParts, scenarioSchedule, normalizeSessionTime,
   advanceTime, applyState, actionStateGate, parseModelTurn, buildPrompt, buildContinuePrompt,
-  rollCheck, skillValue, runTurn, runOpening, createSession, saveSession, loadSession,
+  resolveMode, rollCheck, skillValue, runTurn, runOpening, createSession, saveSession, loadSession,
   validateCharacter, sleep,
   getSettings, saveSettings, saveCustomScenario, readScenarioRaw, deleteCustomScenario,
   listPresets, savePreset, loadPreset, deletePreset, archiveOldLog,

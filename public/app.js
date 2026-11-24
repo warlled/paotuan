@@ -23,6 +23,34 @@ const setupState = {
   editingId: null,
 };
 
+function selectedScenario() {
+  return (meta?.scenarios || []).find((scenario) => scenario.id === setupState.scenarioId) || null;
+}
+
+function effectiveMode() {
+  const selected = $("mode-select")?.value || "default";
+  if (selected === "trpg" || selected === "free") return selected;
+  const scenario = selectedScenario();
+  return scenario?.playStyle === "open-world" ? "free" : "trpg";
+}
+
+function updateModeControls() {
+  const mode = effectiveMode();
+  const trpg = mode === "trpg";
+  $("difficulty-options")?.classList.toggle("hidden", !trpg);
+  $("goal-field")?.classList.toggle("hidden", !trpg);
+  if ($("mode-step-title")) $("mode-step-title").textContent = trpg ? "四、玩法与难度" : "四、玩法";
+  const note = $("mode-note");
+  if (note) {
+    note.textContent =
+      $("mode-select").value === "default"
+        ? `网站默认推荐：${trpg ? "跑团规则" : "自由探索"}，你可以随时手动切换。`
+        : trpg
+          ? "当前为跑团规则，难度与目标/动机会参与角色和推演。"
+          : "当前为自由探索，难度与目标/动机已隐藏。";
+  }
+}
+
 /* ---------- 开局界面 ---------- */
 
 const PAGE_SIZE = 4;
@@ -107,6 +135,7 @@ function renderScenarios(selectId) {
       $("btn-edit-scenario").classList.toggle("hidden", !editable);
       $("btn-del-scenario").classList.toggle("hidden", !editable);
       $("btn-share-scenario").classList.toggle("hidden", !editable);
+      updateModeControls();
     });
     box.appendChild(card);
   }
@@ -143,6 +172,7 @@ $("sc-next").addEventListener("click", () => {
   scPage += 1;
   renderScenarios();
 });
+$("mode-select").addEventListener("change", updateModeControls);
 document.addEventListener("keydown", (e) => {
   if ($("setup")?.classList.contains("hidden")) return;
   if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
@@ -350,7 +380,7 @@ async function startGame() {
     appearance: $("c-appearance").value,
     personality: $("c-personality").value,
     background: $("c-background").value,
-    goal: $("c-goal").value,
+    goal: effectiveMode() === "trpg" ? $("c-goal").value : "",
     attrs: setupState.attrs,
   };
   if (!character.name.trim()) {
