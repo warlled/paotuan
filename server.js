@@ -81,6 +81,50 @@ function saveProfileFor(sid, patch) {
   return next;
 }
 
+const PROMPT_PROFILE_DEFAULTS = {
+  enabled: true,
+  customInstructions: "",
+  violence: 45,
+  horror: 45,
+  romance: 35,
+  humor: 30,
+  lethality: 45,
+  worldFidelity: 80,
+  freedom: 75,
+  npcAutonomy: 75,
+};
+
+function promptProfileFile(sid) {
+  return path.join(USERS_DIR, `${sid.replace(/[^a-z0-9]/gi, "")}-prompt.json`);
+}
+
+function normalizePromptProfile(input = {}) {
+  const number = (value, fallback) =>
+    Math.max(0, Math.min(100, Number.isFinite(Number(value)) ? Math.round(Number(value)) : fallback));
+  return {
+    enabled: input.enabled !== false,
+    customInstructions: String(input.customInstructions || "").slice(0, 6000),
+    violence: number(input.violence, PROMPT_PROFILE_DEFAULTS.violence),
+    horror: number(input.horror, PROMPT_PROFILE_DEFAULTS.horror),
+    romance: number(input.romance, PROMPT_PROFILE_DEFAULTS.romance),
+    humor: number(input.humor, PROMPT_PROFILE_DEFAULTS.humor),
+    lethality: number(input.lethality, PROMPT_PROFILE_DEFAULTS.lethality),
+    worldFidelity: number(input.worldFidelity, PROMPT_PROFILE_DEFAULTS.worldFidelity),
+    freedom: number(input.freedom, PROMPT_PROFILE_DEFAULTS.freedom),
+    npcAutonomy: number(input.npcAutonomy, PROMPT_PROFILE_DEFAULTS.npcAutonomy),
+  };
+}
+
+function loadPromptProfileFor(sid) {
+  return normalizePromptProfile(readJsonFile(promptProfileFile(sid), PROMPT_PROFILE_DEFAULTS));
+}
+
+function savePromptProfileFor(sid, patch) {
+  const next = normalizePromptProfile(patch);
+  writeJsonFile(promptProfileFile(sid), next);
+  return next;
+}
+
 /* ---------- 玩家自带模型（BYOK） ---------- */
 
 let MODEL_SECRET_CACHE = null;
@@ -380,6 +424,7 @@ function roomPrompt(room) {
   return [
     "你是多人联机跑团的主持人。",
     engine.languageInstruction(room.language),
+    engine.promptProfileBlock({ promptProfile: room.promptProfile }, sc),
     "",
     `【剧本】${sc.title}（${sc.genre}）`,
     ...(sc.playStyle === "open-world"
@@ -1945,6 +1990,19 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, saveProfileFor(entry.sid, body));
   }
 
+  if (p === "/api/gm-console") {
+    if (req.method === "GET") {
+      return send(res, 200, {
+        profile: loadPromptProfileFor(entry.sid),
+        defaults: PROMPT_PROFILE_DEFAULTS,
+        baseRules: engine.publicGmRules(),
+        limits: { customChars: 6000, scenarioChars: 3000 },
+      });
+    }
+    const body = await readBody(req);
+    return send(res, 200, savePromptProfileFor(entry.sid, body));
+  }
+
   if (req.method === "POST" && p === "/api/upload") {
     const body = await readBody(req);
     try {
@@ -2192,6 +2250,7 @@ const server = http.createServer(async (req, res) => {
       difficulty: ["easy", "normal", "hard"].includes(body.difficulty) ? body.difficulty : "normal",
       opening: String(body.opening || "").slice(0, 500),
       language: engine.normalizeLanguage(body.language),
+      promptProfile: loadPromptProfileFor(entry.sid),
       status: "lobby",
       players: [
         {
@@ -2287,6 +2346,7 @@ const server = http.createServer(async (req, res) => {
     if (room.status !== "playing") return send(res, 400, { error: "游戏还没开始" });
     if (room.busy) return send(res, 429, { error: "正在推演，稍等" });
     if (body.language != null) room.language = engine.normalizeLanguage(body.language);
+    room.promptProfile = loadPromptProfileFor(room.hostSid);
     if (!Object.keys(room.actions).length) return send(res, 400, { error: "还没有人提交行动" });
     room.busy = true;
     try {
@@ -2416,6 +2476,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 400, { error: String(err.message || err) });
     }
     const scenario = engine.loadScenario(fresh.scenarioId, guestDir(entry));
+    fresh.promptProfile = loadPromptProfileFor(entry.sid);
     entry.session = fresh;
     entry.busy = true;
     await acquireSlot();
@@ -2456,6 +2517,7 @@ const server = http.createServer(async (req, res) => {
     const text = String(body.text || "").trim().slice(0, 500);
     if (!text) return send(res, 400, { error: "先说要做的事。" });
     if (body.language != null) entry.session.language = engine.normalizeLanguage(body.language);
+    entry.session.promptProfile = loadPromptProfileFor(entry.sid);
     const scenario = engine.loadScenario(entry.session.scenarioId, guestDir(entry));
     if (!scenario) return send(res, 500, { error: "剧本文件读不到了。" });
     entry.busy = true;

@@ -1098,6 +1098,112 @@ $("me-open").addEventListener("click", () => {
   loadModelInfo();
 });
 
+const GM_SLIDER_IDS = [
+  "gm-violence",
+  "gm-horror",
+  "gm-romance",
+  "gm-humor",
+  "gm-lethality",
+  "gm-worldFidelity",
+  "gm-freedom",
+  "gm-npcAutonomy",
+];
+let gmConsoleData = null;
+
+function updateGmOutputs() {
+  for (const id of GM_SLIDER_IDS) {
+    const input = $(id);
+    const out = document.querySelector(`[data-gm-output="${id}"]`);
+    if (input && out) out.textContent = input.value;
+  }
+  if ($("gm-custom-count")) {
+    $("gm-custom-count").textContent = `${$("gm-custom").value.length} / 6000`;
+  }
+}
+
+function fillGmConsole(profile, baseRules) {
+  gmConsoleData = { ...gmConsoleData, profile, baseRules };
+  $("gm-enabled").checked = profile.enabled !== false;
+  $("gm-custom").value = profile.customInstructions || "";
+  for (const id of GM_SLIDER_IDS) {
+    const key = id.slice(3);
+    $(id).value = Number(profile[key] ?? 50);
+  }
+  if (baseRules != null) $("gm-base-rules").textContent = baseRules;
+  updateGmOutputs();
+}
+
+async function loadGmConsole() {
+  $("gm-status").textContent = "正在加载…";
+  try {
+    const response = await fetch("/api/gm-console", { cache: "no-store" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    gmConsoleData = data;
+    fillGmConsole(data.profile, data.baseRules);
+    $("gm-status").textContent = "";
+  } catch (error) {
+    $("gm-status").textContent = `加载失败：${error.message || error}`;
+  }
+}
+
+function gmProfileFromForm() {
+  const profile = {
+    enabled: $("gm-enabled").checked,
+    customInstructions: $("gm-custom").value,
+  };
+  for (const id of GM_SLIDER_IDS) profile[id.slice(3)] = Number($(id).value);
+  return profile;
+}
+
+$("gm-console-open").addEventListener("click", () => {
+  $("gm-console-modal").classList.remove("hidden");
+  if (!gmConsoleData) loadGmConsole();
+});
+for (const id of GM_SLIDER_IDS) $(id).addEventListener("input", updateGmOutputs);
+$("gm-custom").addEventListener("input", updateGmOutputs);
+
+document.querySelectorAll("[data-gm-preset]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const presets = {
+      balanced: { violence: 45, horror: 45, romance: 35, humor: 30, lethality: 45, worldFidelity: 80, freedom: 75, npcAutonomy: 75 },
+      immersive: { violence: 55, horror: 65, romance: 65, humor: 25, lethality: 50, worldFidelity: 85, freedom: 75, npcAutonomy: 85 },
+      hardcore: { violence: 75, horror: 75, romance: 45, humor: 15, lethality: 80, worldFidelity: 85, freedom: 70, npcAutonomy: 80 },
+      free: { violence: 50, horror: 45, romance: 45, humor: 35, lethality: 35, worldFidelity: 65, freedom: 92, npcAutonomy: 90 },
+      light: { violence: 20, horror: 15, romance: 35, humor: 70, lethality: 20, worldFidelity: 75, freedom: 85, npcAutonomy: 70 },
+    };
+    const values = presets[button.dataset.gmPreset] || presets.balanced;
+    for (const [key, value] of Object.entries(values)) $(`gm-${key}`).value = value;
+    updateGmOutputs();
+    $("gm-status").textContent = "已套用方案，保存后生效。";
+  });
+});
+
+$("gm-save").addEventListener("click", async () => {
+  $("gm-status").textContent = "正在保存…";
+  try {
+    const response = await fetch("/api/gm-console", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(gmProfileFromForm()),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    fillGmConsole(data, gmConsoleData?.baseRules);
+    $("gm-status").textContent = "已保存，下一回合生效。";
+    setTimeout(() => ($("gm-status").textContent = ""), 3000);
+  } catch (error) {
+    $("gm-status").textContent = `保存失败：${error.message || error}`;
+  }
+});
+
+$("gm-reset").addEventListener("click", () => {
+  const defaults = gmConsoleData?.defaults;
+  if (!defaults) return;
+  fillGmConsole(defaults, gmConsoleData?.baseRules);
+  $("gm-status").textContent = "已恢复默认，保存后生效。";
+});
+
 const MODEL_CATALOG = [
   { id:"deepseek", name:"DeepSeek", color:"#4D6BFE", icon:"DS", baseUrl:"https://api.deepseek.com", models:["deepseek-chat","deepseek-reasoner","deepseek-v4.1-flash","deepseek-v4-flash"] },
   { id:"openai", name:"ChatGPT / OpenAI", color:"#E8E4DA", icon:"GPT", baseUrl:"https://api.openai.com/v1", models:["gpt-4o","gpt-4o-mini","gpt-4.1","gpt-4.1-mini","o3","o4-mini"] },
@@ -2536,6 +2642,7 @@ function fillScenarioForm(s) {
   $("s-opening").value = s.opening || "";
   $("s-truth").value = s.truth || "";
   $("s-continuity").value = (Array.isArray(s.continuity) ? s.continuity : []).join("\n");
+  $("s-gm-instructions").value = s.gmInstructions || "";
   $("s-fixed-desc").value = rules.fixedOpeningDesc || s.fixedOpeningDesc || s.fixedOpening?.desc || "";
   const legacyStart = s.startDay || s.startMinute !== undefined
     ? `2026-01-${String(Math.max(1, Number(s.startDay) || 1)).padStart(2, "0")}T${minuteToTime(s.startMinute ?? 540)}`
@@ -2590,6 +2697,7 @@ function readScenarioForm() {
     opening: $("s-opening").value,
     truth: $("s-truth").value,
     continuity: String($("s-continuity").value || "").split(/\r?\n/).map((x) => x.trim()).filter(Boolean),
+    gmInstructions: $("s-gm-instructions").value,
     openingOptions: collectScenarioRows("openingOption"),
     entities: collectScenarioRows("entity"),
     statuses: collectScenarioRows("status"),
@@ -2678,7 +2786,7 @@ $("btn-fetch-setting-links").addEventListener("click", () =>
 );
 
 function resetScenarioEditor() {
-  for (const id of ["s-title", "s-genre", "s-blurb", "s-tone", "s-version-note", "s-background", "s-hook", "s-opening", "s-truth", "s-continuity", "s-world", "s-fixed-desc", "s-location", "s-items", "s-links"]) {
+  for (const id of ["s-title", "s-genre", "s-blurb", "s-tone", "s-version-note", "s-background", "s-hook", "s-opening", "s-truth", "s-continuity", "s-gm-instructions", "s-world", "s-fixed-desc", "s-location", "s-items", "s-links"]) {
     $(id).value = "";
   }
   $("s-version").value = "1.0";

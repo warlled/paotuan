@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>玩家自由创作游玩社区网站平台</title>
-<link rel="stylesheet" href="/style.css?v=20261124-8lang9">
+<link rel="stylesheet" href="/style.css?v=20261124-8lang10">
 </head>
 <body>
 
@@ -137,9 +137,52 @@
       <span id="model-status" class="hint"></span>
     </div>
     <div class="row2">
+      <button id="gm-console-open" type="button" class="ghost">高级 GM 控制台</button>
       <button id="me-save" class="primary2">保存资料</button>
       <a id="me-space" class="linkbtn" href="/space" target="_blank" rel="noopener">进入我的私人空间</a>
       <span id="me-status" class="hint"></span>
+    </div>
+  </div>
+</div>
+
+<div id="gm-console-modal" class="hidden modal2">
+  <div class="panel2 wide gm-console-panel">
+    <div class="fb-head">
+      <h2>高级 GM 控制台</h2>
+      <button data-close="gm-console-modal" title="关闭">✕</button>
+    </div>
+    <div class="hint gm-console-intro">这里开放的是本网站自己的 GM 规则和叙事权重，不包含平台隐藏规则、密钥或内部推理。个人设置会在下一回合生效，联机房间由房主设置生效。</div>
+    <details class="gm-rules">
+      <summary>查看网站 GM 核心规则（只读）</summary>
+      <pre id="gm-base-rules">打开控制台后加载…</pre>
+    </details>
+    <div class="row2 gm-preset-row">
+      <span class="theme-label">快速方案</span>
+      <button type="button" class="ghost" data-gm-preset="balanced">均衡</button>
+      <button type="button" class="ghost" data-gm-preset="immersive">沉浸</button>
+      <button type="button" class="ghost" data-gm-preset="hardcore">硬核</button>
+      <button type="button" class="ghost" data-gm-preset="free">自由探索</button>
+      <button type="button" class="ghost" data-gm-preset="light">轻松</button>
+    </div>
+    <label class="gm-master"><input type="checkbox" id="gm-enabled" checked><span>启用高级 GM 配置</span></label>
+    <div class="gm-range-grid">
+      <label><span>暴力与动作强度</span><input type="range" id="gm-violence" min="0" max="100"><b data-gm-output="gm-violence"></b></label>
+      <label><span>恐怖与心理压迫</span><input type="range" id="gm-horror" min="0" max="100"><b data-gm-output="gm-horror"></b></label>
+      <label><span>情感与亲密张力</span><input type="range" id="gm-romance" min="0" max="100"><b data-gm-output="gm-romance"></b></label>
+      <label><span>轻松幽默</span><input type="range" id="gm-humor" min="0" max="100"><b data-gm-output="gm-humor"></b></label>
+      <label><span>危险与失败严重度</span><input type="range" id="gm-lethality" min="0" max="100"><b data-gm-output="gm-lethality"></b></label>
+      <label><span>世界规则一致性</span><input type="range" id="gm-worldFidelity" min="0" max="100"><b data-gm-output="gm-worldFidelity"></b></label>
+      <label><span>玩家行动自由</span><input type="range" id="gm-freedom" min="0" max="100"><b data-gm-output="gm-freedom"></b></label>
+      <label><span>NPC 自主行动</span><input type="range" id="gm-npcAutonomy" min="0" max="100"><b data-gm-output="gm-npcAutonomy"></b></label>
+    </div>
+    <div class="field">
+      <label>个人提示词注入 <span class="hint" id="gm-custom-count">0 / 6000</span></label>
+      <textarea id="gm-custom" maxlength="6000" placeholder="例如：多写环境气味和人物小动作；冲突允许更强硬；感情线可以主动推进；NPC 不要围着玩家等待命令。"></textarea>
+    </div>
+    <div class="row2">
+      <button id="gm-save" class="primary2" type="button">保存并应用</button>
+      <button id="gm-reset" class="ghost" type="button">恢复默认</button>
+      <span id="gm-status" class="hint"></span>
     </div>
   </div>
 </div>
@@ -362,6 +405,13 @@
                   <label class="editor-rule-card"><input type="checkbox" id="s-rule-random" checked><span><b>启用随机机制</b><small>使用下方随机表和引擎掷骰结果</small></span></label>
                 </div>
                 <div class="editor-note">规则是剧本的默认状态；玩家的可调整范围由这些开关控制。</div>
+                <div class="editor-block">
+                  <div class="editor-block-head"><b>剧本专属高级推演指令</b><span>最多 3000 字，与个人 GM 配置叠加</span></div>
+                  <label class="editor-field">
+                    <span>作者对 GM 的额外要求</span>
+                    <textarea id="s-gm-instructions" maxlength="3000" class="editor-tall-text" placeholder="例如：重点描写城市声音；NPC 会主动推进自己的计划；冲突可以更危险；不要用旁白替玩家决定行动。"></textarea>
+                  </label>
+                </div>
               </div>
             </details>
 
@@ -729,8 +779,8 @@
   </div>
 </section>
 
-<script src="/i18n.js?v=20261124-8lang9"></script>
-<script src="/app.js?v=20261124-8lang9"></script>
+<script src="/i18n.js?v=20261124-8lang10"></script>
+<script src="/app.js?v=20261124-8lang10"></script>
 <script src="/vendor/pptxgen.bundle.js?v=3.12.0" async></script>
 </body>
 </html>
