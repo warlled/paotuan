@@ -1721,6 +1721,17 @@ body:has(.owner-closed-banner) #game { padding-top: 28px; }
 .kv { display: flex; justify-content: space-between; font-size: 13px; padding: 3px 0; border-bottom: 1px dotted #232838; }
 .kv span:last-child { color: var(--accent); }
 .tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.ability-card {
+  padding: 9px 11px;
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--line));
+  border-radius: 9px;
+  background: var(--soft);
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 .tag {
   background: var(--panel2); border: 1px solid var(--line); border-radius: 8px;
   padding: 3px 9px; font-size: 12.5px;

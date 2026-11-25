@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>玩家自由创作游玩社区网站平台</title>
-<link rel="stylesheet" href="/style.css?v=20261125-visual1">
+<link rel="stylesheet" href="/style.css?v=20261125-ability1">
 </head>
 <body>
 
@@ -657,6 +657,7 @@
         <div class="field"><label>外貌</label><textarea id="c-appearance" placeholder="衣着、体态、一眼会被记住的地方"></textarea></div>
         <div class="field"><label>性格</label><textarea id="c-personality" placeholder="平时什么样，急起来什么样"></textarea></div>
         <div class="field"><label>背景</label><textarea id="c-background" placeholder="你从哪来，为什么到这里"></textarea></div>
+        <div class="field" id="ability-field"><label>能力</label><textarea id="c-ability" placeholder="例如：过目不忘、擅长追踪、能与鸟兽沟通；只用于自由探索"></textarea></div>
         <div class="field" id="goal-field"><label>目标 / 动机</label><textarea id="c-goal" placeholder="你最想弄清或得到什么"></textarea></div>
       </div>
       <div class="start-bar" style="margin-top:12px">
@@ -732,6 +733,11 @@
     <div class="sect" data-side-tab="player">
       <h3>技能值</h3>
       <div class="tags" id="skill-list"></div>
+    </div>
+
+    <div class="sect hidden" id="ability-sect" data-side-tab="player">
+      <h3>能力</h3>
+      <div class="ability-card" id="character-ability"></div>
     </div>
 
     <div class="sect" data-side-tab="player">
@@ -926,8 +932,8 @@
   </div>
 </div>
 
-<script src="/i18n.js?v=20261125-visual1"></script>
-<script src="/app.js?v=20261125-visual1"></script>
+<script src="/i18n.js?v=20261125-ability1"></script>
+<script src="/app.js?v=20261125-ability1"></script>
 <script src="/vendor/pptxgen.bundle.js?v=3.12.0" async></script>
 </body>
 </html>

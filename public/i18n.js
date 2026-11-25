@@ -200,6 +200,7 @@
     "外貌": ["Appearance", "外見", "Apparence", "Внешность"],
     "性格": ["Personality", "性格", "Personnalité", "Характер"],
     "背景": ["Background", "経歴", "Historique", "Биография"],
+    "能力": ["Abilities", "能力", "Capacités", "Способности"],
     "目标 / 动机": ["Goal / motivation", "目的 / 動機", "Objectif / motivation", "Цель / мотив"],
     "保存这个角色": ["Save character", "キャラクターを保存", "Enregistrer le personnage", "Сохранить героя"],
     "读取": ["Load", "読込", "Charger", "Загрузить"],
@@ -943,6 +944,7 @@
     "外貌": ["외모", "Aussehen"],
     "性格": ["성격", "Persönlichkeit"],
     "背景": ["배경", "Hintergrund"],
+    "能力": ["능력", "Fähigkeiten"],
     "目标 / 动机": ["목표 / 동기", "Ziel / Motivation"],
     "保存这个角色": ["캐릭터 저장", "Charakter speichern"],
     "三、分配属性（共 30 点，每项 1-10）": [

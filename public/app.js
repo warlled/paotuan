@@ -36,12 +36,13 @@ function updateModeControls() {
   const trpg = mode === "trpg";
   $("difficulty-options")?.classList.toggle("hidden", !trpg);
   $("goal-field")?.classList.toggle("hidden", !trpg);
+  $("ability-field")?.classList.toggle("hidden", trpg);
   if ($("mode-step-title")) $("mode-step-title").textContent = trpg ? "四、玩法与难度" : "四、玩法";
   const note = $("mode-note");
   if (note) {
     note.textContent = trpg
-      ? "当前为跑团规则，难度与目标/动机会参与角色和推演。"
-      : "当前为自由探索，难度与目标/动机已隐藏。";
+      ? "当前为跑团规则，难度与目标/动机会参与角色和推演；能力栏不参与跑团规则。"
+      : "当前为自由探索，难度与目标/动机已隐藏；可填写角色能力。";
   }
 }
 
@@ -429,6 +430,7 @@ async function startGame() {
     personality: $("c-personality").value,
     background: $("c-background").value,
     goal: effectiveMode() === "trpg" ? $("c-goal").value : "",
+    ability: effectiveMode() === "free" ? $("c-ability").value : "",
     attrs: setupState.attrs,
   };
   if (!character.name.trim()) {
@@ -693,6 +695,9 @@ function renderSession() {
   for (const s of meta.skills) {
     skillBox.appendChild(el("span", "tag", `${s.name} ${c.attrs[s.attr]}`));
   }
+  const ability = String(c.ability || "").trim();
+  $("ability-sect")?.classList.toggle("hidden", session.mode !== "free" || !ability);
+  if ($("character-ability")) $("character-ability").textContent = ability;
 
   const g0 = session.growth || { xp: 0, level: 1 };
   $("p-location").textContent = session.location || "未记录";
@@ -1222,6 +1227,7 @@ function showOpening() {
     `<div class="op-sec">你的角色</div>` +
     `<div>${escHtml(c.name || "无名旅人")}${c.role ? " · " + escHtml(c.role) : ""}</div>` +
     `<div class="op-attrs">${attrs}</div>` +
+    (session.mode === "free" && c.ability ? `<div class="op-meta">能力：${escHtml(c.ability)}</div>` : "") +
     `<div class="op-meta">随身：${(session.inventory || []).map(escHtml).join("、") || "空"}　生命 ${session.status?.hp}/${session.status?.hpMax}　理智 ${session.status?.san}/${session.status?.sanMax}</div>` +
     `<div class="op-meta">位置：${escHtml(session.location || "未记录")}　等级 ${session.growth?.level || 1}（${session.growth?.xp || 0} XP）</div>` +
     `<div class="op-sec">开场</div>` +
@@ -2757,7 +2763,7 @@ $("btn-export-play").addEventListener("click", () => {
   };
   const attrs = (meta?.attrs || []).map((a) => `${a.label} ${c.attrs?.[a.key] ?? "-"}`).join("　");
   const skills = (meta?.skills || []).map((s) => `${s.name} ${c.attrs?.[s.attr] ?? "-"}`).join("　");
-  slide("角色卡", `姓名：${c.name}\n称呼：${c.gender || ""}　年龄：${c.age || ""}\n身份：${c.role || ""}\n外貌：${c.appearance || ""}\n性格：${c.personality || ""}\n背景：${c.background || ""}\n目标：${c.goal || ""}\n\n属性：${attrs}\n技能：${skills}`);
+  slide("角色卡", `姓名：${c.name}\n称呼：${c.gender || ""}　年龄：${c.age || ""}\n身份：${c.role || ""}\n外貌：${c.appearance || ""}\n性格：${c.personality || ""}\n背景：${c.background || ""}${session.mode === "free" && c.ability ? `\n能力：${c.ability}` : ""}\n目标：${c.goal || ""}\n\n属性：${attrs}\n技能：${skills}`);
   slide("状态与成长", `生命：${session.status?.hp}/${session.status?.hpMax}\n理智：${session.status?.san}/${session.status?.sanMax}\n金钱：${session.status?.money}\n等级：${g.level || 1}　经验：${g.xp || 0}\n地点：${session.location || "未记录"}\n已认识：${(session.npcsKnown || []).join("、") || "无"}\n\n物品：${(session.inventory || []).join("、") || "空"}\n线索：${(session.clues || []).join("、") || "无"}`);
   slide("关系与任务", `人物关系：\n${Object.entries(session.relations || {}).map(([k, v]) => `${k}：${v.attitude || ""}（${v.value ?? 0}）${v.note ? " " + v.note : ""}`).join("\n") || "无"}\n\n目标：${(session.objectives || []).map((o) => o.text + (o.done ? "（已完成）" : "")).join("、") || "无"}\n任务：${(session.quests || []).map((o) => o.text + (o.done ? "（已完成）" : "")).join("、") || "无"}`);
   slide("重要经历与历史", `${[...(session.eventLog || []), ...(session.history || [])]
@@ -2840,6 +2846,7 @@ function currentCharacterForm() {
     personality: $("c-personality").value,
     background: $("c-background").value,
     goal: $("c-goal").value,
+    ability: $("c-ability").value,
     attrs: { ...setupState.attrs },
   };
 }
@@ -2854,6 +2861,7 @@ function fillCharacterForm(c) {
   $("c-personality").value = c.personality || "";
   $("c-background").value = c.background || "";
   $("c-goal").value = c.goal || "";
+  $("c-ability").value = c.ability || "";
   if (c.attrs) {
     for (const [k, v] of Object.entries(c.attrs)) {
       if (setupState.attrs[k] !== undefined) setupState.attrs[k] = Math.max(meta.attrMin, Math.min(meta.attrMax, Number(v) || 5));
