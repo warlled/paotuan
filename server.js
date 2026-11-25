@@ -8,6 +8,7 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const engine = require("./engine");
 const linkfetch = require("./linkfetch");
+const research = require("./research");
 
 const ROOT = __dirname;
 const PUBLIC = path.join(ROOT, "public");
@@ -21,6 +22,7 @@ const UPLOAD_DIR = path.join(engine.WORK, "uploads");
 const USERS_DIR = path.join(engine.WORK, "users");
 const COMMUNITY_FILE = path.join(engine.WORK, "community.json");
 const I18N_CACHE_FILE = path.join(engine.WORK, "i18n-cache.json");
+const RESEARCH_CACHE_FILE = path.join(engine.WORK, "research-cache.json");
 fs.mkdirSync(SESS_DIR, { recursive: true });
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 fs.mkdirSync(USERS_DIR, { recursive: true });
@@ -417,6 +419,7 @@ function publicRoom(room, sid) {
       clock: engine.clockText(room.state.time),
     },
     opening: room.opening || room.scenario.hook || "",
+    research: researchSnapshot(room.research),
     myActionSubmitted: Boolean(room.actions[sid]),
     busy: Boolean(room.busy),
   };
@@ -565,6 +568,7 @@ function roomPrompt(room) {
     `玩家处境：${sc.hook || ""}`,
     `${sc.playStyle === "open-world" ? "开放世界事实边界" : "真相（不可直接说破）"}：${sc.truth || ""}`,
     `人物：${(sc.npcs || []).map((n) => n.name + "：" + n.desc).join("；")}`,
+    engine.scenarioResearchBlock({ scenarioResearch: room.research }),
     modeLine,
     `玩家人数：${count} 人。${diffLine} 人数越多，敌人与障碍应越强，但奖励和线索也要相应增加。`,
     `【当前时间】${engine.clockText(room.state.time)}`,
@@ -703,6 +707,81 @@ let feedback = readJsonFile(FEEDBACK_FILE, []);
 if (!Array.isArray(feedback)) feedback = [];
 let i18nCache = readJsonFile(I18N_CACHE_FILE, {});
 if (!i18nCache || typeof i18nCache !== "object" || Array.isArray(i18nCache)) i18nCache = {};
+let researchCache = readJsonFile(RESEARCH_CACHE_FILE, {});
+if (!researchCache || typeof researchCache !== "object" || Array.isArray(researchCache)) researchCache = {};
+const researchPending = new Map();
+const RESEARCH_TTL_MS = 30 * 60 * 1000;
+const RESEARCH_RETRY_MS = 10 * 60 * 1000;
+
+function researchKey(scenario) {
+  return crypto
+    .createHash("sha256")
+    .update([scenario.id, scenario.title, scenario.genre, scenario.background].join("|"))
+    .digest("hex")
+    .slice(0, 20);
+}
+
+function researchSnapshot(result) {
+  if (!result) return null;
+  return {
+    ok: Boolean(result.ok),
+    fetchedAt: result.fetchedAt || "",
+    expiresAt: result.expiresAt || 0,
+    stale: Boolean(result.stale),
+    sources: (result.sources || []).map((source) => ({
+      label: source.label || "",
+      title: source.title || "",
+      url: source.url || "",
+      authority: source.authority || "",
+      fetchedAt: source.fetchedAt || "",
+      chars: source.chars || 0,
+    })),
+    rejected: (result.rejected || []).slice(0, 5),
+    error: result.error || "",
+  };
+}
+
+async function ensureScenarioResearch(scenario, force = false) {
+  const key = researchKey(scenario);
+  const cached = researchCache[key];
+  const now = Date.now();
+  if (!force && cached && Number(cached.expiresAt) > now && cached.sources?.length) return cached;
+  if (researchPending.has(key)) return researchPending.get(key);
+  const task = research
+    .researchScenario(scenario)
+    .then((result) => {
+      const next = {
+        ...result,
+        key,
+        fetchedAt: result.fetchedAt || new Date().toISOString(),
+        expiresAt: Date.now() + (result.sources?.length ? RESEARCH_TTL_MS : RESEARCH_RETRY_MS),
+      };
+      if (!next.sources?.length && cached?.sources?.length) {
+        next.sources = cached.sources;
+        next.fetchedAt = cached.fetchedAt;
+        next.stale = true;
+        next.error = "本次刷新未取得新来源，继续使用最近一次可信缓存。";
+      }
+      researchCache[key] = next;
+      const entries = Object.entries(researchCache).sort((a, b) => Number(b[1].expiresAt) - Number(a[1].expiresAt));
+      researchCache = Object.fromEntries(entries.slice(0, 100));
+      writeJsonFile(RESEARCH_CACHE_FILE, researchCache);
+      return next;
+    })
+    .catch((error) => ({
+      key,
+      ok: false,
+      fetchedAt: new Date().toISOString(),
+      expiresAt: Date.now() + RESEARCH_RETRY_MS,
+      sources: cached?.sources || [],
+      rejected: [],
+      error: String(error.message || error),
+      stale: Boolean(cached?.sources?.length),
+    }))
+    .finally(() => researchPending.delete(key));
+  researchPending.set(key, task);
+  return task;
+}
 
 function onlineCount() {
   const now = Date.now();
@@ -1725,6 +1804,7 @@ function publicSession(entry) {
       avgInputK: Math.round(((session.usage?.input || 0) / Math.max(1, session.usage?.calls || 1)) / 100),
     },
     settings: engine.getSettings(),
+    research: researchSnapshot(session.scenarioResearch),
   };
 }
 
@@ -2689,6 +2769,7 @@ const server = http.createServer(async (req, res) => {
     }
     room.busy = true;
     try {
+      room.research = await ensureScenarioResearch(room.scenario);
       const result = await engine.askModel(roomPrompt(room), { reasoningEffort: "low" }, loadModelFor(room.hostSid));
       const parsed = engine.parseModelTurn(result.text);
       let narration = parsed.narrative || String(result.text || "").slice(0, 4000);
@@ -2830,8 +2911,9 @@ const server = http.createServer(async (req, res) => {
     }
     const scenario = engine.loadScenario(fresh.scenarioId, guestDir(entry));
     fresh.promptProfile = loadPromptProfileFor(entry.sid);
-    entry.session = fresh;
     entry.busy = true;
+    fresh.scenarioResearch = await ensureScenarioResearch(scenario);
+    entry.session = fresh;
     await acquireSlot();
     if (!entry.owner) addGuestCalls(1);
     try {
@@ -2877,6 +2959,7 @@ const server = http.createServer(async (req, res) => {
     const scenario = engine.loadScenario(entry.session.scenarioId, guestDir(entry));
     if (!scenario) return send(res, 500, { error: "剧本文件读不到了。" });
     entry.busy = true;
+    entry.session.scenarioResearch = await ensureScenarioResearch(scenario);
     await acquireSlot();
     if (!entry.owner) addGuestCalls(1);
     try {
@@ -2890,6 +2973,22 @@ const server = http.createServer(async (req, res) => {
     } finally {
       entry.busy = false;
       releaseSlot();
+    }
+  }
+
+  if (req.method === "POST" && p === "/api/research/sync") {
+    if (!entry.session) return send(res, 400, { error: "还没有开始游戏。" });
+    if (entry.busy) return send(res, 429, { error: "当前回合正在处理中，稍后再同步资料。" });
+    const scenario = engine.loadScenario(entry.session.scenarioId, guestDir(entry));
+    if (!scenario) return send(res, 404, { error: "剧本文件不存在。" });
+    entry.busy = true;
+    try {
+      const result = await ensureScenarioResearch(scenario, true);
+      entry.session.scenarioResearch = result;
+      saveEntry(entry);
+      return send(res, 200, { research: researchSnapshot(result) });
+    } finally {
+      entry.busy = false;
     }
   }
 

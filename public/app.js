@@ -725,6 +725,35 @@ function renderQuickActions() {
   }
 }
 
+function renderResearchStatus() {
+  const status = $("research-status");
+  const box = $("research-sources");
+  if (!status || !box) return;
+  box.innerHTML = "";
+  const info = session?.research;
+  if (!info) {
+    status.textContent = "当前没有联网校准记录；开始游戏后会按可信来源自动核验。";
+    return;
+  }
+  if (!info.sources?.length) {
+    status.textContent = `校准失败或没有通过审核的来源。${info.error || "将仅使用剧本本地资料和本局历史。"}`;
+    return;
+  }
+  const time = info.fetchedAt ? new Date(info.fetchedAt).toLocaleString("zh-CN") : "时间未知";
+  status.textContent = `已核验 ${info.sources.length} 个来源 · ${time}${info.stale ? " · 当前使用最近缓存" : ""}`;
+  for (const source of info.sources) {
+    const link = document.createElement("a");
+    link.className = "research-source";
+    link.href = source.url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    const title = document.createElement("b");
+    title.textContent = `${source.authority || "参考"} · ${source.title || source.label || "资料来源"}`;
+    link.append(title, document.createTextNode(`\n抓取：${source.fetchedAt ? new Date(source.fetchedAt).toLocaleString("zh-CN") : "未知"} · ${source.chars || 0} 字`));
+    box.appendChild(link);
+  }
+}
+
 function statBar(sel, value, max) {
   $(sel + "-text").textContent = `${value} / ${max}`;
   $(sel + "-fill").style.width = `${Math.max(0, Math.min(100, (value / max) * 100))}%`;
@@ -849,6 +878,7 @@ function renderSession() {
   $("tb-clock").title = session.clock || "";
   if ($("turn-prev")) $("turn-prev").textContent = freeMode ? "‹ 上一段" : "‹ 上回合";
   if ($("turn-next")) $("turn-next").textContent = freeMode ? "下一段 ›" : "下回合 ›";
+  renderResearchStatus();
   renderQuickActions();
 
   if (session.ended) showEnding(session.ended);
@@ -4038,6 +4068,24 @@ $("btn-save-settings").addEventListener("click", async () => {
   fillSettings();
   $("settings-note").textContent = "已保存，下一回合生效。";
   setTimeout(() => ($("settings-note").textContent = ""), 2500);
+});
+
+$("btn-refresh-research").addEventListener("click", async () => {
+  if (!session) return;
+  const button = $("btn-refresh-research");
+  button.disabled = true;
+  $("research-status").textContent = "正在抓取、比对并审核可信来源…";
+  try {
+    const response = await fetch("/api/research/sync", { method: "POST" });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    session.research = data.research;
+    renderResearchStatus();
+  } catch (error) {
+    $("research-status").textContent = `刷新失败：${error.message || error}`;
+  } finally {
+    button.disabled = false;
+  }
 });
 
 /* ---------- 剧本封面 ---------- */

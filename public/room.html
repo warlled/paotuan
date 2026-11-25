@@ -200,6 +200,7 @@
       <span class="meta" id="r-scenario"></span>
       <span class="meta" id="r-mode"></span>
       <span class="meta" id="r-turn"></span>
+      <span class="meta" id="r-research"></span>
       <button class="ghost" id="btn-copy">复制邀请</button>
       <button class="ghost" id="btn-opening-room">开场</button>
       <button class="ghost" id="btn-export">导出日志</button>
@@ -269,7 +270,7 @@
     </div>
   </div>
 </div>
-<script src="/i18n.js?v=20261125-freeworld1"></script>
+<script src="/i18n.js?v=20261125-worlddata1"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const ATTR_DEFS = [["str","力量"],["dex","敏捷"],["con","体质"],["int","智力"],["per","感知"],["cha","魅力"]];
@@ -452,6 +453,9 @@ function render() {
   $("r-scenario").textContent = r.scenario.title;
   $("r-mode").textContent = (r.mode === "free" ? "自由探索" : "跑团") + " · " + ({ easy:"轻松", normal:"标准", hard:"硬核" }[r.difficulty] || "");
   $("r-turn").textContent = (r.mode === "free" ? "探索 " + r.turn : "第 " + r.turn + " 回合") + " · " + compactClock(r.state.clock);
+  $("r-research").textContent = r.research?.sources?.length
+    ? `资料校准：${r.research.sources.length} 个来源`
+    : "资料校准：本地资料";
   $("r-log-title").textContent = r.mode === "free" ? "世界记录" : "剧情记录";
   $("btn-advance").textContent = r.mode === "free" ? "推进世界" : "推进剧情";
   $("btn-start").style.display = r.isHost && r.status === "lobby" ? "inline-block" : "none";
