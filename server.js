@@ -694,7 +694,13 @@ function voteSnapshot(sid) {
   return { up: votes.up, down: votes.down, mine: votes.voters[sid] || null };
 }
 
-const shareKey = String(engine.config.shareKey || "").trim();
+/**
+ * 邀请码开关：
+ * - requireInvite = false 时完全不要邀请码（优先于 SHARE_KEY 环境变量，改配置就能开门）；
+ * - 否则用 SHARE_KEY / config.shareKey。
+ */
+const requireInvite = engine.config.requireInvite !== false;
+const shareKey = requireInvite ? String(engine.config.shareKey || "").trim() : "";
 const numOr = (value, fallback) => (Number.isFinite(Number(value)) ? Number(value) : fallback);
 const guestTurnLimit = numOr(engine.config.guestTurnLimit, 60);
 const guestDailyCalls = numOr(engine.config.guestDailyCalls, 150);

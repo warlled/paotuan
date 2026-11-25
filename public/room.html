@@ -621,9 +621,13 @@ $("btn-copy").onclick = () => {
     return /^(127\.|10\.|192\.168\.|169\.254\.)/.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h);
   })();
   const base = (localHost && roomPublicBase ? String(roomPublicBase).replace(/\/+$/, "") : location.origin);
-  const link = base + "/room?k=" + encodeURIComponent(inviteKey) + "&code=" + encodeURIComponent(code);
+  // 站点不再需要邀请码时不带 k 参数
+  const query = [];
+  if (inviteKey) query.push("k=" + encodeURIComponent(inviteKey));
+  if (code) query.push("code=" + encodeURIComponent(code));
+  const link = base + "/room" + (query.length ? "?" + query.join("&") : "");
   if (navigator.clipboard) navigator.clipboard.writeText(link);
-  $("r-err").textContent = "邀请链接已复制";
+  $("r-err").textContent = "房间链接已复制";
 };
 document.querySelectorAll("#r-tabs button").forEach((b) => {
   b.addEventListener("click", () => {
