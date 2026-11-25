@@ -15,6 +15,8 @@ let metaRetryTimer = 0;
 const META_CACHE_KEY = "pt-meta-cache-v1";
 let scenarioLinks = [];
 let settingLinks = [];
+const sharedScenarioId = new URLSearchParams(location.search).get("scenario") || "";
+let sharedScenarioPending = Boolean(sharedScenarioId);
 
 const setupState = {
   scenarioId: null,
@@ -87,6 +89,25 @@ function returnToScenarioList() {
   updateScenarioEntry();
 }
 
+function storeScenarioSocial(id, social) {
+  const scenario = meta?.scenarios?.find((item) => item.id === id);
+  if (scenario) scenario.social = social;
+  if (scDetailId === id) renderScenarioSocial(social);
+}
+
+async function scenarioSocialAction(path, id) {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ id }),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || "操作失败");
+  if (data.social) storeScenarioSocial(id, data.social);
+  renderScenarios(scFilter === "favorites" && !data.social?.favorited ? undefined : id);
+  return data;
+}
+
 /* ---------- 开局界面 ---------- */
 
 const PAGE_SIZE = 4;
@@ -102,7 +123,9 @@ function scenarioSeries(s) {
 
 function filteredScenarios() {
   const all = meta?.scenarios || [];
-  return scFilter === "all" ? all : all.filter((s) => scenarioSeries(s) === scFilter);
+  if (scFilter === "all") return all;
+  if (scFilter === "favorites") return all.filter((s) => s.social?.favorited);
+  return all.filter((s) => scenarioSeries(s) === scFilter);
 }
 
 function renderScenarioTabs() {
@@ -114,6 +137,7 @@ function renderScenarioTabs() {
     ["original", "原创"],
     ["dc", "DC"],
     ["marvel", "漫威"],
+    ["favorites", "收藏"],
   ];
   for (const [key, label] of tabs) {
     const b = el("button", scFilter === key ? "on" : "", label);
@@ -129,6 +153,10 @@ function renderScenarioTabs() {
 }
 
 function renderScenarios(selectId) {
+  if (!selectId && sharedScenarioPending) {
+    selectId = sharedScenarioId;
+    sharedScenarioPending = false;
+  }
   renderScenarioTabs();
   if (!meta) {
     const box = $("scenarios");
@@ -175,6 +203,7 @@ function renderScenarios(selectId) {
       cover.appendChild(el("span", "c-mark", String(s.title || "?").slice(0, 1)));
     }
     cover.appendChild(el("div", "c-badge", s.playStyle === "open-world" ? "开放世界" : "内容剧本"));
+    cover.appendChild(el("div", "c-author-badge", `作者 · ${s.author || "匿名作者"}`));
     card.appendChild(cover);
 
     const body = el("div", "c-body");
@@ -195,10 +224,44 @@ function renderScenarios(selectId) {
       openScenarioDetail(s.id);
     });
     foot.appendChild(detailBtn);
-    if (s.author) foot.appendChild(el("span", "c-author", s.author));
-    else if (s.editable) foot.appendChild(el("span", "c-author", "可编辑"));
+    if (s.editable) foot.appendChild(el("span", "c-author", "可编辑"));
     body.appendChild(foot);
     card.appendChild(body);
+
+    const social = s.social || {};
+    const socialBar = el("div", "scenario-card-social");
+    const socialButtons = [
+      ["like", social.liked ? "♥" : "♡", social.likes || 0, "点赞"],
+      ["favorite", social.favorited ? "★" : "☆", social.favorites || 0, "收藏"],
+      ["forward", "↗", social.shares || 0, "转发"],
+      ["comments", "💬", social.commentCount || 0, "评论"],
+    ];
+    for (const [kind, icon, count, title] of socialButtons) {
+      const button = el("button", "scenario-social-btn" + (social.liked && kind === "like" || social.favorited && kind === "favorite" ? " on" : ""));
+      button.type = "button";
+      button.title = title;
+      button.textContent = `${icon} ${count}`;
+      button.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        if (kind === "comments") return openScenarioDetail(s.id);
+        try {
+          if (kind === "forward") {
+            const data = await scenarioSocialAction("/api/scenario/forward", s.id);
+            try {
+              await navigator.clipboard.writeText(data.shareUrl);
+            } catch {
+              prompt("复制这个剧本链接：", data.shareUrl);
+            }
+          } else {
+            await scenarioSocialAction(kind === "like" ? "/api/scenario/like" : "/api/scenario/favorite", s.id);
+          }
+        } catch (error) {
+          alert(error.message || error);
+        }
+      });
+      socialBar.appendChild(button);
+    }
+    card.appendChild(socialBar);
 
     const selectCard = () => {
       setupState.scenarioId = s.id;
@@ -1994,7 +2057,7 @@ $("model-test").addEventListener("click", async () => {
     }),
   });
   const d = await r.json();
-  $("model-status").textContent = r.ok ? `连接成功：${d.reply}` : d.error || "测试失败";
+  $("model-status").textContent = r.ok ? `${d.reply || "配置格式有效"}（未消耗 API）` : d.error || "检查失败";
 });
 
 $("model-clear").addEventListener("click", async () => {
@@ -3771,6 +3834,7 @@ function closeScenarioEditor() {
 $("btn-custom-scenario").addEventListener("click", () => {
   setupState.editingId = null;
   resetScenarioEditor();
+  if (!$("s-author").value && me?.name) $("s-author").value = me.name;
   openScenarioEditor();
   $("scenario-note").textContent = "分层创作台已打开；保存后会出现在上面的剧本列表里。";
 });
@@ -4320,6 +4384,10 @@ $("s-visual-image-clear")?.addEventListener("click", () => {
 
 const scDetailCache = new Map();
 let scDetailId = null;
+let scDetailData = null;
+let scdCommentSort = "time";
+let scdCommentPage = 1;
+const SCD_COMMENT_PAGE_SIZE = 8;
 
 function fillChips(boxId, values) {
   const box = $(boxId);
@@ -4330,7 +4398,200 @@ function fillChips(boxId, values) {
   if (wrap) wrap.classList.toggle("hidden", values.length === 0);
 }
 
+async function scenarioCommentRequest(path, payload) {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ id: scDetailId, ...payload }),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || "操作失败");
+  if (scDetailData) scDetailData.social = data.social;
+  storeScenarioSocial(scDetailId, data.social);
+  return data.social;
+}
+
+function renderScenarioSocial(social) {
+  const actions = $("scd-social-actions");
+  const list = $("scd-comments");
+  if (!actions || !list) return;
+  actions.innerHTML = "";
+  const actionDefs = [
+    ["like", social?.liked ? "♥" : "♡", social?.likes || 0, "点赞"],
+    ["favorite", social?.favorited ? "★" : "☆", social?.favorites || 0, "收藏"],
+    ["forward", "↗", social?.shares || 0, "转发"],
+  ];
+  for (const [kind, icon, count, title] of actionDefs) {
+    const button = el("button", "scenario-social-btn" + ((kind === "like" && social?.liked) || (kind === "favorite" && social?.favorited) ? " on" : ""));
+    button.type = "button";
+    button.title = title;
+    button.textContent = `${icon} ${count}`;
+    button.addEventListener("click", async () => {
+      try {
+        if (kind === "forward") {
+          const data = await scenarioSocialAction("/api/scenario/forward", scDetailId);
+          try {
+            await navigator.clipboard.writeText(data.shareUrl);
+            $("scd-status").textContent = "剧本链接已复制";
+          } catch {
+            prompt("复制这个剧本链接：", data.shareUrl);
+          }
+        } else {
+          await scenarioSocialAction(kind === "like" ? "/api/scenario/like" : "/api/scenario/favorite", scDetailId);
+        }
+      } catch (error) {
+        $("scd-status").textContent = error.message || String(error);
+      }
+    });
+    actions.appendChild(button);
+  }
+  actions.appendChild(el("span", "scenario-social-count", `💬 ${social?.commentCount || 0}`));
+
+  list.innerHTML = "";
+  if (!social?.comments?.length) {
+    const pager = $("scd-comment-pager");
+    if (pager) pager.classList.add("hidden");
+    list.appendChild(el("div", "fb-empty", "还没有评论，来聊一聊你的想法。"));
+    return;
+  }
+  const ordered = [...social.comments].sort((a, b) => {
+    if (scdCommentSort === "hot") {
+      const heat = (comment) =>
+        (comment.likes || 0) +
+        (comment.replies || []).length * 2 +
+        (comment.replies || []).reduce((sum, reply) => sum + (reply.likes || 0), 0);
+      if (heat(a) !== heat(b)) return heat(b) - heat(a);
+    }
+    return String(b.at || "").localeCompare(String(a.at || ""));
+  });
+  const pages = Math.max(1, Math.ceil(ordered.length / SCD_COMMENT_PAGE_SIZE));
+  scdCommentPage = Math.max(1, Math.min(pages, scdCommentPage));
+  const pageStart = (scdCommentPage - 1) * SCD_COMMENT_PAGE_SIZE;
+  const visibleComments = ordered.slice(pageStart, pageStart + SCD_COMMENT_PAGE_SIZE);
+  const pager = $("scd-comment-pager");
+  if (pager) pager.classList.toggle("hidden", pages <= 1);
+  if ($("scd-comments-page")) $("scd-comments-page").textContent = `第 ${scdCommentPage} / ${pages} 页`;
+  if ($("scd-comments-prev")) $("scd-comments-prev").disabled = scdCommentPage <= 1;
+  if ($("scd-comments-next")) $("scd-comments-next").disabled = scdCommentPage >= pages;
+
+  for (const comment of visibleComments) {
+    const thread = el("div", "cm-comment-thread");
+    const head = el("div", "cm-comment-meta");
+    head.dataset.noI18n = "1";
+    head.appendChild(feedbackAvatar(comment.author, comment.avatar));
+    head.appendChild(el("span", "", fmtTime(comment.at) + (comment.editedAt ? " · 已编辑" : "")));
+    const body = el("div", "cm-comment-body", comment.text || "");
+    body.dataset.noI18n = "1";
+    const actionsRow = el("div", "social-actions compact");
+    const like = el("button", "social-action" + (comment.liked ? " on" : ""), `♥ ${comment.likes || 0}`);
+    like.type = "button";
+    like.addEventListener("click", () => scenarioCommentRequest("/api/scenario/comment/like", {
+      commentId: comment.id,
+    }).then((value) => renderScenarioSocial(value)).catch((error) => alert(error.message)));
+    actionsRow.appendChild(like);
+
+    const replyBox = el("div", "inline-reply hidden");
+    const replyInput = document.createElement("input");
+    replyInput.maxLength = 500;
+    const replySend = el("button", "", "发送");
+    replySend.type = "button";
+    let replyToId = "";
+    const openReply = (id = "", name = "") => {
+      replyToId = id;
+      replyInput.placeholder = name ? `回复 ${name}…` : `回复 ${comment.author || "匿名旅人"}…`;
+      replyBox.classList.remove("hidden");
+      replyInput.focus();
+    };
+    const replyButton = el("button", "social-action", "回复");
+    replyButton.type = "button";
+    replyButton.addEventListener("click", () => openReply());
+    actionsRow.appendChild(replyButton);
+    if (comment.mine) {
+      const edit = el("button", "social-action", "编辑");
+      edit.type = "button";
+      edit.addEventListener("click", async () => {
+        const text = prompt("修改评论：", comment.text);
+        if (text == null || !text.trim()) return;
+        const value = await scenarioCommentRequest("/api/scenario/comment/edit", { commentId: comment.id, text: text.trim() });
+        renderScenarioSocial(value);
+      });
+      const del = el("button", "social-action", "删除");
+      del.type = "button";
+      del.addEventListener("click", async () => {
+        if (!confirm("删除这条评论？")) return;
+        const value = await scenarioCommentRequest("/api/scenario/comment/delete", { commentId: comment.id });
+        renderScenarioSocial(value);
+      });
+      actionsRow.append(edit, del);
+    }
+
+    const replies = el("div", "cm-replies");
+    for (const reply of [...(comment.replies || [])].sort((a, b) => String(a.at || "").localeCompare(String(b.at || "")))) {
+      const replyRow = el("div", "cm-reply");
+      const replyMeta = el("div", "cm-comment-meta");
+      replyMeta.dataset.noI18n = "1";
+      replyMeta.appendChild(feedbackAvatar(reply.author, reply.avatar));
+      replyMeta.appendChild(el("span", "", fmtTime(reply.at) + (reply.editedAt ? " · 已编辑" : "")));
+      const replyText = el("div", "cm-comment-body");
+      replyText.dataset.noI18n = "1";
+      if (reply.replyToName) replyText.appendChild(el("span", "reply-to", `回复 @${reply.replyToName}：`));
+      replyText.appendChild(document.createTextNode(reply.text || ""));
+      const replyActions = el("div", "social-actions compact");
+      const replyLike = el("button", "social-action" + (reply.liked ? " on" : ""), `♥ ${reply.likes || 0}`);
+      replyLike.type = "button";
+      replyLike.addEventListener("click", () => scenarioCommentRequest("/api/scenario/comment/like", {
+        commentId: comment.id,
+        replyId: reply.id,
+      }).then((value) => renderScenarioSocial(value)).catch((error) => alert(error.message)));
+      const replyAgain = el("button", "social-action", "回复");
+      replyAgain.type = "button";
+      replyAgain.addEventListener("click", () => openReply(reply.id, reply.author));
+      replyActions.append(replyLike, replyAgain);
+      if (reply.mine) {
+        const edit = el("button", "social-action", "编辑");
+        edit.type = "button";
+        edit.addEventListener("click", async () => {
+          const text = prompt("修改回复：", reply.text);
+          if (text == null || !text.trim()) return;
+          const value = await scenarioCommentRequest("/api/scenario/comment/edit", { commentId: comment.id, replyId: reply.id, text: text.trim() });
+          renderScenarioSocial(value);
+        });
+        const del = el("button", "social-action", "删除");
+        del.type = "button";
+        del.addEventListener("click", async () => {
+          if (!confirm("删除这条回复？")) return;
+          const value = await scenarioCommentRequest("/api/scenario/comment/delete", { commentId: comment.id, replyId: reply.id });
+          renderScenarioSocial(value);
+        });
+        replyActions.append(edit, del);
+      }
+      replyRow.append(replyMeta, replyText, replyActions);
+      replies.appendChild(replyRow);
+    }
+    replySend.addEventListener("click", async () => {
+      const text = replyInput.value.trim();
+      if (!text) return;
+      try {
+        const value = await scenarioCommentRequest("/api/scenario/comment", {
+          parentId: comment.id,
+          replyToId,
+          text,
+        });
+        renderScenarioSocial(value);
+      } catch (error) {
+        alert(error.message || error);
+      }
+    });
+    replyBox.append(replyInput, replySend);
+    thread.append(head, body, actionsRow);
+    if (replies.children.length) thread.appendChild(replies);
+    thread.appendChild(replyBox);
+    list.appendChild(thread);
+  }
+}
+
 function renderScenarioDetail(d) {
+  scDetailData = d;
   $("scd-title").textContent = d.title || "未命名剧本";
   $("scd-sub").textContent = [d.genre, d.duration, d.players, d.author ? "作者 " + d.author : ""].filter(Boolean).join(" · ");
 
@@ -4344,6 +4605,7 @@ function renderScenarioDetail(d) {
   } else {
     cover.appendChild(el("span", "", "封面待补充"));
   }
+  cover.appendChild(el("div", "scd-author-badge", `作者 · ${d.author || "匿名作者"}`));
 
   const facts = $("scd-facts");
   facts.innerHTML = "";
@@ -4374,12 +4636,14 @@ function renderScenarioDetail(d) {
   fillText("scd-tips-wrap", "scd-tips", d.tips);
   fillChips("scd-npcs", (d.npcs || []).map((n) => (n.desc ? n.name + "：" + n.desc : n.name)));
   fillChips("scd-openings", d.openings || []);
+  renderScenarioSocial(d.social);
 }
 
 async function openScenarioDetail(id) {
   const modal = $("sc-detail-modal");
   if (!modal) return;
   scDetailId = id;
+  scdCommentPage = 1;
   modal.classList.remove("hidden");
   $("scd-status").textContent = "正在读取剧本资料…";
   try {
@@ -4392,6 +4656,13 @@ async function openScenarioDetail(id) {
       scDetailCache.set(id, detail);
     }
     renderScenarioDetail(detail);
+    const socialResponse = await fetch("/api/scenario/social?id=" + encodeURIComponent(id), { cache: "no-store" });
+    if (socialResponse.ok) {
+      const socialData = await socialResponse.json();
+      detail.social = socialData.social;
+      scDetailCache.set(id, detail);
+      renderScenarioSocial(detail.social);
+    }
     $("scd-status").textContent = "";
   } catch (err) {
     $("scd-status").textContent = String(err.message || err);
@@ -4413,6 +4684,41 @@ $("scd-pick")?.addEventListener("click", () => {
     scFilter = "all";
     renderScenarios(id);
     $("scenarios")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+});
+$("scd-comment-sort")?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-scd-comment-sort]");
+  if (!button) return;
+  scdCommentSort = button.dataset.scdCommentSort === "hot" ? "hot" : "time";
+  scdCommentPage = 1;
+  $("scd-comment-sort").querySelectorAll("button").forEach((item) => item.classList.toggle("on", item === button));
+  renderScenarioSocial(scDetailData?.social);
+});
+$("scd-comments-prev")?.addEventListener("click", () => {
+  if (scdCommentPage <= 1) return;
+  scdCommentPage -= 1;
+  renderScenarioSocial(scDetailData?.social);
+  $("scd-comments")?.scrollTo({ top: 0, behavior: "smooth" });
+});
+$("scd-comments-next")?.addEventListener("click", () => {
+  const total = scDetailData?.social?.comments?.length || 0;
+  const pages = Math.max(1, Math.ceil(total / SCD_COMMENT_PAGE_SIZE));
+  if (scdCommentPage >= pages) return;
+  scdCommentPage += 1;
+  renderScenarioSocial(scDetailData?.social);
+  $("scd-comments")?.scrollTo({ top: 0, behavior: "smooth" });
+});
+$("scd-comment-send")?.addEventListener("click", async () => {
+  const text = $("scd-comment-input").value.trim();
+  if (!text || !scDetailId) return;
+  try {
+    const social = await scenarioCommentRequest("/api/scenario/comment", { text });
+    $("scd-comment-input").value = "";
+    scdCommentPage = 1;
+    renderScenarioSocial(social);
+    renderScenarios(scDetailId);
+  } catch (error) {
+    $("scd-status").textContent = error.message || String(error);
   }
 });
 document.addEventListener("keydown", (event) => {

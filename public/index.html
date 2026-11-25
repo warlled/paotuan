@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>玩家自由创作游玩社区网站平台</title>
-<link rel="stylesheet" href="/style.css?v=20261125-worlddata1">
+<link rel="stylesheet" href="/style.css?v=20261126-scenariosocial2">
 </head>
 <body>
 
@@ -143,7 +143,7 @@
     <div class="row2">
       <label class="checkbox"><input type="checkbox" id="model-enabled"> 使用网站默认的 AI 模型（deepseek-v4.1-flash）</label>
       <button id="model-save" type="button" class="ghost">保存</button>
-      <button id="model-test" type="button" class="ghost">测试连接</button>
+      <button id="model-test" type="button" class="ghost">检查配置</button>
       <button id="model-clear" type="button" class="ghost">清除</button>
       <span id="model-status" class="hint"></span>
     </div>
@@ -428,7 +428,7 @@
                     <label class="editor-field"><span>剧本标题 <em>必填</em></span><input id="s-title" maxlength="60" placeholder="例如：雪夜来客"></label>
                     <label class="editor-field"><span>类型 / 分类</span><input id="s-genre" maxlength="40" placeholder="例如：民国 · 密室"></label>
                     <label class="editor-field editor-span-2"><span>一句话简介</span><input id="s-blurb" maxlength="200" placeholder="剧本卡片上显示的故事引子"></label>
-                    <label class="editor-field"><span>作者署名</span><input id="s-author" maxlength="40" placeholder="详情里显示的作者名"></label>
+                    <label class="editor-field"><span>作者署名（封面公开）</span><input id="s-author" maxlength="40" placeholder="填写你自己的公开笔名"></label>
                     <label class="editor-field"><span>预计时长</span><input id="s-duration" maxlength="40" placeholder="例如：2-3 小时"></label>
                     <label class="editor-field"><span>推荐人数</span><input id="s-players" maxlength="40" placeholder="例如：单人 / 2-4 人"></label>
                     <label class="editor-field"><span>内容分级</span><input id="s-rating" maxlength="40" placeholder="例如：12+ 含暴力描写"></label>
@@ -954,6 +954,25 @@
         <div class="scd-section" id="scd-npc-wrap"><h3>登场人物</h3><div class="scd-chips" id="scd-npcs"></div></div>
         <div class="scd-section" id="scd-open-wrap"><h3>固定开局</h3><div class="scd-chips" id="scd-openings"></div></div>
         <div class="scd-section" id="scd-tips-wrap"><h3>玩法说明</h3><p id="scd-tips"></p></div>
+        <div class="scd-section scd-social" id="scd-social-wrap">
+          <h3>玩家互动</h3>
+          <div class="scd-social-actions" id="scd-social-actions"></div>
+          <div class="social-sort" id="scd-comment-sort">
+            <span>评论排序</span>
+            <button type="button" data-scd-comment-sort="time" class="on">最新</button>
+            <button type="button" data-scd-comment-sort="hot">最热</button>
+          </div>
+          <div class="scd-comments" id="scd-comments"></div>
+          <div class="fb-pager" id="scd-comment-pager">
+            <button type="button" id="scd-comments-prev">‹ 上一页</button>
+            <span id="scd-comments-page">第 1 / 1 页</span>
+            <button type="button" id="scd-comments-next">下一页 ›</button>
+          </div>
+          <div class="scd-comment-form">
+            <input id="scd-comment-input" maxlength="500" placeholder="对剧本发表评论…">
+            <button type="button" id="scd-comment-send">评论</button>
+          </div>
+        </div>
       </div>
     </div>
     <div class="scd-foot">
@@ -963,8 +982,8 @@
   </div>
 </div>
 
-<script src="/i18n.js?v=20261125-worlddata1"></script>
-<script src="/app.js?v=20261125-worlddata1"></script>
+<script src="/i18n.js?v=20261126-scenariosocial2"></script>
+<script src="/app.js?v=20261126-scenariosocial2"></script>
 <script src="/vendor/pptxgen.bundle.js?v=3.12.0" async></script>
 </body>
 </html>

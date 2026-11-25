@@ -194,6 +194,28 @@
     "最热": ["Hottest", "人気順", "Populaires", "Популярные"],
     "评论排序": ["Comment order", "コメント順", "Ordre des commentaires", "Порядок комментариев"],
     "回复": ["Reply", "返信", "Répondre", "Ответить"],
+    "点赞": ["Like", "いいね", "J'aime", "Нравится"],
+    "收藏": ["Favorite", "お気に入り", "Favoris", "В избранное"],
+    "转发": ["Share", "共有", "Partager", "Поделиться"],
+    "评论": ["Comment", "コメント", "Commenter", "Комментарий"],
+    "编辑": ["Edit", "編集", "Modifier", "Изменить"],
+    "发送": ["Send", "送信", "Envoyer", "Отправить"],
+    "详情": ["Details", "詳細", "Détails", "Подробнее"],
+    "可编辑": ["Editable", "編集可能", "Modifiable", "Можно редактировать"],
+    "作者": ["Author", "作者", "Auteur", "Автор"],
+    "匿名作者": ["Anonymous author", "匿名作者", "Auteur anonyme", "Анонимный автор"],
+    "玩家互动": ["Player interaction", "プレイヤー交流", "Interactions des joueurs", "Взаимодействие игроков"],
+    "封面待补充": ["Cover coming soon", "カバー未設定", "Couverture à venir", "Обложка не добавлена"],
+    "还没有评论，来聊一聊你的想法。": [
+      "No comments yet. Share what you think.",
+      "まだコメントはありません。感想を書いてみましょう。",
+      "Aucun commentaire. Partagez votre avis.",
+      "Комментариев пока нет. Поделитесь впечатлением.",
+    ],
+    "剧本链接已复制": ["Story link copied", "シナリオリンクをコピーしました", "Lien du scénario copié", "Ссылка на сценарий скопирована"],
+    "对剧本发表评论…": ["Write a comment…", "コメントを書く…", "Écrire un commentaire…", "Написать комментарий…"],
+    "作者署名（封面公开）": ["Author credit (shown on cover)", "作者名（カバーに公開）", "Crédit d'auteur (visible sur la couverture)", "Автор (публично на обложке)"],
+    "填写你自己的公开笔名": ["Enter your public pen name", "公開ペンネームを入力", "Saisissez votre pseudonyme public", "Укажите публичный псевдоним"],
     "自己写一个剧本": ["Write a new story", "シナリオを作成", "Créer un scénario", "Создать сценарий"],
     "编辑选中的自定义剧本": ["Edit selected story", "選択中の自作シナリオを編集", "Modifier le scénario sélectionné", "Изменить выбранный сценарий"],
     "删除选中的自定义剧本": ["Delete selected story", "選択中の自作シナリオを削除", "Supprimer le scénario sélectionné", "Удалить выбранный сценарий"],
@@ -943,6 +965,26 @@
     "最热": ["인기", "Beliebt"],
     "评论排序": ["댓글 정렬", "Kommentarreihenfolge"],
     "回复": ["답글", "Antworten"],
+    "点赞": ["좋아요", "Gefällt mir"],
+    "收藏": ["즐겨찾기", "Favorit"],
+    "转发": ["공유", "Teilen"],
+    "评论": ["댓글", "Kommentar"],
+    "编辑": ["편집", "Bearbeiten"],
+    "发送": ["보내기", "Senden"],
+    "详情": ["상세", "Details"],
+    "可编辑": ["편집 가능", "Bearbeitbar"],
+    "作者": ["작성자", "Autor"],
+    "匿名作者": ["익명 작성자", "Anonymer Autor"],
+    "玩家互动": ["플레이어 상호작용", "Spielerinteraktion"],
+    "封面待补充": ["표지 준비 중", "Cover folgt"],
+    "还没有评论，来聊一聊你的想法。": [
+      "아직 댓글이 없습니다. 생각을 남겨 보세요.",
+      "Noch keine Kommentare. Teile deine Meinung.",
+    ],
+    "剧本链接已复制": ["시나리오 링크를 복사했습니다", "Szenariolink kopiert"],
+    "对剧本发表评论…": ["시나리오에 댓글 작성…", "Szenario kommentieren…"],
+    "作者署名（封面公开）": ["작성자 표기 (표지 공개)", "Urheberangabe (öffentlich auf dem Cover)"],
+    "填写你自己的公开笔名": ["공개 필명을 입력하세요", "Öffentlichen Autorennamen eingeben"],
     "漫威": ["Marvel", "Marvel"],
     "自己写一个剧本": ["새 시나리오 작성", "Szenario erstellen"],
     "编辑选中的自定义剧本": ["선택한 시나리오 편집", "Ausgewähltes Szenario bearbeiten"],
@@ -1355,6 +1397,16 @@
     const index = { en: 0, ja: 1, fr: 2, ru: 3 }[current];
     if (D[key] && index != null && D[key][index]) return lead + D[key][index] + trail;
     if (KO_DE[key]) return lead + KO_DE[key][current === "ko" ? 0 : 1] + trail;
+    const byline = key.match(/^作者 · (.+)$/);
+    if (byline) {
+      const label = { en: "Author", ja: "作者", ko: "작성자", de: "Autor", fr: "Auteur", ru: "Автор" }[current];
+      return lead + `${label} · ${byline[1]}` + trail;
+    }
+    const authorLabel = key.match(/^作者 (.+)$/);
+    if (authorLabel) {
+      const label = { en: "Author", ja: "作者", ko: "작성자", de: "Autor", fr: "Auteur", ru: "Автор" }[current];
+      return lead + `${label}: ${authorLabel[1]}` + trail;
+    }
     const attr = key.match(/^([力敏体智感魅])(\d+)$/);
     if (attr) {
       const letters = {
@@ -1568,7 +1620,7 @@
     const next = normalizeLanguage(language);
     current = next;
     staticMemo.clear();
-    allowRemoteModelCall = options.allowRemoteModel === true;
+    allowRemoteModelCall = false;
     hideTranslationStatus();
     document.documentElement.lang = next === "zh-Hans" ? "zh-CN" : next === "zh-Hant" ? "zh-TW" : next;
     apply();
@@ -1615,10 +1667,7 @@
       attributes: true,
       attributeFilter: ["placeholder", "title", "alt", "aria-label"],
     });
-    document.addEventListener("click", () => {
-      allowRemoteModelCall = true;
-      scheduleRemoteTranslation(650);
-    }, true);
+    document.addEventListener("click", () => scheduleRemoteTranslation(650), true);
   }
 
   window.PT_I18N = {
