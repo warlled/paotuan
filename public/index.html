@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>玩家自由创作游玩社区网站平台</title>
-<link rel="stylesheet" href="/style.css?v=20261125-ability1">
+<link rel="stylesheet" href="/style.css?v=20261125-flow1">
 </head>
 <body>
 
@@ -291,6 +291,7 @@
   <div class="setup-wrap">
     <h1>玩家自由创作游玩<span>社区网站平台</span></h1>
     <div class="setup-sub">选一个剧本和角色开始故事；也可以自己写剧本、发布作品、装饰自己的空间。</div>
+    <div id="scenario-main">
     <div class="create-bar">
       <button id="quick-new-scenario" class="ghost">＋ 写一个新剧本</button>
       <button id="quick-community" class="ghost">去创作社区</button>
@@ -644,6 +645,27 @@
       </div>
     </div>
 
+    <div class="scenario-entry" id="scenario-entry">
+      <div class="scenario-entry-copy">
+        <b id="entry-scenario-title">请先选择一个剧本</b>
+        <span id="entry-scenario-meta">选中后进入角色创建</span>
+      </div>
+      <button class="primary" id="enter-scenario" type="button" disabled>加入剧本</button>
+      <button class="ghost hidden" id="resume">继续上次的游戏</button>
+      <span class="err" id="entry-error"></span>
+    </div>
+    </div>
+
+    <div id="character-setup" class="character-setup hidden">
+      <div class="character-setup-head">
+        <button class="ghost" id="back-to-scenarios" type="button">← 返回剧本列表</button>
+        <div>
+          <div class="character-setup-kicker">当前剧本</div>
+          <h2 id="character-scenario-title">尚未选择剧本</h2>
+          <p id="character-scenario-meta"></p>
+        </div>
+      </div>
+
     <div class="step">
       <h2>二、写你的角色</h2>
       <div class="grid2">
@@ -685,8 +707,8 @@
       <div class="start-bar" style="margin-top:0">
         <span class="hint">玩法</span>
         <select id="mode-select">
-          <option value="free" selected>自由探索（ARPG：不掷骰，但有世界、任务、NPC 与成长）</option>
-          <option value="trpg">跑团规则（有判定与代价）</option>
+          <option value="free" selected>自由探索</option>
+          <option value="trpg">跑团规则</option>
         </select>
         <span class="hint" id="mode-note">当前为自由探索，难度与目标/动机已隐藏。</span>
       </div>
@@ -699,8 +721,8 @@
     <div class="err" id="err"></div>
     <div class="start-bar">
       <button class="primary" id="start">开始游戏</button>
-      <button class="ghost hidden" id="resume">继续上次的游戏</button>
       <span class="hint" id="startHint"></span>
+    </div>
     </div>
   </div>
 </section>
@@ -932,8 +954,8 @@
   </div>
 </div>
 
-<script src="/i18n.js?v=20261125-ability1"></script>
-<script src="/app.js?v=20261125-ability1"></script>
+<script src="/i18n.js?v=20261125-flow1"></script>
+<script src="/app.js?v=20261125-flow1"></script>
 <script src="/vendor/pptxgen.bundle.js?v=3.12.0" async></script>
 </body>
 </html>

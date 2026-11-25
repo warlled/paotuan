@@ -46,6 +46,46 @@ function updateModeControls() {
   }
 }
 
+function updateScenarioEntry() {
+  const scenario = selectedScenario();
+  const button = $("enter-scenario");
+  if (button) button.disabled = !scenario;
+  if ($("entry-scenario-title")) {
+    $("entry-scenario-title").textContent = scenario ? scenario.title : "请先选择一个剧本";
+  }
+  if ($("entry-scenario-meta")) {
+    $("entry-scenario-meta").textContent = scenario
+      ? [scenario.genre, scenario.duration, scenario.players].filter(Boolean).join(" · ") || "已选择，可进入角色创建"
+      : "选中后进入角色创建";
+  }
+  if (scenario && $("entry-error")) $("entry-error").textContent = "";
+}
+
+function openCharacterSetup() {
+  const scenario = selectedScenario();
+  if (!scenario) {
+    $("entry-error").textContent = "请先选择一个剧本。";
+    return;
+  }
+  $("entry-error").textContent = "";
+  $("scenario-main").classList.add("hidden");
+  $("character-setup").classList.remove("hidden");
+  $("character-scenario-title").textContent = scenario.title;
+  $("character-scenario-meta").textContent =
+    [scenario.genre, scenario.duration, scenario.players, scenario.playStyle === "open-world" ? "开放世界" : "内容剧本"]
+      .filter(Boolean)
+      .join(" · ");
+  $("setup").scrollTop = 0;
+  setTimeout(() => $("c-name").focus(), 0);
+}
+
+function returnToScenarioList() {
+  $("character-setup").classList.add("hidden");
+  $("scenario-main").classList.remove("hidden");
+  $("setup").scrollTop = 0;
+  updateScenarioEntry();
+}
+
 /* ---------- 开局界面 ---------- */
 
 const PAGE_SIZE = 4;
@@ -97,6 +137,7 @@ function renderScenarios(selectId) {
     $("sc-prev").disabled = true;
     $("sc-next").disabled = true;
     $("start").disabled = true;
+    if ($("enter-scenario")) $("enter-scenario").disabled = true;
     return;
   }
   if (selectId && !filteredScenarios().some((s) => s.id === selectId)) {
@@ -168,6 +209,7 @@ function renderScenarios(selectId) {
       $("btn-del-scenario").classList.toggle("hidden", !editable);
       $("btn-share-scenario").classList.toggle("hidden", !editable);
       $("share-origin").classList.toggle("hidden", !editable);
+      updateScenarioEntry();
       updateModeControls();
     };
     card.addEventListener("click", selectCard);
@@ -197,6 +239,7 @@ function renderScenarios(selectId) {
   $("sc-prev").disabled = scPage <= 0;
   $("sc-next").disabled = scPage >= pages - 1;
   $("start").disabled = false;
+  updateScenarioEntry();
 }
 
 $("sc-prev").addEventListener("click", () => {
@@ -214,6 +257,8 @@ $("sc-next").addEventListener("click", () => {
   renderScenarios();
 });
 $("mode-select").addEventListener("change", updateModeControls);
+$("enter-scenario").addEventListener("click", openCharacterSetup);
+$("back-to-scenarios").addEventListener("click", returnToScenarioList);
 document.addEventListener("keydown", (e) => {
   if ($("setup")?.classList.contains("hidden")) return;
   if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
