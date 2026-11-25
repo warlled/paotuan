@@ -25,6 +25,18 @@ fs.mkdirSync(SESS_DIR, { recursive: true });
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 fs.mkdirSync(USERS_DIR, { recursive: true });
 
+function toggleSidLike(record, sid) {
+  if (!record || typeof record !== "object") return false;
+  record.likes = Array.isArray(record.likes) ? record.likes : [];
+  const index = record.likes.indexOf(sid);
+  if (index >= 0) {
+    record.likes.splice(index, 1);
+    return false;
+  }
+  record.likes.push(sid);
+  return true;
+}
+
 /* ---------- 个人资料 / 上传 / 创作社区 ---------- */
 
 const MIME_EXT = {
@@ -229,6 +241,96 @@ function saveUpload(base64, declaredMime, maxBytes) {
 let community = readJsonFile(COMMUNITY_FILE, []);
 if (!Array.isArray(community)) community = [];
 const COMMUNITY_CATEGORIES = ["历史","奇幻","科幻","现实","言情","脑洞","玄幻","仙侠","怪谈","悬疑"];
+const COMMUNITY_ORIGINS = ["原创", "同人"];
+
+function ensureCommunityComments(post) {
+  post.comments = Array.isArray(post.comments) ? post.comments : [];
+  for (const comment of post.comments) {
+    if (!comment || typeof comment !== "object") continue;
+    if (!comment.id) comment.id = crypto.randomUUID();
+    if (!Array.isArray(comment.likes)) comment.likes = [];
+    comment.replies = Array.isArray(comment.replies) ? comment.replies : [];
+    for (const reply of comment.replies) {
+      if (!reply || typeof reply !== "object") continue;
+      if (!reply.id) reply.id = crypto.randomUUID();
+      if (!Array.isArray(reply.likes)) reply.likes = [];
+    }
+  }
+}
+
+function communityReplyView(reply, sid) {
+  const profile = reply.sid ? loadProfileFor(reply.sid) : null;
+  return {
+    id: reply.id,
+    author: (profile && profile.name) || reply.who || "匿名旅人",
+    avatar: (profile && profile.avatar) || reply.avatar || "",
+    text: reply.text || "",
+    at: reply.at || "",
+    replyToName: reply.replyToName || "",
+    likes: (reply.likes || []).length,
+    liked: (reply.likes || []).includes(sid),
+    mine: Boolean(reply.sid && reply.sid === sid),
+  };
+}
+
+function communityCommentView(comment, sid) {
+  const profile = comment.sid ? loadProfileFor(comment.sid) : null;
+  const replies = (comment.replies || []).map((reply) => communityReplyView(reply, sid));
+  return {
+    id: comment.id,
+    author: (profile && profile.name) || comment.who || "匿名旅人",
+    avatar: (profile && profile.avatar) || comment.avatar || "",
+    text: comment.text || "",
+    at: comment.at || "",
+    likes: (comment.likes || []).length,
+    liked: (comment.likes || []).includes(sid),
+    mine: Boolean(comment.sid && comment.sid === sid),
+    replies,
+  };
+}
+
+function ensureFeedbackMessage(message) {
+  if (!message || typeof message !== "object") return;
+  if (!Array.isArray(message.likes)) message.likes = [];
+  message.replies = Array.isArray(message.replies) ? message.replies : [];
+  for (const reply of message.replies) {
+    if (!reply || typeof reply !== "object") continue;
+    if (!reply.id) reply.id = crypto.randomUUID();
+    if (!Array.isArray(reply.likes)) reply.likes = [];
+  }
+}
+
+function feedbackReplyView(reply, sid) {
+  const profile = reply.sid ? loadProfileFor(reply.sid) : null;
+  return {
+    id: reply.id,
+    name: (profile && profile.name) || reply.name || "匿名旅人",
+    avatar: (profile && profile.avatar) || reply.avatar || "",
+    text: reply.text || "",
+    at: reply.at || "",
+    replyToName: reply.replyToName || "",
+    likes: (reply.likes || []).length,
+    liked: (reply.likes || []).includes(sid),
+    mine: Boolean(reply.sid && reply.sid === sid),
+  };
+}
+
+function feedbackView(message, sid) {
+  ensureFeedbackMessage(message);
+  const profile = message.sid ? loadProfileFor(message.sid) : null;
+  return {
+    id: message.id,
+    name: (profile && profile.name) || message.name || "匿名旅人",
+    avatar: (profile && profile.avatar) || message.avatar || "",
+    text: message.text,
+    at: message.at,
+    editedAt: message.editedAt || null,
+    mine: Boolean(message.sid && message.sid === sid),
+    likes: message.likes.length,
+    liked: message.likes.includes(sid),
+    replies: message.replies.map((reply) => feedbackReplyView(reply, sid)),
+  };
+}
 
 /* ---------- 多人联机房间 ---------- */
 
@@ -488,6 +590,7 @@ function initRoomStatus(character) {
 }
 
 function communityView(post, sid) {
+  ensureCommunityComments(post);
   return {
     id: post.id,
     type: post.type || "post",
@@ -497,11 +600,12 @@ function communityView(post, sid) {
     title: post.title,
     text: post.text,
     category: post.category || "现实",
+    origin: post.origin || "原创",
     tags: post.tags || [],
     genre: post.scenario?.genre || "",
     blurb: post.scenario?.blurb || "",
-    comments: (post.comments || []).slice(-20),
-    commentCount: (post.comments || []).length,
+    comments: post.comments.slice(-50).map((comment) => communityCommentView(comment, sid)),
+    commentCount: post.comments.reduce((sum, comment) => sum + 1 + (comment.replies || []).length, 0),
     media: post.media || null,
     at: post.at,
     likes: (post.likes || []).length,
@@ -669,22 +773,50 @@ function secureCookie(name, value, maxAge) {
 function loadShareState() {
   try {
     const s = JSON.parse(fs.readFileSync(SHARE_STATE_FILE, "utf8"));
-    return { open: s.open !== false, openUntil: Number(s.openUntil) || 0, updatedAt: Number(s.updatedAt) || 0 };
+    const open = s.open === true;
+    return {
+      version: 2,
+      open,
+      openUntil: open ? Number(s.openUntil) || 0 : 0,
+      lockedClosed: open ? false : s.lockedClosed !== false,
+      updatedAt: Number(s.updatedAt) || 0,
+    };
   } catch {
-    return { open: true, openUntil: 0, updatedAt: 0 };
+    return { version: 2, open: false, openUntil: 0, lockedClosed: true, updatedAt: 0 };
   }
 }
 
 let shareState = loadShareState();
 
 function saveShareState(next) {
-  shareState = next;
+  shareState = {
+    version: 2,
+    open: next.open === true,
+    openUntil: next.open === true ? Number(next.openUntil) || 0 : 0,
+    lockedClosed: next.open === true ? false : next.lockedClosed !== false,
+    updatedAt: Number(next.updatedAt) || Date.now(),
+  };
   try {
-    fs.writeFileSync(SHARE_STATE_FILE, JSON.stringify(next, null, 2));
-  } catch {}
+    fs.mkdirSync(path.dirname(SHARE_STATE_FILE), { recursive: true });
+    const temp = SHARE_STATE_FILE + ".tmp";
+    const text = JSON.stringify(shareState, null, 2);
+    fs.writeFileSync(temp, text);
+    try {
+      fs.renameSync(temp, SHARE_STATE_FILE);
+    } catch {
+      fs.writeFileSync(SHARE_STATE_FILE, text);
+      try {
+        fs.unlinkSync(temp);
+      } catch {}
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function siteOpen() {
+  if (shareState.lockedClosed) return false;
   if (!shareState.open) return false;
   if (!shareState.openUntil) return true;
   return Date.now() < shareState.openUntil;
@@ -874,8 +1006,8 @@ function closedPage() {
 <body style="margin:0;height:100vh;display:grid;place-items:center;background:#0d0f15;color:#e7e8ee;font:16px/1.8 'Microsoft YaHei',sans-serif">
 <div style="text-align:center;max-width:520px;padding:24px">
 <div style="font-size:22px;letter-spacing:3px;color:#c8a06a;margin-bottom:14px">今日暂停营业</div>
-<div style="color:#8b90a0">房主暂时关闭了入口，晚点再来。</div>
-<div style="color:#4a5062;font-size:13px;margin-top:18px">（这不是故障，入口随时会重新开放）</div>
+<div style="color:#8b90a0">房主关闭了入口，恢复时间由房主决定。</div>
+<div style="color:#4a5062;font-size:13px;margin-top:18px">（这不是故障，只有房主手动开放后才会恢复）</div>
 </div></body>`;
 }
 
@@ -923,6 +1055,7 @@ function adminState() {
   return {
     open: siteOpen(),
     manualOpen: shareState.open,
+    lockedClosed: Boolean(shareState.lockedClosed),
     openUntil: shareState.openUntil || 0,
     minutesLeft: shareState.openUntil ? Math.max(0, Math.round((shareState.openUntil - now) / 60000)) : 0,
     updatedAt: shareState.updatedAt || 0,
@@ -1098,6 +1231,7 @@ function buildBackup(opts = {}) {
     uploadsSkipped,
     settings: readJsonFile(path.join(engine.WORK, "settings.json"), null),
     i18nCache,
+    siteState: shareState,
   };
 }
 
@@ -1115,6 +1249,7 @@ function restoreBackup(b) {
     presets: 0,
     uploads: 0,
     settings: 0,
+    siteState: 0,
     translations: 0,
     skipped: 0,
   };
@@ -1279,6 +1414,10 @@ function restoreBackup(b) {
       out.skipped += 1;
     }
   }
+  if (b.siteState && typeof b.siteState === "object" && !Array.isArray(b.siteState)) {
+    if (saveShareState(b.siteState)) out.siteState = 1;
+    else out.skipped += 1;
+  }
   if (b.i18nCache && typeof b.i18nCache === "object" && !Array.isArray(b.i18nCache)) {
     i18nCache = b.i18nCache;
     saveI18nCache();
@@ -1307,16 +1446,17 @@ function adminPage() {
     ".note{color:#6f7486;font-size:12.5px;margin-top:18px;line-height:1.7}",
     "</style></head><body><div class=card>",
     "<h1>跑团入口开关</h1>",
-    '<div class="sub">关闭后所有访客都会看到“今日暂停营业”，模型不会被调用。</div>',
+    '<div class="sub">“立即关闭”会持久锁定入口；除非你在后台手动开放，否则重启或定时任务都不会自动恢复营业。</div>',
     '<div id="status" class="status off">读取中…</div>',
     '<div class="row">',
-    '<button id="close" class="danger">立即关闭</button>',
+    '<button id="close" class="danger">立即关闭并锁定</button>',
     '<button id="open1">开放 1 小时</button>',
     '<button id="open2">开放 2 小时</button>',
     '<button id="open0" class="primary">持续开放</button>',
     "</div>",
     '<div class="note">每日调用上限：<b id="cap"></b> 次（今天已用 <b id="used"></b> 次）。<br>',
     "达到上限后会自动停止接待，次日恢复。上限在主机的 GUEST_DAILY_CALLS 环境变量里改。</div>",
+    '<div class="note" style="margin-top:10px">关闭状态会写入服务端状态文件。开放 1 小时 / 2 小时到期后也会保持关闭，不会自行重新营业。</div>',
     '<div class="note" style="margin-top:16px;border-top:1px solid #262b3a;padding-top:14px">',
     "<b>数据总览</b><br>在线 <b id=\"d-online\">-</b> · 游玩中 <b id=\"d-playing\">-</b> 局 / <b id=\"d-players\">-</b> 人<br>留言 <b id=\"d-fb\">-</b> · 好评 <b id=\"d-up\">-</b> · 差评 <b id=\"d-down\">-</b> · 用户 <b id=\"d-users\">-</b><br>",
     "作品 <b id=\"d-cm\">-</b> · 房间 <b id=\"d-rooms\">-</b> · 存档 <b id=\"d-sessions\">-</b> · 上传 <b id=\"d-uploads\">-</b> · 翻译缓存 <b id=\"d-tr\">-</b><br>",
@@ -1334,27 +1474,36 @@ function adminPage() {
     "</div>",
     "</div><script>",
     'const statusEl = document.getElementById("status");',
-    'function fmt(m){ return m > 0 ? ("剩余约 " + m + " 分钟") : "未设自动关闭"; }',
+    'function fmt(m){ return m > 0 ? ("本时段剩余约 " + m + " 分钟") : "已手动持续开放"; }',
     "async function refresh(){",
     '  const r = await fetch("/api/admin/state");',
+    '  if (r.status === 403) { statusEl.className = "status off"; statusEl.textContent = "登录已失效，正在返回登录页…"; setTimeout(() => location.href = "/admin", 700); return; }',
+    '  if (!r.ok) { statusEl.className = "status off"; statusEl.textContent = "读取状态失败：HTTP " + r.status; return; }',
     "  const s = await r.json();",
     '  statusEl.className = "status " + (s.open ? "on" : "off");',
+    '  const closedText = s.lockedClosed ? "已手动关闭并锁定，只有你再次手动开放才会恢复" : "定时开放已结束，当前保持关闭，不会自动重开";',
     '  statusEl.innerHTML = (s.open ? "● 正在营业" : "● 已关闭") +',
-    '    `<div class="meta">` + (s.open ? fmt(s.minutesLeft) : "访客将看到暂停营业页") + "</div>";',
+    '    `<div class="meta">` + (s.open ? fmt(s.minutesLeft) : closedText) + "</div>";',
     '  const cap = document.getElementById("cap");',
     '  cap.textContent = s.guestDailyCalls > 0 ? s.guestDailyCalls : "不限（有费用风险）";',
     '  cap.style.color = s.guestDailyCalls > 0 ? "#8fd8ac" : "#f0a3b4";',
     '  document.getElementById("used").textContent = s.callsToday;',
     "}",
     "async function setState(open, minutes){",
-    '  await fetch("/api/admin/state", {',
+    '  const r = await fetch("/api/admin/state", {',
     '    method: "POST", headers: {"content-type": "application/json"},',
-    "    body: JSON.stringify({open, minutes})",
+    "    body: JSON.stringify({action: open ? 'open' : 'close', open, minutes})",
     "  });",
+    "  const data = await r.json();",
+    "  if (r.status === 403) { alert('管理登录已失效，请重新登录后台。'); location.href = '/admin'; return; }",
+    "  if (!r.ok) alert(data.error || '状态保存失败，请重试');",
     "  refresh();",
     "}",
     "async function refreshStats(){",
-    '  const s = await (await fetch("/api/admin/stats")).json();',
+    '  const r = await fetch("/api/admin/stats");',
+    '  if (r.status === 403) { document.getElementById("d-status").textContent = "管理登录已失效，请重新登录。"; return; }',
+    '  if (!r.ok) { document.getElementById("d-status").textContent = "数据读取失败：HTTP " + r.status; return; }',
+    '  const s = await r.json();',
     '  document.getElementById("d-online").textContent = s.online;',
     '  document.getElementById("d-playing").textContent = s.playingRooms;',
     '  document.getElementById("d-players").textContent = s.playingPeople;',
@@ -1425,7 +1574,7 @@ function adminPage() {
     "  refreshStats();",
     "};",
     "refreshStats();",
-    'document.getElementById("close").onclick = () => setState(false, 0);',
+    'document.getElementById("close").onclick = () => { if (confirm("立即关闭并锁定入口？在你手动开放前，服务器重启或定时任务都不会自动开服。")) setState(false, 0); };',
     'document.getElementById("open1").onclick = () => setState(true, 60);',
     'document.getElementById("open2").onclick = () => setState(true, 120);',
     'document.getElementById("open0").onclick = () => setState(true, 0);',
@@ -1625,14 +1774,23 @@ const server = http.createServer(async (req, res) => {
   if (p === "/api/admin/state") {
     if (!adminOk) return send(res, 403, { error: "没有管理权限" });
     if (req.method === "GET") return send(res, 200, adminState());
+    if (req.method !== "POST") return send(res, 405, { error: "只允许 GET 或 POST" });
     const body = await readBody(req);
-    const open = Boolean(body.open);
+    const action = String(body.action || "");
+    const open = action === "close" ? false : action === "open" ? true : Boolean(body.open);
     const minutes = Math.max(0, Math.min(24 * 60, Number(body.minutes) || 0));
-    saveShareState({
+    const saved = saveShareState({
       open,
       openUntil: open && minutes > 0 ? Date.now() + minutes * 60000 : 0,
+      lockedClosed: !open,
       updatedAt: Date.now(),
     });
+    if (!saved) {
+      return send(res, 500, {
+        error: "入口状态已在本进程关闭或开放，但写入磁盘失败。重启前请检查数据目录权限并重试。",
+        state: adminState(),
+      });
+    }
     return send(res, 200, adminState());
   }
 
@@ -1817,6 +1975,50 @@ const server = http.createServer(async (req, res) => {
       return send(res, 500, { error: `抓取失败：${err.message}` });
     }
   }
+  if (p === "/api/scenario/detail") {
+    const id = url.searchParams.get("id") || "";
+    let scn = null;
+    try {
+      scn = engine.readScenarioRaw(id, guestDir(entry));
+    } catch {
+      return send(res, 404, { error: "找不到这个剧本" });
+    }
+    const trim = (value, max) => String(value || "").slice(0, max);
+    return send(res, 200, {
+      id,
+      title: trim(scn.title, 80),
+      genre: trim(scn.genre, 60),
+      blurb: trim(scn.blurb, 400),
+      intro: trim(scn.intro, 2400),
+      tips: trim(scn.tips, 1200),
+      author: trim(scn.author, 60),
+      duration: trim(scn.duration, 60),
+      players: trim(scn.players, 40) || "单人",
+      rating: trim(scn.rating, 60),
+      tags: (Array.isArray(scn.tags) ? scn.tags : []).slice(0, 12).map((t) => trim(t, 20)),
+      cover: trim(scn.cover, 200),
+      playStyle: scn.playStyle === "open-world" ? "open-world" : "content",
+      version: trim(scn.version, 20),
+      versionNote: trim(scn.versionNote, 400),
+      background: trim(scn.background, 1200),
+      hook: trim(scn.hook, 600),
+      startLocation: trim(scn.startLocation, 120),
+      npcs: (Array.isArray(scn.npcs) ? scn.npcs : [])
+        .map((n) => ({ name: trim(n?.name, 30), desc: trim(n?.desc, 120) }))
+        .filter((n) => n.name)
+        .slice(0, 8),
+      openings: (Array.isArray(scn.openingOptions) ? scn.openingOptions : [])
+        .map((o) => trim(typeof o === "string" ? o : o?.text || o?.title, 120))
+        .filter(Boolean)
+        .slice(0, 6),
+      scheduleCount: (Array.isArray(scn.schedule) ? scn.schedule : []).length,
+      clueCount: (Array.isArray(scn.clues) ? scn.clues : []).length,
+      endingCount: (Array.isArray(scn.endings) ? scn.endings : []).length,
+      linksCount: (Array.isArray(scn.links) ? scn.links : []).length,
+      hasOpening: Boolean(scn.opening),
+      custom: Boolean(scn.custom),
+    });
+  }
   if (p === "/api/scenario") {
     if (req.method === "GET") {
       try {
@@ -1921,31 +2123,27 @@ const server = http.createServer(async (req, res) => {
   if (p === "/api/feedback") {
     if (req.method === "GET") {
       const size = Math.min(20, Math.max(4, Number(url.searchParams.get("size")) || 8));
+      const sort = url.searchParams.get("sort") === "hot" ? "hot" : "time";
       const total = feedback.length;
       const pages = Math.max(1, Math.ceil(total / size));
       const page = Math.min(pages, Math.max(1, Number(url.searchParams.get("page")) || 1));
-      const slice = feedback
-        .slice()
-        .reverse()
-        .slice((page - 1) * size, page * size);
-      const messages = slice.map((m) => {
-        let prof = null;
-        if (m.sid) {
-          try {
-            prof = loadProfileFor(m.sid);
-          } catch {}
+      const ordered = feedback.slice().sort((a, b) => {
+        if (sort === "hot") {
+          ensureFeedbackMessage(a);
+          ensureFeedbackMessage(b);
+          const hotScore = (message) =>
+            message.likes.length +
+            message.replies.length * 2 +
+            message.replies.reduce((sum, reply) => sum + (reply.likes || []).length, 0);
+          const hotA = hotScore(a);
+          const hotB = hotScore(b);
+          if (hotA !== hotB) return hotB - hotA;
         }
-        return {
-          id: m.id,
-          name: (prof && prof.name) || m.name || "匿名旅人",
-          avatar: (prof && prof.avatar) || m.avatar || "",
-          text: m.text,
-          at: m.at,
-          editedAt: m.editedAt || null,
-          mine: Boolean(m.sid && m.sid === entry.sid),
-        };
+        return String(b.at || "").localeCompare(String(a.at || ""));
       });
-      return send(res, 200, { messages, total, page, pages, size, ...voteSnapshot(entry.sid) });
+      const slice = ordered.slice((page - 1) * size, page * size);
+      const messages = slice.map((m) => feedbackView(m, entry.sid));
+      return send(res, 200, { messages, total, page, pages, size, sort, ...voteSnapshot(entry.sid) });
     }
     const body = await readBody(req);
     const text = String(body.text || "").trim().slice(0, 500);
@@ -1962,6 +2160,8 @@ const server = http.createServer(async (req, res) => {
       text,
       at: new Date().toISOString(),
       editedAt: null,
+      likes: [],
+      replies: [],
     };
     feedback.push(message);
     while (feedback.length > 500) feedback.shift();
@@ -1984,6 +2184,56 @@ const server = http.createServer(async (req, res) => {
     }
     writeJsonFile(FEEDBACK_FILE, feedback);
     return send(res, 200, { ok: true });
+  }
+
+  if (req.method === "POST" && p === "/api/feedback/like") {
+    const body = await readBody(req);
+    const message = feedback.find((item) => item.id === String(body.id || ""));
+    if (!message) return send(res, 404, { error: "留言不存在" });
+    ensureFeedbackMessage(message);
+    const liked = toggleSidLike(message, entry.sid);
+    writeJsonFile(FEEDBACK_FILE, feedback);
+    return send(res, 200, { ok: true, liked, likes: message.likes.length });
+  }
+
+  if (req.method === "POST" && p === "/api/feedback/reply") {
+    const body = await readBody(req);
+    const message = feedback.find((item) => item.id === String(body.id || ""));
+    if (!message) return send(res, 404, { error: "留言不存在" });
+    const text = String(body.text || "").trim().slice(0, 300);
+    if (!text) return send(res, 400, { error: "回复内容不能为空" });
+    const last = lastPostAt.get("reply-" + entry.sid) || 0;
+    if (Date.now() - last < 5000) return send(res, 429, { error: "回复太快了，稍等。" });
+    lastPostAt.set("reply-" + entry.sid, Date.now());
+    ensureFeedbackMessage(message);
+    const replyToId = String(body.replyToId || "");
+    const target = replyToId ? message.replies.find((reply) => reply.id === replyToId) : null;
+    const profile = loadProfileFor(entry.sid);
+    message.replies.push({
+      id: crypto.randomUUID(),
+      sid: entry.sid,
+      name: profile.name || "匿名旅人",
+      avatar: profile.avatar || "",
+      text,
+      at: new Date().toISOString(),
+      replyToName: target ? target.name || "匿名旅人" : "",
+      likes: [],
+    });
+    while (message.replies.length > 80) message.replies.shift();
+    writeJsonFile(FEEDBACK_FILE, feedback);
+    return send(res, 200, { ok: true, message: feedbackView(message, entry.sid) });
+  }
+
+  if (req.method === "POST" && p === "/api/feedback/reply/like") {
+    const body = await readBody(req);
+    const message = feedback.find((item) => item.id === String(body.id || ""));
+    if (!message) return send(res, 404, { error: "留言不存在" });
+    ensureFeedbackMessage(message);
+    const reply = message.replies.find((item) => item.id === String(body.replyId || ""));
+    if (!reply) return send(res, 404, { error: "回复不存在" });
+    const liked = toggleSidLike(reply, entry.sid);
+    writeJsonFile(FEEDBACK_FILE, feedback);
+    return send(res, 200, { ok: true, liked, likes: reply.likes.length });
   }
 
   if (p === "/api/me") {
@@ -2067,6 +2317,7 @@ const server = http.createServer(async (req, res) => {
       text,
       media,
       category: COMMUNITY_CATEGORIES.includes(body.category) ? body.category : "现实",
+      origin: COMMUNITY_ORIGINS.includes(body.origin) ? body.origin : "原创",
       tags: (Array.isArray(body.tags) ? body.tags : String(body.tags || "").split(/[,，、]/))
         .map((t) => String(t).trim().slice(0, 16))
         .filter(Boolean)
@@ -2104,11 +2355,54 @@ const server = http.createServer(async (req, res) => {
     if (Date.now() - last < 10000) return send(res, 429, { error: "评论太快了，稍等。" });
     communityLast.set("c-" + entry.sid, Date.now());
     const prof = loadProfileFor(entry.sid);
-    post.comments = Array.isArray(post.comments) ? post.comments : [];
-    post.comments.push({ who: prof.name || "匿名旅人", avatar: prof.avatar || "", text, at: new Date().toISOString() });
+    ensureCommunityComments(post);
+    const parentId = String(body.parentId || "");
+    if (parentId) {
+      const parent = post.comments.find((comment) => comment.id === parentId);
+      if (!parent) return send(res, 404, { error: "要回复的评论不存在" });
+      const replyToId = String(body.replyToId || "");
+      const target = replyToId ? parent.replies.find((reply) => reply.id === replyToId) : null;
+      parent.replies.push({
+        id: crypto.randomUUID(),
+        sid: entry.sid,
+        who: prof.name || "匿名旅人",
+        avatar: prof.avatar || "",
+        text,
+        at: new Date().toISOString(),
+        replyToName: target ? target.who || "匿名旅人" : "",
+        likes: [],
+      });
+      while (parent.replies.length > 50) parent.replies.shift();
+    } else {
+      post.comments.push({
+        id: crypto.randomUUID(),
+        sid: entry.sid,
+        who: prof.name || "匿名旅人",
+        avatar: prof.avatar || "",
+        text,
+        at: new Date().toISOString(),
+        likes: [],
+        replies: [],
+      });
+    }
     while (post.comments.length > 50) post.comments.shift();
     writeJsonFile(COMMUNITY_FILE, community);
     return send(res, 200, communityView(post, entry.sid));
+  }
+
+  if (req.method === "POST" && p === "/api/community/comment/like") {
+    const body = await readBody(req);
+    const post = community.find((x) => x.id === String(body.postId || ""));
+    if (!post) return send(res, 404, { error: "作品不存在" });
+    ensureCommunityComments(post);
+    const comment = post.comments.find((item) => item.id === String(body.commentId || ""));
+    if (!comment) return send(res, 404, { error: "评论不存在" });
+    const replyId = String(body.replyId || "");
+    const target = replyId ? comment.replies.find((item) => item.id === replyId) : comment;
+    if (!target) return send(res, 404, { error: "回复不存在" });
+    const liked = toggleSidLike(target, entry.sid);
+    writeJsonFile(COMMUNITY_FILE, community);
+    return send(res, 200, { ok: true, liked, likes: target.likes.length });
   }
 
   if (req.method === "POST" && p === "/api/community/delete") {
@@ -2139,6 +2433,7 @@ const server = http.createServer(async (req, res) => {
       title: sc.title,
       text: sc.blurb || "",
       category: "奇幻",
+      origin: COMMUNITY_ORIGINS.includes(body.origin) ? body.origin : "原创",
       scenario: sc,
       tags: sc.tags || [],
       comments: [],

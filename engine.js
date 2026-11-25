@@ -227,6 +227,11 @@ function listScenarios(extraDir) {
           title: data.title || path.basename(f, ".json"),
           genre: data.genre || "",
           blurb: data.blurb || "",
+          cover: data.cover || "",
+          author: data.author || "",
+          duration: data.duration || "",
+          rating: data.rating || "",
+          tags: (Array.isArray(data.tags) ? data.tags : []).slice(0, 6),
           players: data.players || "单人",
           playStyle: data.playStyle === "open-world" ? "open-world" : "content",
           startAt: formatDateTime(data.startAt),
@@ -261,6 +266,12 @@ function loadScenario(id, extraDir) {
 }
 
 const NAME_RULE = /^[\w\u4e00-\u9fa5-]{1,40}$/;
+/** 剧本封面只接受站内上传的文件，支持静图与 GIF 动图。 */
+const COVER_RULE = /^\/uploads\/[a-f0-9]{16}\.(png|jpg|gif|webp)$/i;
+function sanitizeCover(value) {
+  const url = String(value || "").trim();
+  return COVER_RULE.test(url) ? url : "";
+}
 
 /* 自定义内容的长度上限：保证单次调用的提示词规模可控（详见 说明.txt 的「负载上限」）*/
 const CLI = {
@@ -268,6 +279,11 @@ const CLI = {
   genre: 40,
   blurb: 200,
   tone: 200,
+  author: 40,
+  duration: 40,
+  rating: 40,
+  intro: 2000,
+  tips: 1200,
   background: 4000,
   hook: 1000,
   opening: 4000,
@@ -397,6 +413,13 @@ function saveCustomScenario(input, existingId, targetDir) {
     title,
     genre: clip(input.genre, CLI.genre) || "自定义",
     blurb: clip(input.blurb, CLI.blurb) || background.slice(0, 80),
+    cover: sanitizeCover(input.cover),
+    author: clip(input.author, CLI.author),
+    duration: clip(input.duration, CLI.duration),
+    players: clip(input.players, CLI.duration) || "单人",
+    rating: clip(input.rating, CLI.rating),
+    intro: clip(input.intro, CLI.intro),
+    tips: clip(input.tips, CLI.tips),
     tags: cleanList(input.tags, 20, 12),
     playStyle: input.playStyle === "open-world" ? "open-world" : "content",
     continuity: cleanList(input.continuity, 1200, 8),

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>玩家自由创作游玩社区网站平台</title>
-<link rel="stylesheet" href="/style.css?v=20261125-timeui1">
+<link rel="stylesheet" href="/style.css?v=20261125-social3">
 </head>
 <body>
 
@@ -50,6 +50,11 @@
     <div class="fb-head">
       <h2>反馈与留言</h2>
       <button id="fb-close" title="关闭">✕</button>
+    </div>
+    <div class="social-sort" id="fb-sort" aria-label="留言排序">
+      <span>排序</span>
+      <button type="button" data-fb-sort="time" class="on">最新</button>
+      <button type="button" data-fb-sort="hot">最热</button>
     </div>
     <div class="fb-form">
       <div class="fb-profile-hint">留言会显示你的昵称和头像，可在「我的」里设置。</div>
@@ -194,6 +199,8 @@
     </div>
     <div class="cm-tabs cm-tabs-scroll" id="cm-tabs">
       <button data-filter="all" class="on">全部</button>
+      <button data-filter="原创">原创</button>
+      <button data-filter="同人">同人</button>
       <button data-filter="历史">历史</button>
       <button data-filter="奇幻">奇幻</button>
       <button data-filter="科幻">科幻</button>
@@ -215,6 +222,10 @@
       <input id="cm-title" maxlength="60" placeholder="作品标题">
       <textarea id="cm-text" maxlength="1000" placeholder="写下你的设定、剧本片段、角色故事，或分享一张跑团截图……"></textarea>
       <div class="cm-form-meta">
+        <select id="cm-origin" title="作品性质">
+          <option value="原创" selected>原创</option>
+          <option value="同人">同人</option>
+        </select>
         <select id="cm-category">
           <option>历史</option><option>奇幻</option><option>科幻</option><option selected>现实</option>
           <option>言情</option><option>脑洞</option><option>玄幻</option><option>仙侠</option>
@@ -230,6 +241,11 @@
         <button id="cm-post" class="primary2">发布</button>
         <span id="cm-status" class="hint"></span>
       </div>
+    </div>
+    <div class="social-sort cm-comment-sort" id="cm-comment-sort" aria-label="评论排序">
+      <span>评论排序</span>
+      <button type="button" data-comment-sort="time" class="on">最新</button>
+      <button type="button" data-comment-sort="hot">最热</button>
     </div>
     <div id="cm-list" class="cm-list"></div>
   </div>
@@ -303,7 +319,11 @@
         <button class="ghost" id="btn-custom-scenario">＋ 自己写一个剧本</button>
         <button class="ghost hidden" id="btn-edit-scenario">编辑选中的自定义剧本</button>
         <button class="ghost hidden" id="btn-del-scenario">删除选中的自定义剧本</button>
-<button class="ghost hidden" id="btn-share-scenario">分享到社区</button>
+        <select id="share-origin" class="hidden" title="分享作品性质">
+          <option value="原创" selected>原创</option>
+          <option value="同人">同人</option>
+        </select>
+        <button class="ghost hidden" id="btn-share-scenario">分享到社区</button>
         <span class="hint" id="scenario-note"></span>
       </div>
       <div class="custom scenario-workspace hidden" id="custom-box">
@@ -346,11 +366,29 @@
               </summary>
               <div class="editor-section-body">
                 <div class="editor-block">
+                  <div class="editor-block-head"><b>封面</b><span>卡片按 3:5 竖版展示，支持 JPG / PNG / WEBP 与 GIF 动图</span></div>
+                  <div class="editor-cover">
+                    <div class="editor-cover-preview" id="s-cover-preview"><span>还没有封面</span></div>
+                    <div class="editor-cover-side">
+                      <div class="editor-cover-actions">
+                        <label class="file-btn">上传封面<input id="s-cover-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden></label>
+                        <button type="button" class="editor-add-small" id="s-cover-clear">移除封面</button>
+                      </div>
+                      <div class="editor-note" id="s-cover-note">建议竖图，比例 3:5（约 600×1000）。上传 GIF 会以动图播放。</div>
+                      <input id="s-cover" type="hidden" value="">
+                    </div>
+                  </div>
+                </div>
+                <div class="editor-block">
                   <div class="editor-block-head"><b>作品标识</b><span>名称、分类、标签与简介</span></div>
                   <div class="editor-field-grid editor-grid-2">
                     <label class="editor-field"><span>剧本标题 <em>必填</em></span><input id="s-title" maxlength="60" placeholder="例如：雪夜来客"></label>
                     <label class="editor-field"><span>类型 / 分类</span><input id="s-genre" maxlength="40" placeholder="例如：民国 · 密室"></label>
                     <label class="editor-field editor-span-2"><span>一句话简介</span><input id="s-blurb" maxlength="200" placeholder="剧本卡片上显示的故事引子"></label>
+                    <label class="editor-field"><span>作者署名</span><input id="s-author" maxlength="40" placeholder="详情里显示的作者名"></label>
+                    <label class="editor-field"><span>预计时长</span><input id="s-duration" maxlength="40" placeholder="例如：2-3 小时"></label>
+                    <label class="editor-field"><span>推荐人数</span><input id="s-players" maxlength="40" placeholder="例如：单人 / 2-4 人"></label>
+                    <label class="editor-field"><span>内容分级</span><input id="s-rating" maxlength="40" placeholder="例如：12+ 含暴力描写"></label>
                     <label class="editor-field"><span>叙事基调</span><input id="s-tone" maxlength="200" placeholder="例如：冷、克制、压抑"></label>
                     <label class="editor-field"><span>标签</span><input id="s-tags" placeholder="悬疑, 民国, 单人（逗号分隔）"></label>
                     <label class="editor-field editor-span-2"><span>运行框架</span><select id="s-play-style"><option value="open-world">自由开放世界（玩家自行设定目标）</option><option value="content">内容型剧本（保留明确题材结构）</option></select></label>
@@ -361,6 +399,13 @@
                   <div class="editor-field-grid editor-grid-3">
                     <label class="editor-field"><span>版本号</span><input id="s-version" value="1.0" maxlength="20"></label>
                     <label class="editor-field editor-span-2"><span>版本描述</span><input id="s-version-note" maxlength="500" placeholder="这一版新增、修正或平衡了什么"></label>
+                  </div>
+                </div>
+                <div class="editor-block">
+                  <div class="editor-block-head"><b>剧本介绍</b><span>详情页里完整展示；卡片上只用一句话简介</span></div>
+                  <div class="editor-field-grid editor-grid-2">
+                    <label class="editor-field"><span>详细介绍</span><textarea id="s-intro" placeholder="故事讲什么、玩家在里面做什么、有什么看点与取舍（最多 2000 字）"></textarea></label>
+                    <label class="editor-field"><span>玩法说明</span><textarea id="s-tips" placeholder="给玩家的提示：难度、节奏、需要准备什么、注意事项"></textarea></label>
                   </div>
                 </div>
               </div>
@@ -809,8 +854,38 @@
   </div>
 </section>
 
-<script src="/i18n.js?v=20261125-timeui1"></script>
-<script src="/app.js?v=20261125-timeui1"></script>
+<div id="sc-detail-modal" class="hidden">
+  <div class="scd-panel">
+    <div class="scd-head">
+      <div class="scd-title-wrap">
+        <h2 id="scd-title">剧本详情</h2>
+        <div class="scd-sub" id="scd-sub"></div>
+      </div>
+      <button id="scd-close" title="关闭">✕</button>
+    </div>
+    <div class="scd-body">
+      <div class="scd-left">
+        <div class="scd-cover" id="scd-cover"><span>封面待补充</span></div>
+        <div class="scd-facts" id="scd-facts"></div>
+      </div>
+      <div class="scd-right">
+        <div class="scd-section" id="scd-intro-wrap"><h3>剧本介绍</h3><p id="scd-intro"></p></div>
+        <div class="scd-section" id="scd-bg-wrap"><h3>故事背景</h3><p id="scd-background"></p></div>
+        <div class="scd-section" id="scd-hook-wrap"><h3>开局处境</h3><p id="scd-hook"></p></div>
+        <div class="scd-section" id="scd-npc-wrap"><h3>登场人物</h3><div class="scd-chips" id="scd-npcs"></div></div>
+        <div class="scd-section" id="scd-open-wrap"><h3>固定开局</h3><div class="scd-chips" id="scd-openings"></div></div>
+        <div class="scd-section" id="scd-tips-wrap"><h3>玩法说明</h3><p id="scd-tips"></p></div>
+      </div>
+    </div>
+    <div class="scd-foot">
+      <span id="scd-status"></span>
+      <button id="scd-pick">就用这个剧本</button>
+    </div>
+  </div>
+</div>
+
+<script src="/i18n.js?v=20261125-social3"></script>
+<script src="/app.js?v=20261125-social3"></script>
 <script src="/vendor/pptxgen.bundle.js?v=3.12.0" async></script>
 </body>
 </html>

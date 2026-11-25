@@ -114,13 +114,50 @@ function renderScenarios(selectId) {
   const box = $("scenarios");
   box.innerHTML = "";
   for (const s of slice) {
-    const card = el("button", "card");
-    card.appendChild(el("div", "t", s.title));
-    card.appendChild(
-      el("div", "g", `${s.genre}${s.playStyle === "open-world" ? " · 开放世界" : ""}${s.hasOpening ? " · 已写开场白" : ""}${s.editable ? " · 可编辑" : ""}`)
-    );
-    card.appendChild(el("div", "b", s.blurb));
-    card.addEventListener("click", () => {
+    const card = el("div", "card");
+    card.tabIndex = 0;
+    card.setAttribute("role", "button");
+    card.dataset.id = s.id;
+
+    const cover = el("div", "c");
+    if (s.cover) {
+      const img = document.createElement("img");
+      img.src = s.cover;
+      img.alt = "";
+      img.loading = "lazy";
+      img.decoding = "async";
+      cover.appendChild(img);
+    } else {
+      cover.classList.add("c-fallback");
+      cover.appendChild(el("span", "c-mark", String(s.title || "?").slice(0, 1)));
+    }
+    cover.appendChild(el("div", "c-badge", s.playStyle === "open-world" ? "开放世界" : "内容剧本"));
+    card.appendChild(cover);
+
+    const body = el("div", "c-body");
+    body.appendChild(el("div", "t", s.title));
+    const metaLine = [s.genre, s.duration, s.players].filter(Boolean).join(" · ");
+    body.appendChild(el("div", "g", metaLine));
+    body.appendChild(el("div", "b", s.blurb));
+    if (Array.isArray(s.tags) && s.tags.length) {
+      const tagRow = el("div", "c-tags");
+      for (const tag of s.tags.slice(0, 3)) tagRow.appendChild(el("span", "c-tag", tag));
+      body.appendChild(tagRow);
+    }
+    const foot = el("div", "c-actions");
+    const detailBtn = el("button", "c-detail", "详情");
+    detailBtn.type = "button";
+    detailBtn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openScenarioDetail(s.id);
+    });
+    foot.appendChild(detailBtn);
+    if (s.author) foot.appendChild(el("span", "c-author", s.author));
+    else if (s.editable) foot.appendChild(el("span", "c-author", "可编辑"));
+    body.appendChild(foot);
+    card.appendChild(body);
+
+    const selectCard = () => {
       setupState.scenarioId = s.id;
       setupState.editingId = s.editable ? s.id : null;
       [...box.children].forEach((c) => c.classList.remove("on"));
@@ -129,7 +166,15 @@ function renderScenarios(selectId) {
       $("btn-edit-scenario").classList.toggle("hidden", !editable);
       $("btn-del-scenario").classList.toggle("hidden", !editable);
       $("btn-share-scenario").classList.toggle("hidden", !editable);
+      $("share-origin").classList.toggle("hidden", !editable);
       updateModeControls();
+    };
+    card.addEventListener("click", selectCard);
+    card.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        selectCard();
+      }
     });
     box.appendChild(card);
   }
@@ -144,6 +189,7 @@ function renderScenarios(selectId) {
     $("btn-edit-scenario").classList.add("hidden");
     $("btn-del-scenario").classList.add("hidden");
     $("btn-share-scenario").classList.add("hidden");
+    $("share-origin").classList.add("hidden");
   }
 
   $("sc-page").textContent = `第 ${scPage + 1} / ${pages} 页`;
@@ -1225,6 +1271,7 @@ async function castVote(value) {
 
 let fbPage = 1;
 let fbPages = 1;
+let fbSort = "time";
 
 function fmtTime(value) {
   try {
@@ -1234,29 +1281,34 @@ function fmtTime(value) {
   }
 }
 
+function feedbackAvatar(name, avatar) {
+  const wrap = document.createElement("span");
+  wrap.className = "fb-author";
+  if (avatar) {
+    const img = document.createElement("img");
+    img.className = "fb-avatar";
+    img.src = avatar;
+    img.alt = "";
+    wrap.appendChild(img);
+  } else {
+    const ph = document.createElement("span");
+    ph.className = "fb-avatar ph";
+    ph.textContent = String(name || "匿").slice(0, 1);
+    wrap.appendChild(ph);
+  }
+  const label = document.createElement("span");
+  label.textContent = name || "匿名旅人";
+  wrap.appendChild(label);
+  return wrap;
+}
+
 function feedbackItem(m) {
   const item = document.createElement("div");
   item.className = "fb-item";
 
   const meta = document.createElement("div");
   meta.className = "fb-meta";
-  const left = document.createElement("span");
-  left.className = "fb-author";
-  if (m.avatar) {
-    const img = document.createElement("img");
-    img.className = "fb-avatar";
-    img.src = m.avatar;
-    img.alt = "";
-    left.appendChild(img);
-  } else {
-    const ph = document.createElement("span");
-    ph.className = "fb-avatar ph";
-    ph.textContent = (m.name || "匿").slice(0, 1);
-    left.appendChild(ph);
-  }
-  const name = document.createElement("span");
-  name.textContent = m.name || "匿名旅人";
-  left.appendChild(name);
+  const left = feedbackAvatar(m.name, m.avatar);
   const right = document.createElement("span");
   right.textContent = fmtTime(m.at) + (m.editedAt ? " · 已编辑" : "");
   meta.append(left, right);
@@ -1265,6 +1317,106 @@ function feedbackItem(m) {
   text.className = "fb-text";
   text.textContent = m.text;
   item.append(meta, text);
+
+  const reactions = document.createElement("div");
+  reactions.className = "social-actions";
+  const like = document.createElement("button");
+  like.type = "button";
+  like.className = "social-action" + (m.liked ? " on" : "");
+  like.textContent = `♥ ${Number(m.likes) || 0}`;
+  like.addEventListener("click", async () => {
+    const r = await fetch("/api/feedback/like", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: m.id }),
+    });
+    if (r.ok) loadFeedback();
+  });
+  const replyButton = document.createElement("button");
+  replyButton.type = "button";
+  replyButton.className = "social-action";
+  replyButton.textContent = "回复";
+  reactions.append(like, replyButton);
+  item.appendChild(reactions);
+
+  const replies = document.createElement("div");
+  replies.className = "feedback-replies";
+  const replyForm = document.createElement("div");
+  replyForm.className = "inline-reply hidden";
+  const replyInput = document.createElement("input");
+  replyInput.maxLength = 300;
+  replyInput.placeholder = "回复这条留言…";
+  const replySend = document.createElement("button");
+  replySend.type = "button";
+  replySend.textContent = "发送";
+  let replyToId = "";
+  const openReply = (replyId = "", replyName = "") => {
+    replyToId = replyId;
+    replyInput.placeholder = replyName ? `回复 ${replyName}…` : "回复这条留言…";
+    replyForm.classList.remove("hidden");
+    replyInput.focus();
+  };
+  replyButton.addEventListener("click", () => openReply());
+  for (const reply of m.replies || []) {
+    const row = document.createElement("div");
+    row.className = "feedback-reply";
+    const head = document.createElement("div");
+    head.className = "fb-meta";
+    head.appendChild(feedbackAvatar(reply.name, reply.avatar));
+    const time = document.createElement("span");
+    time.textContent = fmtTime(reply.at);
+    head.appendChild(time);
+    const body = document.createElement("div");
+    body.className = "feedback-reply-text";
+    if (reply.replyToName) {
+      const to = document.createElement("span");
+      to.className = "reply-to";
+      to.textContent = `回复 @${reply.replyToName}：`;
+      body.appendChild(to);
+    }
+    body.appendChild(document.createTextNode(reply.text || ""));
+    const actions = document.createElement("div");
+    actions.className = "social-actions compact";
+    const replyLike = document.createElement("button");
+    replyLike.type = "button";
+    replyLike.className = "social-action" + (reply.liked ? " on" : "");
+    replyLike.textContent = `♥ ${Number(reply.likes) || 0}`;
+    replyLike.addEventListener("click", async () => {
+      const r = await fetch("/api/feedback/reply/like", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: m.id, replyId: reply.id }),
+      });
+      if (r.ok) loadFeedback();
+    });
+    const replyAgain = document.createElement("button");
+    replyAgain.type = "button";
+    replyAgain.className = "social-action";
+    replyAgain.textContent = "回复";
+    replyAgain.addEventListener("click", () => openReply(reply.id, reply.name));
+    actions.append(replyLike, replyAgain);
+    row.append(head, body, actions);
+    replies.appendChild(row);
+  }
+  replySend.addEventListener("click", async () => {
+    const value = replyInput.value.trim();
+    if (!value) return;
+    replySend.disabled = true;
+    const r = await fetch("/api/feedback/reply", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: m.id, replyToId, text: value }),
+    });
+    replySend.disabled = false;
+    if (r.ok) loadFeedback();
+    else {
+      const data = await r.json();
+      alert(data.error || "回复失败");
+    }
+  });
+  replyForm.append(replyInput, replySend);
+  if ((m.replies || []).length) item.appendChild(replies);
+  item.appendChild(replyForm);
 
   if (m.mine) {
     const tools = document.createElement("div");
@@ -1307,7 +1459,7 @@ function feedbackItem(m) {
 
 async function loadFeedback() {
   try {
-    const r = await fetch(`/api/feedback?page=${fbPage}&size=8`);
+    const r = await fetch(`/api/feedback?page=${fbPage}&size=8&sort=${encodeURIComponent(fbSort)}`);
     if (!r.ok) return;
     const data = await r.json();
     updateHud(data);
@@ -1335,7 +1487,9 @@ function openFeedback() {
   $("fb-modal").classList.remove("hidden");
   loadFeedback();
   clearInterval(fbTimer);
-  fbTimer = setInterval(loadFeedback, 5000);
+  fbTimer = setInterval(() => {
+    if (!$("fb-modal").classList.contains("hidden") && !$("fb-list").contains(document.activeElement)) loadFeedback();
+  }, 6000);
 }
 
 function closeFeedback() {
@@ -1390,6 +1544,15 @@ $("fb-next").addEventListener("click", () => {
     fbPage += 1;
     loadFeedback();
   }
+});
+
+$("fb-sort").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-fb-sort]");
+  if (!button) return;
+  fbSort = button.dataset.fbSort === "hot" ? "hot" : "time";
+  $("fb-sort").querySelectorAll("button").forEach((item) => item.classList.toggle("on", item === button));
+  fbPage = 1;
+  loadFeedback();
 });
 
 /* ---------- 网站主题 ---------- */
@@ -1734,6 +1897,7 @@ $("me-avatar-file").addEventListener("change", async (e) => {
 let cmFile = null;
 let cmFilter = "all";
 let cmPosts = [];
+let cmCommentSort = "time";
 
 function renderCommunity(posts) {
   const list = $("cm-list");
@@ -1741,6 +1905,7 @@ function renderCommunity(posts) {
   const filtered = posts.filter((p) => {
     if (cmFilter === "all") return true;
     if (cmFilter === "mine") return Boolean(p.pid && me && p.pid === me.pid);
+    if (cmFilter === "原创" || cmFilter === "同人") return (p.origin || "原创") === cmFilter;
     return p.category === cmFilter;
   });
   if (!filtered.length) {
@@ -1782,13 +1947,16 @@ function renderCommunity(posts) {
       h.textContent = post.title;
       card.appendChild(h);
     }
-    if (post.category) {
-      const cat = document.createElement("span");
-      cat.className = "tag";
-      cat.textContent = post.category;
-      card.appendChild(cat);
-      cat.style.marginTop = "4px";
+    const kinds = document.createElement("div");
+    kinds.className = "cm-kinds";
+    const origin = post.origin || "原创";
+    for (const value of [origin, post.category].filter(Boolean)) {
+      const tag = document.createElement("span");
+      tag.className = "tag" + (value === origin ? " cm-origin" : "");
+      tag.textContent = value;
+      kinds.appendChild(tag);
     }
+    if (kinds.children.length) card.appendChild(kinds);
     if (post.pid && me && post.pid === me.pid) {
       const del = document.createElement("button");
       del.textContent = "删除";
@@ -1870,11 +2038,139 @@ function renderCommunity(posts) {
     card.appendChild(like);
     const comments = document.createElement("div");
     comments.className = "cm-comments";
-    for (const c of post.comments || []) {
-      const row = document.createElement("div");
-      row.className = "cm-comment";
-      row.innerHTML = `<b>${escHtml(c.who || "匿名")}</b>：${escHtml(c.text || "")}`;
-      comments.appendChild(row);
+    const commentHead = document.createElement("div");
+    commentHead.className = "cm-comments-head";
+    commentHead.textContent = `评论 ${post.commentCount || (post.comments || []).length}`;
+    comments.appendChild(commentHead);
+
+    const orderedComments = [...(post.comments || [])].sort((a, b) => {
+      if (cmCommentSort === "hot") {
+        const hotA = (a.likes || 0) + (a.replies || []).length * 2 + (a.replies || []).reduce((sum, reply) => sum + (reply.likes || 0), 0);
+        const hotB = (b.likes || 0) + (b.replies || []).length * 2 + (b.replies || []).reduce((sum, reply) => sum + (reply.likes || 0), 0);
+        if (hotA !== hotB) return hotB - hotA;
+      }
+      return String(b.at || "").localeCompare(String(a.at || ""));
+    });
+
+    for (const c of orderedComments) {
+      const thread = document.createElement("div");
+      thread.className = "cm-comment-thread";
+      const meta = document.createElement("div");
+      meta.className = "cm-comment-meta";
+      const who = document.createElement("b");
+      who.textContent = c.author || "匿名旅人";
+      const time = document.createElement("span");
+      time.textContent = fmtTime(c.at);
+      meta.append(who, time);
+      const body = document.createElement("div");
+      body.className = "cm-comment-body";
+      body.textContent = c.text || "";
+      const actions = document.createElement("div");
+      actions.className = "social-actions compact";
+      const cLike = document.createElement("button");
+      cLike.type = "button";
+      cLike.className = "social-action" + (c.liked ? " on" : "");
+      cLike.textContent = `♥ ${Number(c.likes) || 0}`;
+      cLike.addEventListener("click", async () => {
+        const r = await fetch("/api/community/comment/like", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ postId: post.id, commentId: c.id }),
+        });
+        if (r.ok) loadCommunity();
+      });
+      actions.appendChild(cLike);
+
+      const replyBox = document.createElement("div");
+      replyBox.className = "inline-reply hidden";
+      const replyInput = document.createElement("input");
+      replyInput.maxLength = 300;
+      const replySend = document.createElement("button");
+      replySend.type = "button";
+      replySend.textContent = "发送";
+      let replyToId = "";
+      const openReply = (replyId = "", replyName = "") => {
+        replyToId = replyId;
+        replyInput.placeholder = replyName ? `回复 ${replyName}…` : `回复 ${c.author || "匿名旅人"}…`;
+        replyBox.classList.remove("hidden");
+        replyInput.focus();
+      };
+      const cReply = document.createElement("button");
+      cReply.type = "button";
+      cReply.className = "social-action";
+      cReply.textContent = "回复";
+      cReply.addEventListener("click", () => openReply());
+      actions.appendChild(cReply);
+
+      const replyList = document.createElement("div");
+      replyList.className = "cm-replies";
+      const replies = [...(c.replies || [])].sort((a, b) => {
+        if (cmCommentSort === "hot" && (a.likes || 0) !== (b.likes || 0)) return (b.likes || 0) - (a.likes || 0);
+        return String(a.at || "").localeCompare(String(b.at || ""));
+      });
+      for (const reply of replies) {
+        const replyRow = document.createElement("div");
+        replyRow.className = "cm-reply";
+        const replyMeta = document.createElement("div");
+        replyMeta.className = "cm-comment-meta";
+        const replyWho = document.createElement("b");
+        replyWho.textContent = reply.author || "匿名旅人";
+        const replyTime = document.createElement("span");
+        replyTime.textContent = fmtTime(reply.at);
+        replyMeta.append(replyWho, replyTime);
+        const replyText = document.createElement("div");
+        replyText.className = "cm-comment-body";
+        if (reply.replyToName) {
+          const to = document.createElement("span");
+          to.className = "reply-to";
+          to.textContent = `回复 @${reply.replyToName}：`;
+          replyText.appendChild(to);
+        }
+        replyText.appendChild(document.createTextNode(reply.text || ""));
+        const replyActions = document.createElement("div");
+        replyActions.className = "social-actions compact";
+        const replyLike = document.createElement("button");
+        replyLike.type = "button";
+        replyLike.className = "social-action" + (reply.liked ? " on" : "");
+        replyLike.textContent = `♥ ${Number(reply.likes) || 0}`;
+        replyLike.addEventListener("click", async () => {
+          const r = await fetch("/api/community/comment/like", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ postId: post.id, commentId: c.id, replyId: reply.id }),
+          });
+          if (r.ok) loadCommunity();
+        });
+        const replyAgain = document.createElement("button");
+        replyAgain.type = "button";
+        replyAgain.className = "social-action";
+        replyAgain.textContent = "回复";
+        replyAgain.addEventListener("click", () => openReply(reply.id, reply.author));
+        replyActions.append(replyLike, replyAgain);
+        replyRow.append(replyMeta, replyText, replyActions);
+        replyList.appendChild(replyRow);
+      }
+      replySend.addEventListener("click", async () => {
+        const value = replyInput.value.trim();
+        if (!value) return;
+        replySend.disabled = true;
+        const r = await fetch("/api/community/comment", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ postId: post.id, parentId: c.id, replyToId, text: value }),
+        });
+        replySend.disabled = false;
+        if (r.ok) loadCommunity();
+        else {
+          const data = await r.json();
+          alert(data.error || "回复失败");
+        }
+      });
+      replyBox.append(replyInput, replySend);
+      thread.append(meta, body, actions);
+      if (replies.length) thread.appendChild(replyList);
+      thread.appendChild(replyBox);
+      comments.appendChild(thread);
     }
     const box = document.createElement("div");
     box.className = "cm-comment-box";
@@ -1925,6 +2221,14 @@ document.querySelectorAll("#cm-tabs button").forEach((b) => {
     document.querySelectorAll("#cm-tabs button").forEach((x) => x.classList.toggle("on", x === b));
     renderCommunity(cmPosts);
   });
+});
+
+$("cm-comment-sort").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-comment-sort]");
+  if (!button) return;
+  cmCommentSort = button.dataset.commentSort === "hot" ? "hot" : "time";
+  $("cm-comment-sort").querySelectorAll("button").forEach((item) => item.classList.toggle("on", item === button));
+  renderCommunity(cmPosts);
 });
 
 $("cm-text").addEventListener("input", () => {
@@ -1986,7 +2290,14 @@ $("cm-post").addEventListener("click", async () => {
   const r = await fetch("/api/community", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ title, text, media, tags: $("cm-tags").value, category: $("cm-category").value }),
+    body: JSON.stringify({
+      title,
+      text,
+      media,
+      tags: $("cm-tags").value,
+      category: $("cm-category").value,
+      origin: $("cm-origin").value,
+    }),
   });
   const data = await r.json();
   if (!r.ok) {
@@ -1999,6 +2310,7 @@ $("cm-post").addEventListener("click", async () => {
   $("cm-media-name").textContent = "";
   $("cm-preview").innerHTML = "";
   $("cm-tags").value = "";
+  $("cm-origin").value = "原创";
   $("cm-counter").textContent = "0 / 1000";
   $("cm-status").textContent = "已发布";
   loadCommunity();
@@ -3052,6 +3364,14 @@ function fillScenarioForm(s) {
   $("s-title").value = s.title || "";
   $("s-genre").value = s.genre || "";
   $("s-blurb").value = s.blurb || "";
+  $("s-author").value = s.author || "";
+  $("s-duration").value = s.duration || "";
+  $("s-players").value = s.players || "";
+  $("s-rating").value = s.rating || "";
+  $("s-intro").value = s.intro || "";
+  $("s-tips").value = s.tips || "";
+  scenarioCover = s.cover || "";
+  renderCoverPreview();
   $("s-tone").value = s.tone || "";
   $("s-play-style").value = s.playStyle === "open-world" ? "open-world" : "content";
   $("s-version").value = s.version || "1.0";
@@ -3102,6 +3422,13 @@ function readScenarioForm() {
     title: $("s-title").value,
     genre: $("s-genre").value,
     blurb: $("s-blurb").value,
+    cover: scenarioCover,
+    author: $("s-author").value,
+    duration: $("s-duration").value,
+    players: $("s-players").value,
+    rating: $("s-rating").value,
+    intro: $("s-intro").value,
+    tips: $("s-tips").value,
     tone: $("s-tone").value,
     playStyle: $("s-play-style").value,
     version: $("s-version").value,
@@ -3207,9 +3534,11 @@ $("btn-fetch-setting-links").addEventListener("click", () =>
 );
 
 function resetScenarioEditor() {
-  for (const id of ["s-title", "s-genre", "s-blurb", "s-tone", "s-version-note", "s-background", "s-hook", "s-opening", "s-truth", "s-continuity", "s-gm-instructions", "s-world", "s-fixed-desc", "s-location", "s-items", "s-links"]) {
+  for (const id of ["s-title", "s-genre", "s-blurb", "s-tone", "s-version-note", "s-background", "s-hook", "s-opening", "s-truth", "s-continuity", "s-gm-instructions", "s-world", "s-fixed-desc", "s-location", "s-items", "s-links", "s-author", "s-duration", "s-players", "s-rating", "s-intro", "s-tips"]) {
     $(id).value = "";
   }
+  scenarioCover = "";
+  renderCoverPreview();
   $("s-version").value = "1.0";
   $("s-tags").value = "";
   $("s-play-style").value = "open-world";
@@ -3411,7 +3740,7 @@ $("btn-del-scenario").addEventListener("click", async () => {
   const data = await presetAction("/api/scenario/delete", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ id: setupState.editingId }),
+    body: JSON.stringify({ id: setupState.editingId, origin: $("share-origin").value }),
   });
   if (data) {
     meta.scenarios = data.scenarios;
@@ -3555,4 +3884,173 @@ $("btn-save-settings").addEventListener("click", async () => {
   fillSettings();
   $("settings-note").textContent = "已保存，下一回合生效。";
   setTimeout(() => ($("settings-note").textContent = ""), 2500);
+});
+
+/* ---------- 剧本封面 ---------- */
+
+let scenarioCover = "";
+
+function renderCoverPreview() {
+  const box = $("s-cover-preview");
+  if (!box) return;
+  box.innerHTML = "";
+  const note = $("s-cover-note");
+  if (scenarioCover) {
+    const img = document.createElement("img");
+    img.src = scenarioCover;
+    img.alt = "剧本封面预览";
+    box.appendChild(img);
+    if (note) note.textContent = "已设置封面；GIF 会作为动图播放。";
+  } else {
+    box.appendChild(el("span", "", "还没有封面"));
+    if (note) note.textContent = "建议竖图，比例 3:5（约 600×1000）。上传 GIF 会以动图播放。";
+  }
+  const hidden = $("s-cover");
+  if (hidden) hidden.value = scenarioCover;
+}
+
+$("s-cover-file")?.addEventListener("change", async (event) => {
+  const file = event.target.files && event.target.files[0];
+  event.target.value = "";
+  if (!file) return;
+  const note = $("s-cover-note");
+  if (!/^image\/(png|jpeg|webp|gif)$/.test(file.type)) {
+    if (note) note.textContent = "只支持 JPG / PNG / WEBP / GIF。";
+    return;
+  }
+  if (file.size > 8 * 1024 * 1024) {
+    if (note) note.textContent = "图片不能超过 8MB。";
+    return;
+  }
+  if (note) note.textContent = "正在上传封面…";
+  const dataUrl = await new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.readAsDataURL(file);
+  });
+  try {
+    const res = await fetch("/api/upload", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ data: dataUrl, mime: file.type }),
+    });
+    const out = await res.json();
+    if (!res.ok) {
+      if (note) note.textContent = out.error || "上传失败";
+      return;
+    }
+    scenarioCover = out.url;
+    renderCoverPreview();
+    updateScenarioPreview();
+  } catch (err) {
+    if (note) note.textContent = "上传失败：" + (err.message || err);
+  }
+});
+
+$("s-cover-clear")?.addEventListener("click", () => {
+  scenarioCover = "";
+  renderCoverPreview();
+});
+
+/* ---------- 剧本详情弹窗 ---------- */
+
+const scDetailCache = new Map();
+let scDetailId = null;
+
+function fillChips(boxId, values) {
+  const box = $(boxId);
+  if (!box) return;
+  box.innerHTML = "";
+  for (const value of values) box.appendChild(el("span", "scd-chip", value));
+  const wrap = box.closest(".scd-section");
+  if (wrap) wrap.classList.toggle("hidden", values.length === 0);
+}
+
+function renderScenarioDetail(d) {
+  $("scd-title").textContent = d.title || "未命名剧本";
+  $("scd-sub").textContent = [d.genre, d.duration, d.players, d.author ? "作者 " + d.author : ""].filter(Boolean).join(" · ");
+
+  const cover = $("scd-cover");
+  cover.innerHTML = "";
+  if (d.cover) {
+    const img = document.createElement("img");
+    img.src = d.cover;
+    img.alt = "";
+    cover.appendChild(img);
+  } else {
+    cover.appendChild(el("span", "", "封面待补充"));
+  }
+
+  const facts = $("scd-facts");
+  facts.innerHTML = "";
+  const rows = [
+    ["玩法", d.playStyle === "open-world" ? "自由开放世界" : "内容型剧本"],
+    ["版本", d.version ? "v" + d.version : ""],
+    ["内容分级", d.rating],
+    ["开始地点", d.startLocation],
+    ["事件节点", d.scheduleCount ? d.scheduleCount + " 个" : ""],
+    ["线索 / 结局", d.clueCount || d.endingCount ? `${d.clueCount} / ${d.endingCount}` : ""],
+    ["参考链接", d.linksCount ? d.linksCount + " 条" : ""],
+    ["标签", (d.tags || []).join(" · ")],
+  ].filter(([, value]) => value);
+  for (const [label, value] of rows) {
+    const row = el("div", "scd-fact");
+    row.appendChild(el("b", "", label));
+    row.appendChild(el("span", "", String(value)));
+    facts.appendChild(row);
+  }
+
+  const fillText = (wrapId, textId, text) => {
+    $(textId).textContent = text || "";
+    $(wrapId).classList.toggle("hidden", !text);
+  };
+  fillText("scd-intro-wrap", "scd-intro", d.intro);
+  fillText("scd-bg-wrap", "scd-background", d.background);
+  fillText("scd-hook-wrap", "scd-hook", [d.hook, d.versionNote].filter(Boolean).join("\n\n"));
+  fillText("scd-tips-wrap", "scd-tips", d.tips);
+  fillChips("scd-npcs", (d.npcs || []).map((n) => (n.desc ? n.name + "：" + n.desc : n.name)));
+  fillChips("scd-openings", d.openings || []);
+}
+
+async function openScenarioDetail(id) {
+  const modal = $("sc-detail-modal");
+  if (!modal) return;
+  scDetailId = id;
+  modal.classList.remove("hidden");
+  $("scd-status").textContent = "正在读取剧本资料…";
+  try {
+    let detail = scDetailCache.get(id);
+    if (!detail) {
+      const res = await fetch("/api/scenario/detail?id=" + encodeURIComponent(id));
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "读取失败");
+      detail = data;
+      scDetailCache.set(id, detail);
+    }
+    renderScenarioDetail(detail);
+    $("scd-status").textContent = "";
+  } catch (err) {
+    $("scd-status").textContent = String(err.message || err);
+  }
+}
+
+function closeScenarioDetail() {
+  $("sc-detail-modal")?.classList.add("hidden");
+}
+
+$("scd-close")?.addEventListener("click", closeScenarioDetail);
+$("sc-detail-modal")?.addEventListener("click", (event) => {
+  if (event.target.id === "sc-detail-modal") closeScenarioDetail();
+});
+$("scd-pick")?.addEventListener("click", () => {
+  const id = scDetailId;
+  closeScenarioDetail();
+  if (id) {
+    scFilter = "all";
+    renderScenarios(id);
+    $("scenarios")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !$("sc-detail-modal")?.classList.contains("hidden")) closeScenarioDetail();
 });
