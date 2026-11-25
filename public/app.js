@@ -2451,10 +2451,23 @@ document.querySelectorAll("[data-close]").forEach((btn) => {
   });
 });
 
+/* 本机/内网打开时，分享出去的一律用公开地址；公网上打开就用自己的域名 */
+function isLocalHostName(host) {
+  const h = String(host || "").toLowerCase();
+  if (!h) return false;
+  if (h === "localhost" || h === "::1" || h === "[::1]") return true;
+  return /^(127\.|10\.|192\.168\.|169\.254\.)/.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h);
+}
+
+function shareOrigin() {
+  const fallback = (meta && meta.publicBase) || "https://paotuan.onrender.com";
+  return isLocalHostName(location.hostname) ? String(fallback).replace(/\/+$/, "") : location.origin;
+}
+
 try {
   const rk = (document.cookie.match(/(?:^|;\s*)rk=([^;]+)/) || [])[1];
-  const rlink = document.querySelector('#hud a[href="/room"]');
-  if (rk && rlink) rlink.href = "/room?k=" + encodeURIComponent(rk);
+  const rlink = document.querySelector('#hud a[href="/room"]') || document.querySelector('#hud a[href^="/room"]');
+  if (rk && rlink) rlink.href = shareOrigin() + "/room?k=" + encodeURIComponent(rk);
 } catch {}
 
 (function initHudDrag() {

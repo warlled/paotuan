@@ -777,12 +777,13 @@ function loadShareState() {
     return {
       version: 2,
       open,
-      openUntil: open ? Number(s.openUntil) || 0 : 0,
+      openUntil: 0,
       lockedClosed: open ? false : s.lockedClosed !== false,
       updatedAt: Number(s.updatedAt) || 0,
+      reason: String(s.reason || "legacy-state"),
     };
   } catch {
-    return { version: 2, open: false, openUntil: 0, lockedClosed: true, updatedAt: 0 };
+    return { version: 2, open: false, openUntil: 0, lockedClosed: true, updatedAt: 0, reason: "state-missing-or-invalid" };
   }
 }
 
@@ -792,9 +793,10 @@ function saveShareState(next) {
   shareState = {
     version: 2,
     open: next.open === true,
-    openUntil: next.open === true ? Number(next.openUntil) || 0 : 0,
+    openUntil: 0,
     lockedClosed: next.open === true ? false : next.lockedClosed !== false,
     updatedAt: Number(next.updatedAt) || Date.now(),
+    reason: String(next.reason || (next.open === true ? "manual-open" : "manual-close")),
   };
   try {
     fs.mkdirSync(path.dirname(SHARE_STATE_FILE), { recursive: true });
@@ -817,9 +819,7 @@ function saveShareState(next) {
 
 function siteOpen() {
   if (shareState.lockedClosed) return false;
-  if (!shareState.open) return false;
-  if (!shareState.openUntil) return true;
-  return Date.now() < shareState.openUntil;
+  return shareState.open === true;
 }
 
 const store = new Map(); // sid -> { sid, owner, session, busy, lastSeen }
@@ -1051,14 +1051,14 @@ button{margin-top:16px;width:100%;border:0;border-radius:10px;padding:11px;backg
 }
 
 function adminState() {
-  const now = Date.now();
   return {
     open: siteOpen(),
     manualOpen: shareState.open,
     lockedClosed: Boolean(shareState.lockedClosed),
-    openUntil: shareState.openUntil || 0,
-    minutesLeft: shareState.openUntil ? Math.max(0, Math.round((shareState.openUntil - now) / 60000)) : 0,
+    openUntil: 0,
+    minutesLeft: 0,
     updatedAt: shareState.updatedAt || 0,
+    reason: shareState.reason || "",
     guestTurnLimit,
     guestDailyCalls,
     callsToday: readStats().calls,
@@ -1450,13 +1450,11 @@ function adminPage() {
     '<div id="status" class="status off">读取中…</div>',
     '<div class="row">',
     '<button id="close" class="danger">立即关闭并锁定</button>',
-    '<button id="open1">开放 1 小时</button>',
-    '<button id="open2">开放 2 小时</button>',
-    '<button id="open0" class="primary">持续开放</button>',
+    '<button id="open0" class="primary">持续开放（不会自动关闭）</button>',
     "</div>",
     '<div class="note">每日调用上限：<b id="cap"></b> 次（今天已用 <b id="used"></b> 次）。<br>',
     "达到上限后会自动停止接待，次日恢复。上限在主机的 GUEST_DAILY_CALLS 环境变量里改。</div>",
-    '<div class="note" style="margin-top:10px">关闭状态会写入服务端状态文件。开放 1 小时 / 2 小时到期后也会保持关闭，不会自行重新营业。</div>',
+    '<div class="note" style="margin-top:10px">只有“立即关闭并锁定”会关服；持续开放后不会因为倒计时自动关闭。</div>',
     '<div class="note" style="margin-top:16px;border-top:1px solid #262b3a;padding-top:14px">',
     "<b>数据总览</b><br>在线 <b id=\"d-online\">-</b> · 游玩中 <b id=\"d-playing\">-</b> 局 / <b id=\"d-players\">-</b> 人<br>留言 <b id=\"d-fb\">-</b> · 好评 <b id=\"d-up\">-</b> · 差评 <b id=\"d-down\">-</b> · 用户 <b id=\"d-users\">-</b><br>",
     "作品 <b id=\"d-cm\">-</b> · 房间 <b id=\"d-rooms\">-</b> · 存档 <b id=\"d-sessions\">-</b> · 上传 <b id=\"d-uploads\">-</b> · 翻译缓存 <b id=\"d-tr\">-</b><br>",
@@ -1474,16 +1472,17 @@ function adminPage() {
     "</div>",
     "</div><script>",
     'const statusEl = document.getElementById("status");',
-    'function fmt(m){ return m > 0 ? ("本时段剩余约 " + m + " 分钟") : "已手动持续开放"; }',
+    'function fmt(){ return "持续开放（不会自动关闭）"; }',
     "async function refresh(){",
     '  const r = await fetch("/api/admin/state");',
     '  if (r.status === 403) { statusEl.className = "status off"; statusEl.textContent = "登录已失效，正在返回登录页…"; setTimeout(() => location.href = "/admin", 700); return; }',
     '  if (!r.ok) { statusEl.className = "status off"; statusEl.textContent = "读取状态失败：HTTP " + r.status; return; }',
     "  const s = await r.json();",
     '  statusEl.className = "status " + (s.open ? "on" : "off");',
-    '  const closedText = s.lockedClosed ? "已手动关闭并锁定，只有你再次手动开放才会恢复" : "定时开放已结束，当前保持关闭，不会自动重开";',
+    '  const closedText = s.lockedClosed ? "已手动关闭并锁定，只有你再次手动开放才会恢复" : "当前处于关闭状态";',
+    '  const changedAt = s.updatedAt ? new Date(s.updatedAt).toLocaleString("zh-CN") : "未记录";',
     '  statusEl.innerHTML = (s.open ? "● 正在营业" : "● 已关闭") +',
-    '    `<div class="meta">` + (s.open ? fmt(s.minutesLeft) : closedText) + "</div>";',
+    '    `<div class="meta">` + (s.open ? fmt(s.minutesLeft) : closedText) + " · 上次切换：" + changedAt + "</div>";',
     '  const cap = document.getElementById("cap");',
     '  cap.textContent = s.guestDailyCalls > 0 ? s.guestDailyCalls : "不限（有费用风险）";',
     '  cap.style.color = s.guestDailyCalls > 0 ? "#8fd8ac" : "#f0a3b4";',
@@ -1575,8 +1574,6 @@ function adminPage() {
     "};",
     "refreshStats();",
     'document.getElementById("close").onclick = () => { if (confirm("立即关闭并锁定入口？在你手动开放前，服务器重启或定时任务都不会自动开服。")) setState(false, 0); };',
-    'document.getElementById("open1").onclick = () => setState(true, 60);',
-    'document.getElementById("open2").onclick = () => setState(true, 120);',
     'document.getElementById("open0").onclick = () => setState(true, 0);',
     "refresh();",
     "</script></body></html>",
@@ -1778,12 +1775,12 @@ const server = http.createServer(async (req, res) => {
     const body = await readBody(req);
     const action = String(body.action || "");
     const open = action === "close" ? false : action === "open" ? true : Boolean(body.open);
-    const minutes = Math.max(0, Math.min(24 * 60, Number(body.minutes) || 0));
     const saved = saveShareState({
       open,
-      openUntil: open && minutes > 0 ? Date.now() + minutes * 60000 : 0,
+      openUntil: 0,
       lockedClosed: !open,
       updatedAt: Date.now(),
+      reason: open ? "manual-open" : "manual-close",
     });
     if (!saved) {
       return send(res, 500, {
@@ -1862,6 +1859,8 @@ const server = http.createServer(async (req, res) => {
   }
   if (p === "/api/meta") {
     return send(res, 200, {
+      // 本机/内网打开页面时，分享链接要回落到这个公开地址
+      publicBase: String(engine.config.publicBase || "https://paotuan.onrender.com"),
       scenarios: engine.listScenarios(guestDir(entry)).map((s) => ({
         ...s,
         editable: entry.owner ? s.custom : Boolean(s.guestOwned),

@@ -277,6 +277,7 @@ let room = null;
 let code = "";
 let tab = "events";
 let roomScenarios = [];
+let roomPublicBase = "";
 const params = new URLSearchParams(location.search);
 const inviteKey = params.get("k") || (document.cookie.match(/(?:^|;\s*)rk=([^;]+)/) || [])[1] || "";
 
@@ -355,6 +356,7 @@ async function loadScenarios() {
   const r = await api("/api/meta");
   const list = (r.body && r.body.scenarios) || [];
   roomScenarios = list;
+  roomPublicBase = (r.body && r.body.publicBase) || "";
   $("c-scenario").innerHTML = list.map((s) => `<option value="${s.id}">${s.title}（${s.genre}）</option>`).join("");
   if (!list.length) {
     $("c-scenario").innerHTML = '<option value="">（剧本加载失败，请从首页进入）</option>';
@@ -612,7 +614,14 @@ document.querySelectorAll("#quickActions button").forEach((b) => {
   });
 });
 $("btn-copy").onclick = () => {
-  const link = location.origin + "/room?k=" + encodeURIComponent(inviteKey) + "&code=" + encodeURIComponent(code);
+  // 在本机/内网打开时也要给出公开地址，否则复制出去的链接别人打不开
+  const localHost = (() => {
+    const h = String(location.hostname || "").toLowerCase();
+    if (h === "localhost" || h === "::1" || h === "[::1]") return true;
+    return /^(127\.|10\.|192\.168\.|169\.254\.)/.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h);
+  })();
+  const base = (localHost && roomPublicBase ? String(roomPublicBase).replace(/\/+$/, "") : location.origin);
+  const link = base + "/room?k=" + encodeURIComponent(inviteKey) + "&code=" + encodeURIComponent(code);
   if (navigator.clipboard) navigator.clipboard.writeText(link);
   $("r-err").textContent = "邀请链接已复制";
 };

@@ -5,6 +5,7 @@
   "guestDailyCalls": 0,
   "maxConcurrentModels": 4,
   "bindHost": "0.0.0.0",
+  "publicBase": "https://paotuan.onrender.com",
   "reasoningEffort": "low",
   "shareKey": "gmv1f7"
 }
