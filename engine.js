@@ -936,6 +936,42 @@ async function askModel(prompt, settings) {
   throw lastError;
 }
 
+/** 判断是不是本机/内网地址：这类地址只有“站点也跑在同一台机器”时才连得上。 */
+function isPrivateHost(host) {
+  const h = String(host || "").toLowerCase();
+  if (!h) return false;
+  if (h === "localhost" || h === "0.0.0.0" || h === "::1" || h === "[::1]") return true;
+  return /^(127\.|10\.|192\.168\.|169\.254\.)/.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h);
+}
+
+/** 把底层网络错误翻译成玩家看得懂的说明，而不是甩一个 ECONNREFUSED。 */
+function friendlyModelError(err, cfg) {
+  const message = String((err && err.message) || err || "");
+  let host = "";
+  try {
+    host = new URL(String((cfg && cfg.baseUrl) || "")).hostname;
+  } catch {}
+  if (isPrivateHost(host) && /ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|ETIMEDOUT|ECONNRESET|EAI_AGAIN/i.test(message)) {
+    return new Error(
+      "连不上 " +
+        (host || "本地地址") +
+        "。模型的请求是由网站服务器发出的：网站部署在云端时，服务器访问不到你电脑上的本地地址。" +
+        "两种办法——① 把网站跑在自己电脑上（http://127.0.0.1:8890），再填本地地址；" +
+        "② 给本地模型开一个公网隧道（例如 Cloudflare Tunnel），Base URL 填隧道给出的 https 地址。"
+    );
+  }
+  if (/ECONNREFUSED/i.test(message)) {
+    return new Error("连不上模型服务（ECONNREFUSED）：确认模型服务已启动、端口和 Base URL 一致。原始信息：" + message);
+  }
+  if (/ENOTFOUND|EAI_AGAIN/i.test(message)) {
+    return new Error("模型地址解析失败：域名不存在或 DNS 不通（" + (host || "未知域名") + "），请检查 Base URL。");
+  }
+  if (/ETIMEDOUT|timeout|超时/i.test(message)) {
+    return new Error("模型接口连接超时：请检查网络、代理或服务状态。原始信息：" + message);
+  }
+  return err;
+}
+
 function askCompatible(prompt, cfg) {
   return new Promise((resolve, reject) => {
     let base;
@@ -1038,7 +1074,7 @@ function askCompatible(prompt, cfg) {
       }
     );
     req.on("timeout", () => req.destroy(new Error("模型接口请求超时")));
-    req.on("error", reject);
+    req.on("error", (err) => reject(friendlyModelError(err, cfg)));
     req.end(payload);
   });
 }

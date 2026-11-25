@@ -1819,7 +1819,44 @@ async function loadModelInfo() {
     setModelIcon(p);
     if (p && p.models.includes(m.model)) $("model-picker").value = `${p.id}|${m.model}`;
   } catch {}
+  updateModelBaseHint();
 }
+
+/* 本地地址提示：模型请求由服务器发出，云端站点访问不到玩家电脑上的地址 */
+function isPrivateAddress(host) {
+  const h = String(host || "").toLowerCase();
+  if (!h) return false;
+  if (h === "localhost" || h === "0.0.0.0" || h === "::1" || h === "[::1]") return true;
+  return /^(127\.|10\.|192\.168\.|169\.254\.)/.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h);
+}
+
+function pageIsLocal() {
+  const h = String(location.hostname || "").toLowerCase();
+  return h === "localhost" || h === "::1" || /^(127\.|10\.|192\.168\.)/.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h);
+}
+
+function updateModelBaseHint() {
+  const input = $("model-base");
+  const box = $("model-base-hint");
+  if (!input || !box) return;
+  let host = "";
+  try {
+    host = new URL(String(input.value || "").trim()).hostname;
+  } catch {}
+  if (!host || !isPrivateAddress(host)) {
+    box.textContent = "";
+    return;
+  }
+  if (pageIsLocal()) {
+    box.textContent = "本地/内网地址：只有在你本机运行站点时可用。";
+  } else {
+    box.textContent =
+      "这是本地/内网地址。模型请求由网站服务器发出，线上站点访问不到你电脑上的地址——请在本机运行站点（127.0.0.1:8890），或给本地模型开公网隧道后填隧道地址。";
+  }
+}
+
+$("model-base")?.addEventListener("input", updateModelBaseHint);
+$("model-base")?.addEventListener("blur", updateModelBaseHint);
 
 $("model-save").addEventListener("click", async () => {
   const r = await fetch("/api/model", {
