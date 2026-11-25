@@ -668,6 +668,7 @@ function statBar(sel, value, max) {
 
 function renderSession() {
   if (!session) return;
+  applyScenarioVisual(session.scenario?.visual);
   const c = session.character;
   $("pc-name").textContent = c.name;
   $("pc-sub").textContent = [c.gender, c.age ? `${c.age} 岁` : "", c.role].filter(Boolean).join(" · ");
@@ -1557,9 +1558,11 @@ $("fb-sort").addEventListener("click", (event) => {
 
 /* ---------- 网站主题 ---------- */
 
+const SITE_THEMES = new Set(["pink", "cream", "dark", "ink-green", "warm-brown", "night-blue", "violet-night", "pure-black"]);
+
 function applySiteTheme(value) {
-  if (value === "pink" || value === "cream") document.documentElement.dataset.theme = value;
-  else document.documentElement.removeAttribute("data-theme");
+  if (SITE_THEMES.has(value)) document.documentElement.dataset.theme = value;
+  else document.documentElement.dataset.theme = "dark";
 }
 
 function markThemeButtons() {
@@ -3448,6 +3451,8 @@ function fillScenarioForm(s) {
   $("s-money").value = s.startMoney ?? 0;
   $("s-location").value = s.startLocation || "";
   $("s-items").value = (s.startItems || []).join(", ");
+  scenarioVisual = normalizeScenarioVisual(s.visual);
+  renderScenarioVisualPreview();
 
   renderScenarioRows("openingOption", s.openingOptions || s.fixedOpening?.options || []);
   renderScenarioRows("entity", s.entities || []);
@@ -3473,6 +3478,14 @@ function readScenarioForm() {
     genre: $("s-genre").value,
     blurb: $("s-blurb").value,
     cover: scenarioCover,
+    visual: {
+      theme: $("s-visual-theme").value,
+      image: scenarioVisual.image,
+      accent: $("s-visual-accent").value,
+      overlay: Number($("s-visual-overlay").value) || 0,
+      blur: Number($("s-visual-blur").value) || 0,
+      position: $("s-visual-position").value,
+    },
     author: $("s-author").value,
     duration: $("s-duration").value,
     players: $("s-players").value,
@@ -3589,6 +3602,8 @@ function resetScenarioEditor() {
   }
   scenarioCover = "";
   renderCoverPreview();
+  scenarioVisual = normalizeScenarioVisual({ theme: "night-blue", overlay: 42, accent: "#79aee8" });
+  renderScenarioVisualPreview();
   $("s-version").value = "1.0";
   $("s-tags").value = "";
   $("s-play-style").value = "open-world";
@@ -3670,6 +3685,7 @@ function updateScenarioPreview() {
     `<div class="sp-meta">人物 ${npcs} · 实体 ${entities} · 状态 ${statuses} · 线索 ${clues}</div>` +
     `<div class="sp-meta">开始 ${startAt ? compactClock(startAt) : "未设置"} · 动态事件 · 玩家行动驱动时间 · 结局 ${endings}</div>` +
     `<div class="sp-meta">词条 ${lexicon} · 预设行动 ${actions} · 随机项 ${randoms} · 参考链接 ${scenarioLinks.length}</div>`;
+  renderScenarioVisualPreview();
 }
 
 $("s-start-at")?.addEventListener("input", updateScenarioPreview);
@@ -3939,6 +3955,107 @@ $("btn-save-settings").addEventListener("click", async () => {
 /* ---------- 剧本封面 ---------- */
 
 let scenarioCover = "";
+const SCENARIO_VISUAL_PALETTES = {
+  "ink-green": { accent: "#77b594", bg: "#07130f", panel: "#10231b", soft: "#163026", line: "#27483a" },
+  "warm-brown": { accent: "#d3a46f", bg: "#17110d", panel: "#241a15", soft: "#34261e", line: "#4b392c" },
+  "night-blue": { accent: "#79aee8", bg: "#07111f", panel: "#0f1d30", soft: "#172942", line: "#28405e" },
+  "violet-night": { accent: "#b18cff", bg: "#110b1a", panel: "#1d1229", soft: "#2a1c3a", line: "#403153" },
+  "pure-black": { accent: "#d6c08a", bg: "#000000", panel: "#080808", soft: "#111111", line: "#272727" },
+};
+let scenarioVisual = {
+  theme: "night-blue",
+  image: "",
+  accent: "#79aee8",
+  overlay: 42,
+  blur: 0,
+  position: "center",
+};
+
+function normalizeScenarioVisual(input) {
+  const source = input && typeof input === "object" ? input : {};
+  const theme = SCENARIO_VISUAL_PALETTES[source.theme] ? source.theme : "night-blue";
+  const palette = SCENARIO_VISUAL_PALETTES[theme];
+  return {
+    theme,
+    image: /^\/uploads\/[a-f0-9]{16}\.(png|jpg|webp)$/i.test(String(source.image || "")) ? String(source.image) : "",
+    accent: /^#[0-9a-f]{6}$/i.test(String(source.accent || "")) ? String(source.accent) : palette.accent,
+    overlay: Math.max(0, Math.min(90, Math.round(Number(source.overlay) || 42))),
+    blur: Math.max(0, Math.min(16, Math.round(Number(source.blur) || 0))),
+    position: ["center", "top", "bottom"].includes(source.position) ? source.position : "center",
+  };
+}
+
+function visualLayerStyle(visual) {
+  const v = normalizeScenarioVisual(visual);
+  const palette = SCENARIO_VISUAL_PALETTES[v.theme];
+  const image = v.image ? `url("${v.image}")` : "none";
+  const position = v.position === "top" ? "center top" : v.position === "bottom" ? "center bottom" : "center";
+  return {
+    palette,
+    visual: v,
+    background: `linear-gradient(145deg, ${palette.bg}, ${palette.panel})`,
+    position,
+  };
+}
+
+function applyScenarioVisual(input) {
+  const game = $("game");
+  if (!game) return;
+  if (!input || typeof input !== "object") {
+    game.removeAttribute("data-scenario-theme");
+    for (const name of [
+      "--scenario-image",
+      "--scenario-background",
+      "--scenario-position",
+      "--scenario-blur",
+      "--scenario-overlay-alpha",
+      "--scenario-accent",
+      "--accent",
+      "--scenario-panel",
+      "--scenario-soft",
+      "--scenario-line",
+    ]) game.style.removeProperty(name);
+    return;
+  }
+  const { visual, palette, background, position } = visualLayerStyle(input);
+  game.dataset.scenarioTheme = visual.theme;
+  game.style.setProperty("--scenario-image", visual.image ? `url("${visual.image}")` : "none");
+  game.style.setProperty("--scenario-background", background);
+  game.style.setProperty("--scenario-position", position);
+  game.style.setProperty("--scenario-blur", `${visual.blur}px`);
+  game.style.setProperty("--scenario-overlay-alpha", String(visual.overlay / 100));
+  game.style.setProperty("--scenario-accent", visual.accent || palette.accent);
+  game.style.setProperty("--accent", visual.accent || palette.accent);
+  game.style.setProperty("--scenario-panel", palette.panel);
+  game.style.setProperty("--scenario-soft", palette.soft);
+  game.style.setProperty("--scenario-line", palette.line);
+}
+
+function renderScenarioVisualPreview() {
+  scenarioVisual = normalizeScenarioVisual(scenarioVisual);
+  $("s-visual-theme").value = scenarioVisual.theme;
+  $("s-visual-accent").value = scenarioVisual.accent;
+  $("s-visual-overlay").value = String(scenarioVisual.overlay);
+  $("s-visual-blur").value = String(scenarioVisual.blur);
+  $("s-visual-position").value = scenarioVisual.position;
+  $("s-visual-image").value = scenarioVisual.image;
+  $("s-visual-overlay-value").textContent = `${scenarioVisual.overlay}%`;
+  $("s-visual-blur-value").textContent = `${scenarioVisual.blur}px`;
+  const preview = $("s-visual-preview");
+  if (preview) {
+    const layer = visualLayerStyle(scenarioVisual);
+    const image = scenarioVisual.image ? `url("${scenarioVisual.image}"), ` : "";
+    preview.style.background = `linear-gradient(rgb(5 8 12 / ${scenarioVisual.overlay / 100}), rgb(5 8 12 / 0.68)), ${image}${layer.background}`;
+    preview.style.backgroundSize = "cover";
+    preview.style.backgroundPosition = layer.position;
+    preview.style.borderColor = scenarioVisual.accent;
+  }
+  const title = $("s-visual-preview-title");
+  if (title) title.textContent = $("s-title").value.trim() || "剧本视觉";
+  $("s-visual-note").textContent = scenarioVisual.image
+    ? "已设置静态背景图；图片会与所选主体色和遮罩叠加。"
+    : "当前仅使用主体色与遮罩。可上传 PNG / JPG / WEBP 静态背景。";
+}
 
 function renderCoverPreview() {
   const box = $("s-cover-preview");
@@ -3950,10 +4067,10 @@ function renderCoverPreview() {
     img.src = scenarioCover;
     img.alt = "剧本封面预览";
     box.appendChild(img);
-    if (note) note.textContent = "已设置封面；GIF 会作为动图播放。";
+    if (note) note.textContent = "已设置静态封面。";
   } else {
     box.appendChild(el("span", "", "还没有封面"));
-    if (note) note.textContent = "建议竖图，比例 3:5（约 600×1000）。上传 GIF 会以动图播放。";
+    if (note) note.textContent = "建议竖图，比例 3:5（约 600×1000）。仅允许静态图片。";
   }
   const hidden = $("s-cover");
   if (hidden) hidden.value = scenarioCover;
@@ -3964,8 +4081,8 @@ $("s-cover-file")?.addEventListener("change", async (event) => {
   event.target.value = "";
   if (!file) return;
   const note = $("s-cover-note");
-  if (!/^image\/(png|jpeg|webp|gif)$/.test(file.type)) {
-    if (note) note.textContent = "只支持 JPG / PNG / WEBP / GIF。";
+  if (!/^image\/(png|jpeg|webp)$/.test(file.type)) {
+    if (note) note.textContent = "只支持 JPG / PNG / WEBP 静态图片。";
     return;
   }
   if (file.size > 8 * 1024 * 1024) {
@@ -3982,7 +4099,7 @@ $("s-cover-file")?.addEventListener("change", async (event) => {
     const res = await fetch("/api/upload", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ data: dataUrl, mime: file.type }),
+      body: JSON.stringify({ data: dataUrl, mime: file.type, kind: "scenario-cover" }),
     });
     const out = await res.json();
     if (!res.ok) {
@@ -4000,6 +4117,67 @@ $("s-cover-file")?.addEventListener("change", async (event) => {
 $("s-cover-clear")?.addEventListener("click", () => {
   scenarioCover = "";
   renderCoverPreview();
+});
+
+for (const id of ["s-visual-theme", "s-visual-accent", "s-visual-overlay", "s-visual-blur", "s-visual-position"]) {
+  const syncVisual = () => {
+    const theme = $("s-visual-theme").value;
+    const accent = id === "s-visual-theme"
+      ? (SCENARIO_VISUAL_PALETTES[theme] || SCENARIO_VISUAL_PALETTES["night-blue"]).accent
+      : $("s-visual-accent").value;
+    scenarioVisual = normalizeScenarioVisual({
+      ...scenarioVisual,
+      theme,
+      accent,
+      overlay: Number($("s-visual-overlay").value) || 0,
+      blur: Number($("s-visual-blur").value) || 0,
+      position: $("s-visual-position").value,
+    });
+    renderScenarioVisualPreview();
+  };
+  $(id)?.addEventListener("input", syncVisual);
+  $(id)?.addEventListener("change", syncVisual);
+}
+
+$("s-visual-image-file")?.addEventListener("change", async (event) => {
+  const file = event.target.files && event.target.files[0];
+  event.target.value = "";
+  if (!file) return;
+  if (!/^image\/(png|jpeg|webp)$/.test(file.type)) {
+    $("s-visual-note").textContent = "背景只支持 PNG / JPG / WEBP 静态图片。";
+    return;
+  }
+  if (file.size > 8 * 1024 * 1024) {
+    $("s-visual-note").textContent = "背景图片不能超过 8MB。";
+    return;
+  }
+  $("s-visual-note").textContent = "正在上传背景…";
+  const dataUrl = await new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.readAsDataURL(file);
+  });
+  try {
+    const response = await fetch("/api/upload", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ data: dataUrl, mime: file.type, kind: "scenario-visual" }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      $("s-visual-note").textContent = data.error || "背景上传失败。";
+      return;
+    }
+    scenarioVisual = normalizeScenarioVisual({ ...scenarioVisual, image: data.url });
+    renderScenarioVisualPreview();
+  } catch (error) {
+    $("s-visual-note").textContent = `背景上传失败：${error.message || error}`;
+  }
+});
+
+$("s-visual-image-clear")?.addEventListener("click", () => {
+  scenarioVisual = normalizeScenarioVisual({ ...scenarioVisual, image: "" });
+  renderScenarioVisualPreview();
 });
 
 /* ---------- 剧本详情弹窗 ---------- */

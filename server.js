@@ -59,6 +59,8 @@ const BACKUP_SID_RULE = /^[A-Za-z0-9_-]{1,64}$/;
 const UPLOAD_NAME_RULE = /^[a-f0-9]{16}\.(png|jpg|gif|webp|mp4|webm)$/i;
 const communityLast = new Map();
 const i18nBusy = new Set();
+const SITE_THEMES = ["dark", "pink", "cream", "ink-green", "warm-brown", "night-blue", "violet-night", "pure-black"];
+const STATIC_IMAGE_MIMES = new Set(["image/png", "image/jpeg", "image/webp"]);
 
 function userFile(sid) {
   return path.join(USERS_DIR, `${sid.replace(/[^a-z0-9]/gi, "")}.json`);
@@ -72,7 +74,7 @@ function loadProfileFor(sid) {
     bio: p?.bio || "",
     avatar: p?.avatar || "",
     theme: p?.theme || "#c8a06a",
-    siteTheme: ["dark", "pink", "cream"].includes(p?.siteTheme) ? p.siteTheme : "dark",
+    siteTheme: SITE_THEMES.includes(p?.siteTheme) ? p.siteTheme : "dark",
     notes: p?.notes || "",
     updatedAt: p?.updatedAt || 0,
   };
@@ -84,7 +86,7 @@ function saveProfileFor(sid, patch) {
   const name = String(patch.name ?? current.name).trim().slice(0, 24);
   const bio = String(patch.bio ?? current.bio).trim().slice(0, 200);
   const theme = /^#[0-9a-f]{6}$/i.test(String(patch.theme || "")) ? String(patch.theme) : current.theme;
-  const siteTheme = ["dark", "pink", "cream"].includes(patch.siteTheme) ? patch.siteTheme : current.siteTheme;
+  const siteTheme = SITE_THEMES.includes(patch.siteTheme) ? patch.siteTheme : current.siteTheme;
   const notes = String(patch.notes ?? current.notes).slice(0, 2000);
   let avatar = String(patch.avatar ?? current.avatar);
   if (avatar && !/^\/uploads\/[a-z0-9]+\.[a-z0-9]+$/i.test(avatar)) avatar = current.avatar;
@@ -223,7 +225,18 @@ function sniffMime(buffer) {
   return "";
 }
 
-function saveUpload(base64, declaredMime, maxBytes) {
+function isAnimatedImage(buffer) {
+  if (buffer.toString("latin1", 0, 3) === "GIF") return true;
+  if (buffer.includes(Buffer.from("acTL", "ascii"))) return true;
+  if (buffer.toString("latin1", 8, 12) === "WEBP") {
+    if (buffer.includes(Buffer.from("ANIM", "ascii"))) return true;
+    const vp8x = buffer.indexOf(Buffer.from("VP8X", "ascii"));
+    if (vp8x >= 0 && vp8x + 8 < buffer.length && (buffer[vp8x + 8] & 0x02)) return true;
+  }
+  return false;
+}
+
+function saveUpload(base64, declaredMime, maxBytes, options = {}) {
   const raw = String(base64 || "").replace(/^data:[^;]+;base64,/, "");
   if (!raw) throw new Error("没有收到文件内容");
   const buffer = Buffer.from(raw, "base64");
@@ -232,6 +245,9 @@ function saveUpload(base64, declaredMime, maxBytes) {
   const sniffed = sniffMime(buffer);
   const mime = MIME_EXT[declaredMime] ? declaredMime : sniffed;
   if (!mime || !MIME_EXT[mime]) throw new Error("只支持图片（png/jpg/gif/webp）或视频（mp4/webm）");
+  if (options.staticOnly && (!STATIC_IMAGE_MIMES.has(mime) || isAnimatedImage(buffer))) {
+    throw new Error("这里的背景与封面只允许静态 PNG / JPG / WEBP 图片");
+  }
   if (sniffed && sniffed !== mime) throw new Error("文件内容与类型不符");
   const name = crypto.randomBytes(8).toString("hex") + MIME_EXT[mime];
   fs.writeFileSync(path.join(UPLOAD_DIR, name), buffer);
@@ -382,6 +398,7 @@ function publicRoom(room, sid) {
       genre: room.scenario.genre,
       blurb: room.scenario.blurb,
       playStyle: room.scenario.playStyle || "content",
+      visual: room.scenario.visual || null,
     },
     language: engine.normalizeLanguage(room.language),
     players: room.players.map((p) => ({
@@ -2263,7 +2280,8 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "POST" && p === "/api/upload") {
     const body = await readBody(req);
     try {
-      const out = saveUpload(body.data, String(body.mime || ""), body.avatar ? AVATAR_MAX : UPLOAD_MAX);
+      const staticOnly = body.kind === "scenario-visual" || body.kind === "scenario-cover";
+      const out = saveUpload(body.data, String(body.mime || ""), body.avatar ? AVATAR_MAX : UPLOAD_MAX, { staticOnly });
       return send(res, 200, out);
     } catch (err) {
       return send(res, 400, { error: String(err.message || err) });

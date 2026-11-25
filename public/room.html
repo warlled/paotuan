@@ -269,10 +269,31 @@
     </div>
   </div>
 </div>
-<script src="/i18n.js?v=20261125-social3"></script>
+<script src="/i18n.js?v=20261125-visual1"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const ATTR_DEFS = [["str","力量"],["dex","敏捷"],["con","体质"],["int","智力"],["per","感知"],["cha","魅力"]];
+const ROOM_VISUAL_THEMES = {
+  "ink-green": { accent:"#77b594", bg:"#07130f", panel:"#10231b" },
+  "warm-brown": { accent:"#d3a46f", bg:"#17110d", panel:"#241a15" },
+  "night-blue": { accent:"#79aee8", bg:"#07111f", panel:"#0f1d30" },
+  "violet-night": { accent:"#b18cff", bg:"#110b1a", panel:"#1d1229" },
+  "pure-black": { accent:"#d6c08a", bg:"#000000", panel:"#080808" },
+};
+function applyRoomVisual(visual) {
+  const v = visual && typeof visual === "object" ? visual : {};
+  const theme = ROOM_VISUAL_THEMES[v.theme] || ROOM_VISUAL_THEMES["night-blue"];
+  const overlay = Math.max(0, Math.min(90, Number(v.overlay) || 42)) / 100;
+  const image = /^\/uploads\/[a-f0-9]{16}\.(png|jpg|webp)$/i.test(String(v.image || "")) ? `url("${v.image}")` : "";
+  const root = document.documentElement.style;
+  root.setProperty("--accent", /^#[0-9a-f]{6}$/i.test(String(v.accent || "")) ? v.accent : theme.accent);
+  root.setProperty("--bg", theme.bg);
+  root.setProperty("--panel", theme.panel);
+  document.body.style.backgroundImage = `linear-gradient(rgb(5 8 12 / ${overlay}), rgb(5 8 12 / .76)), ${image ? image + ", " : ""}linear-gradient(145deg, ${theme.bg}, ${theme.panel})`;
+  document.body.style.backgroundSize = "cover";
+  document.body.style.backgroundPosition = "center";
+  document.body.style.backgroundAttachment = "fixed";
+}
 let room = null;
 let code = "";
 let tab = "events";
@@ -426,6 +447,7 @@ function bar(v, max, cls) {
 
 function render() {
   const r = room;
+  if (r.scenario?.visual) applyRoomVisual(r.scenario.visual);
   $("r-code").textContent = r.code;
   $("r-scenario").textContent = r.scenario.title;
   $("r-mode").textContent = (r.mode === "free" ? "自由探索" : "跑团") + " · " + ({ easy:"轻松", normal:"标准", hard:"硬核" }[r.difficulty] || "");

@@ -239,6 +239,7 @@ function listScenarios(extraDir) {
           guestOwned: isExtra,
           hasOpening: Boolean(data.opening),
           linksCount: (data.links || []).length,
+          visual: data.visual && typeof data.visual === "object" ? sanitizeScenarioVisual(data.visual) : null,
           actions: (Array.isArray(data.actions) ? data.actions : [])
             .slice(0, 12)
             .map((action) => ({
@@ -266,11 +267,30 @@ function loadScenario(id, extraDir) {
 }
 
 const NAME_RULE = /^[\w\u4e00-\u9fa5-]{1,40}$/;
-/** 剧本封面只接受站内上传的文件，支持静图与 GIF 动图。 */
-const COVER_RULE = /^\/uploads\/[a-f0-9]{16}\.(png|jpg|gif|webp)$/i;
+/** 剧本封面与背景只接受站内上传的静态图片。 */
+const COVER_RULE = /^\/uploads\/[a-f0-9]{16}\.(png|jpg|webp)$/i;
 function sanitizeCover(value) {
   const url = String(value || "").trim();
   return COVER_RULE.test(url) ? url : "";
+}
+
+const SCENARIO_VISUAL_THEMES = ["ink-green", "warm-brown", "night-blue", "violet-night", "pure-black"];
+
+function sanitizeScenarioVisual(input) {
+  const source = input && typeof input === "object" ? input : {};
+  const theme = SCENARIO_VISUAL_THEMES.includes(source.theme) ? source.theme : "night-blue";
+  const accent = /^#[0-9a-f]{6}$/i.test(String(source.accent || "")) ? String(source.accent).toLowerCase() : "";
+  const overlay = Math.max(0, Math.min(90, Math.round(Number(source.overlay) || 42)));
+  const blur = Math.max(0, Math.min(16, Math.round(Number(source.blur) || 0)));
+  const position = ["center", "top", "bottom"].includes(source.position) ? source.position : "center";
+  return {
+    theme,
+    image: sanitizeCover(source.image),
+    accent,
+    overlay,
+    blur,
+    position,
+  };
 }
 
 /* 自定义内容的长度上限：保证单次调用的提示词规模可控（详见 说明.txt 的「负载上限」）*/
@@ -414,6 +434,7 @@ function saveCustomScenario(input, existingId, targetDir) {
     genre: clip(input.genre, CLI.genre) || "自定义",
     blurb: clip(input.blurb, CLI.blurb) || background.slice(0, 80),
     cover: sanitizeCover(input.cover),
+    visual: sanitizeScenarioVisual(input.visual),
     author: clip(input.author, CLI.author),
     duration: clip(input.duration, CLI.duration),
     players: clip(input.players, CLI.duration) || "单人",

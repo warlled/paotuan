@@ -36,6 +36,71 @@ html[data-theme="cream"] {
   --input-bg: #fffef9;
   --soft: #faf4e6;
 }
+
+html[data-theme="ink-green"] {
+  --bg: #07130f;
+  --panel: #10231b;
+  --panel2: #163026;
+  --line: #27483a;
+  --text: #e6f0ea;
+  --muted: #9eb4a7;
+  --accent: #77b594;
+  --accent2: #5f9c82;
+  --input-bg: #091812;
+  --soft: #0c1b15;
+}
+
+html[data-theme="warm-brown"] {
+  --bg: #17110d;
+  --panel: #241a15;
+  --panel2: #34261e;
+  --line: #4b392c;
+  --text: #f1e7dc;
+  --muted: #b9a38e;
+  --accent: #d3a46f;
+  --accent2: #b88755;
+  --input-bg: #1c1511;
+  --soft: #2b2019;
+}
+
+html[data-theme="night-blue"] {
+  --bg: #07111f;
+  --panel: #0f1d30;
+  --panel2: #172942;
+  --line: #28405e;
+  --text: #e6eef8;
+  --muted: #93a6be;
+  --accent: #79aee8;
+  --accent2: #5d8fc5;
+  --input-bg: #091625;
+  --soft: #0d1b2d;
+}
+
+html[data-theme="violet-night"] {
+  --bg: #110b1a;
+  --panel: #1d1229;
+  --panel2: #2a1c3a;
+  --line: #403153;
+  --text: #f0e8fa;
+  --muted: #ad9abd;
+  --accent: #b18cff;
+  --accent2: #8c69df;
+  --input-bg: #160c21;
+  --soft: #21142f;
+}
+
+html[data-theme="pure-black"] {
+  --bg: #000000;
+  --panel: #080808;
+  --panel2: #121212;
+  --line: #272727;
+  --text: #f2f2f2;
+  --muted: #9a9a9a;
+  --accent: #d6c08a;
+  --accent2: #bc9f68;
+  --input-bg: #050505;
+  --soft: #0b0b0b;
+}
 * { box-sizing: border-box; }
 body {
   margin: 0; height: 100vh; overflow: hidden;
@@ -431,6 +496,11 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent2); }
 .sw.pink { background: #f7d9e3; color: #7a3b52; }
 .sw.cream { background: #f4ecd8; color: #6b5a35; }
 .sw.dark { background: #1b1f2c; color: #e7e8ee; }
+.sw.ink-green { background: #10231b; color: #c9e7d9; border-color: #3b6b56; }
+.sw.warm-brown { background: #2b1d16; color: #efd9c0; border-color: #6b4b34; }
+.sw.night-blue { background: #0f1d30; color: #d9e9ff; border-color: #35577e; }
+.sw.violet-night { background: #241534; color: #eadcff; border-color: #5d427d; }
+.sw.pure-black { background: #000; color: #f1e5c4; border-color: #4b4b4b; }
 .sw.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .op-body { max-height: 46vh; overflow-y: auto; font-size: 14px; line-height: 1.85; margin-bottom: 12px; }
 .op-meta { color: var(--muted); font-size: 12.5px; margin-bottom: 8px; }
@@ -1116,7 +1186,35 @@ body:has(.owner-closed-banner) #game { padding-top: 28px; }
 #main {
   display: flex; flex-direction: column; height: 100%;
   min-height: 0; overflow: hidden; position: relative;
+  background: var(--scenario-background, var(--bg));
+  isolation: isolate;
 }
+#main::before,
+#main::after {
+  content: "";
+  position: absolute;
+  inset: -18px;
+  pointer-events: none;
+  display: none;
+}
+#game[data-scenario-theme] #main::before,
+#game[data-scenario-theme] #main::after { display: block; }
+#main::before {
+  z-index: 0;
+  background-image: var(--scenario-image, none);
+  background-size: cover;
+  background-position: var(--scenario-position, center);
+  filter: blur(var(--scenario-blur, 0px));
+  transform: scale(1.04);
+  opacity: .88;
+}
+#main::after {
+  z-index: 1;
+  background: linear-gradient(rgb(5 8 12 / var(--scenario-overlay-alpha, .22)), rgb(5 8 12 / .74));
+}
+#main > #topbar,
+#main > #log,
+#main > #composer { position: relative; z-index: 2; }
 #topbar {
   display: flex; align-items: center; gap: 12px;
   padding: 40px 18px 11px; border-bottom: 1px solid var(--line-soft, var(--line)); background: var(--panel);
@@ -1735,6 +1833,53 @@ body:has(.owner-closed-banner) #game { padding-top: 28px; }
 }
 .editor-cover-actions .editor-add-small { border-style: solid; }
 .editor-cover .editor-note { margin-top: 0; }
+.editor-visual-grid {
+  display: grid;
+  grid-template-columns: minmax(190px, .9fr) minmax(240px, 1.4fr);
+  gap: 14px;
+  align-items: stretch;
+}
+.editor-visual-preview {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-height: 210px;
+  overflow: hidden;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background-color: var(--panel2);
+  background-size: cover;
+  background-position: center;
+}
+.editor-visual-preview::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(transparent 35%, rgba(0,0,0,.64));
+}
+.editor-visual-preview span,
+.editor-visual-preview b { position: relative; z-index: 1; }
+.editor-visual-preview span {
+  color: rgba(255,255,255,.66);
+  font-size: 10.5px;
+  letter-spacing: .16em;
+}
+.editor-visual-preview b {
+  color: #fff;
+  font-size: 18px;
+  line-height: 1.4;
+}
+.editor-visual-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  align-content: start;
+}
+.editor-visual-controls .editor-cover-actions,
+.editor-visual-controls .editor-note { grid-column: 1 / -1; }
+.editor-visual-controls input[type="range"] { padding: 0; }
 
 /* ---------- 剧本详情弹窗 ---------- */
 #sc-detail-modal {
@@ -1782,4 +1927,7 @@ body:has(.owner-closed-banner) #game { padding-top: 28px; }
   .scd-facts { margin-top: 10px; }
   .editor-cover { gap: 12px; }
   .editor-cover-preview { width: 104px; }
+  .editor-visual-grid { grid-template-columns: 1fr; }
+  .editor-visual-preview { min-height: 170px; }
+  .editor-visual-controls { grid-template-columns: 1fr; }
 }
