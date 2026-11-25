@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>玩家自由创作游玩社区网站平台</title>
-<link rel="stylesheet" href="/style.css?v=20261125-flow1">
+<link rel="stylesheet" href="/style.css?v=20261125-freeworld1">
 </head>
 <body>
 
@@ -158,12 +158,12 @@
 <div id="gm-console-modal" class="hidden modal2">
   <div class="panel2 wide gm-console-panel">
     <div class="fb-head">
-      <h2>高级 GM 控制台</h2>
+      <h2>高级叙事控制台</h2>
       <button data-close="gm-console-modal" title="关闭">✕</button>
     </div>
-    <div class="hint gm-console-intro">这里开放的是本网站自己的 GM 规则和叙事权重，不包含平台隐藏规则、密钥或内部推理。个人设置会在下一回合生效，联机房间由房主设置生效。</div>
+    <div class="hint gm-console-intro">这里开放叙事自由度、世界连续性、人物自主性与表现尺度，不包含平台隐藏规则、密钥或内部推理。个人设置会在下一次推进生效。</div>
     <details class="gm-rules">
-      <summary>查看网站 GM 核心规则（只读）</summary>
+      <summary>查看核心生成规则（只读）</summary>
       <pre id="gm-base-rules">打开控制台后加载…</pre>
     </details>
     <div class="row2 gm-preset-row">
@@ -174,13 +174,13 @@
       <button type="button" class="ghost" data-gm-preset="free">自由探索</button>
       <button type="button" class="ghost" data-gm-preset="light">轻松</button>
     </div>
-    <label class="gm-master"><input type="checkbox" id="gm-enabled" checked><span>启用高级 GM 配置</span></label>
+    <label class="gm-master"><input type="checkbox" id="gm-enabled" checked><span>启用高级叙事配置</span></label>
     <div class="gm-range-grid">
-      <label><span>暴力与动作强度</span><input type="range" id="gm-violence" min="0" max="100"><b data-gm-output="gm-violence"></b></label>
-      <label><span>恐怖与心理压迫</span><input type="range" id="gm-horror" min="0" max="100"><b data-gm-output="gm-horror"></b></label>
+      <label><span>冲突与动作强度</span><input type="range" id="gm-violence" min="0" max="100"><b data-gm-output="gm-violence"></b></label>
+      <label><span>悬疑与心理压力</span><input type="range" id="gm-horror" min="0" max="100"><b data-gm-output="gm-horror"></b></label>
       <label><span>情感与亲密张力</span><input type="range" id="gm-romance" min="0" max="100"><b data-gm-output="gm-romance"></b></label>
       <label><span>轻松幽默</span><input type="range" id="gm-humor" min="0" max="100"><b data-gm-output="gm-humor"></b></label>
-      <label><span>危险与失败严重度</span><input type="range" id="gm-lethality" min="0" max="100"><b data-gm-output="gm-lethality"></b></label>
+      <label><span>风险与后果强度</span><input type="range" id="gm-lethality" min="0" max="100"><b data-gm-output="gm-lethality"></b></label>
       <label><span>世界规则一致性</span><input type="range" id="gm-worldFidelity" min="0" max="100"><b data-gm-output="gm-worldFidelity"></b></label>
       <label><span>玩家行动自由</span><input type="range" id="gm-freedom" min="0" max="100"><b data-gm-output="gm-freedom"></b></label>
       <label><span>NPC 自主行动</span><input type="range" id="gm-npcAutonomy" min="0" max="100"><b data-gm-output="gm-npcAutonomy"></b></label>
@@ -277,7 +277,7 @@
       <h2>生成前确认 · 玩家协议</h2>
       <button data-close="protocol-modal" title="关闭">✕</button>
     </div>
-    <div class="hint" style="margin-bottom:10px">本回合推演将遵守以下协议。确认后才会发送给 GM。</div>
+    <div class="hint" style="margin-bottom:10px">本次推进会遵守以下协议。确认后才会发送给叙事引擎。</div>
     <div class="protocol-list" id="protocol-confirm-list"></div>
     <label class="checkbox" style="margin-top:12px"><input id="protocol-confirm-check" type="checkbox"> 我确认本回合按以上协议生成</label>
     <div class="start-bar">
@@ -296,7 +296,7 @@
       <button id="quick-new-scenario" class="ghost">＋ 写一个新剧本</button>
       <button id="quick-community" class="ghost">去创作社区</button>
       <a class="ghost" href="/space" target="_blank" rel="noopener">我的空间</a>
-      <button id="gm-console-open" class="ghost" type="button">高级 GM 控制台</button>
+      <button id="gm-console-open" class="ghost" type="button">高级叙事控制台</button>
       <label class="site-lang-inline"><span>网站语言</span>
         <select data-language-select>
           <option value="zh-Hans">简体中文</option>
@@ -741,13 +741,13 @@
     <div class="sect" data-side-tab="player">
       <div class="bigname" id="pc-name"></div>
       <div class="sub" id="pc-sub"></div>
-      <div class="bar hp"><div class="lab"><span>生命</span><span id="hp-text"></span></div><div class="track"><div class="fill" id="hp-fill"></div></div></div>
-      <div class="bar san"><div class="lab"><span>理智</span><span id="san-text"></span></div><div class="track"><div class="fill" id="san-fill"></div></div></div>
+      <div class="bar hp"><div class="lab"><span id="hp-label">生命</span><span id="hp-text"></span></div><div class="track"><div class="fill" id="hp-fill"></div></div></div>
+      <div class="bar san"><div class="lab"><span id="san-label">精神</span><span id="san-text"></span></div><div class="track"><div class="fill" id="san-fill"></div></div></div>
       <div class="kv"><span>随身钱</span><span id="money"></span></div>
       <div class="kv"><span>已进行</span><span id="turns"></span></div>
     </div>
 
-    <div class="sect" data-side-tab="player">
+    <div class="sect" id="skill-sect" data-side-tab="player">
       <h3>属性</h3>
       <div id="attr-list"></div>
     </div>
@@ -771,7 +771,7 @@
       <div class="tags" id="p-npcs" style="margin-top:6px"></div>
     </div>
 
-    <div class="sect" data-side-tab="player">
+    <div class="sect" id="roll-sect" data-side-tab="player">
       <h3>主动掷骰</h3>
       <div class="dice-panel">
         <select id="roll-skill"></select>
@@ -818,7 +818,8 @@
 
       <div class="sect" data-side-tab="protocol">
         <h3>玩家协议</h3>
-        <div class="hint protocol-hint">每次行动前确认后，协议会随本回合一起发送给 GM；它只约束叙事体验，不替代引擎结算、输出语言和状态格式。</div>
+        <div class="hint protocol-hint">确认后，协议会随行动发送给叙事引擎；它可以调整虚构世界规则、叙事方式和探索自由度，但不能覆盖输出语言、内容边界和世界连续性。</div>
+        <div class="hint protocol-hint">现实敏感政治、严重违法伤害、未成年人性内容、仇恨煽动及隐私侵害不在可自定义范围内。</div>
         <div class="protocol-list" id="protocol-list"></div>
         <label class="checkbox protocol-toggle"><input id="protocol-enabled" type="checkbox" checked> 每次提交行动前确认协议</label>
         <div class="field" style="margin-top:8px">
@@ -841,13 +842,13 @@
           <option value="high">高（最细，也最慢）</option>
         </select>
       </div>
-      <div class="field" style="margin-top:8px"><label>大失败</label>
+      <div class="field" id="critfail-setting" style="margin-top:8px"><label>大失败</label>
         <select id="set-critfail">
           <option value="true">开启（掷出 1 必失败）</option>
           <option value="false">关闭（最低也只是代价大）</option>
         </select>
       </div>
-      <div class="field" style="margin-top:8px"><label>GM 没给耗时时，默认推进（分钟）</label>
+      <div class="field" style="margin-top:8px"><label>叙事引擎未明确耗时时，默认推进（分钟）</label>
         <input id="set-advance" type="number" min="0" max="240" value="10">
       </div>
         <div class="field" style="margin-top:8px"><label>补充设定（风格、口径、禁忌，会进提示词）</label>
@@ -913,7 +914,7 @@
       <div id="quick">
         <button data-q="我先观察一下四周，看看有没有不对劲的地方。">观察四周</button>
         <button data-q="我找个身边的人搭话，试探一下他的反应。">找人搭话</button>
-        <button data-q="我把现在知道的事情在脑子里过一遍，理一理线索。">梳理线索</button>
+        <button data-q="我把现在知道的事情在脑子里过一遍，整理一下见闻。">整理见闻</button>
         <button data-q="我原地休息一会儿，顺便留意周围的动静。">休息一会儿</button>
       </div>
       <div id="inputRow">
@@ -954,8 +955,8 @@
   </div>
 </div>
 
-<script src="/i18n.js?v=20261125-flow1"></script>
-<script src="/app.js?v=20261125-flow1"></script>
+<script src="/i18n.js?v=20261125-freeworld1"></script>
+<script src="/app.js?v=20261125-freeworld1"></script>
 <script src="/vendor/pptxgen.bundle.js?v=3.12.0" async></script>
 </body>
 </html>

@@ -37,6 +37,7 @@ function updateModeControls() {
   $("difficulty-options")?.classList.toggle("hidden", !trpg);
   $("goal-field")?.classList.toggle("hidden", !trpg);
   $("ability-field")?.classList.toggle("hidden", trpg);
+  $("critfail-setting")?.classList.toggle("hidden", !trpg);
   if ($("mode-step-title")) $("mode-step-title").textContent = trpg ? "四、玩法与难度" : "四、玩法";
   const note = $("mode-note");
   if (note) {
@@ -510,7 +511,13 @@ async function startGame() {
     $("game").classList.add("on");
     $("log").innerHTML = "";
     renderSession();
-    appendSegment({ type: "sys", text: `${session.scenario.title} · ${meta.difficulty[session.difficulty].label}难度 · 游戏开始` }, true);
+    appendSegment({
+      type: "sys",
+      text:
+        session.mode === "free"
+          ? `${session.scenario.title} · 自由探索开始`
+          : `${session.scenario.title} · ${meta.difficulty[session.difficulty].label}难度 · 游戏开始`,
+    }, true);
     (data.segments || []).forEach(appendSegment);
     renderTurnView(-1, true);
     showOpening();
@@ -528,13 +535,13 @@ function appendSegment(seg, silent) {
   const log = $("log");
   const row = el("div", `seg ${seg.type === "change" ? "change" : seg.type}`);
   if (seg.type === "player") {
-    row.appendChild(el("div", "seg-label", "我的行动"));
+    row.appendChild(el("div", "seg-label", session?.mode === "free" ? "我的选择" : "我的行动"));
     row.appendChild(el("div", "b", seg.text));
   } else if (seg.type === "gm") {
     row.appendChild(el("div", "gm-text", seg.text));
     if (Array.isArray(seg.suggestions) && seg.suggestions.length) {
       const card = el("div", "suggestions-card");
-      card.appendChild(el("div", "suggestions-title", "推荐行动"));
+      card.appendChild(el("div", "suggestions-title", session?.mode === "free" ? "探索方向" : "推荐行动"));
       seg.suggestions.forEach((text, index) => {
         const button = el("button", "suggestion-action");
         button.type = "button";
@@ -658,8 +665,16 @@ function renderTurnView(index, keepBottom = false) {
   const active = turnGroupsCache[currentTurnView];
   $("log").innerHTML = "";
   const heading = el("div", "turn-heading");
-  heading.appendChild(el("span", "turn-heading-no", active.turn ? `第 ${active.turn} 回合` : "开场"));
-  heading.appendChild(el("span", "turn-heading-title", active.turn ? "叙事记录" : "故事从这里开始"));
+  heading.appendChild(
+    el("span", "turn-heading-no", active.turn ? (session?.mode === "free" ? `探索 ${active.turn}` : `第 ${active.turn} 回合`) : "开场")
+  );
+  heading.appendChild(
+    el(
+      "span",
+      "turn-heading-title",
+      session?.mode === "free" ? (active.turn ? "探索记录" : "世界从这里展开") : active.turn ? "叙事记录" : "故事从这里开始"
+    )
+  );
   const turnClock = turnGroupClock(active, turnGroupsCache);
   if (turnClock) {
     const clock = el("span", "turn-heading-time", turnClock);
@@ -669,7 +684,9 @@ function renderTurnView(index, keepBottom = false) {
   $("log").appendChild(heading);
   active.entries.forEach((entry) => appendSegment(entry, true));
   $("turn-indicator").textContent = active.turn
-    ? `第 ${active.turn} / ${turnGroupsCache.filter((item) => item.turn > 0).length} 回合`
+    ? session?.mode === "free"
+      ? `探索 ${active.turn} / ${turnGroupsCache.filter((item) => item.turn > 0).length}`
+      : `第 ${active.turn} / ${turnGroupsCache.filter((item) => item.turn > 0).length} 回合`
     : "开场";
   $("turn-prev").disabled = currentTurnView <= 0;
   $("turn-next").disabled = currentTurnView >= turnGroupsCache.length - 1;
@@ -719,6 +736,11 @@ function renderSession() {
   const c = session.character;
   $("pc-name").textContent = c.name;
   $("pc-sub").textContent = [c.gender, c.age ? `${c.age} 岁` : "", c.role].filter(Boolean).join(" · ");
+  const freeMode = session.mode === "free";
+  if ($("hp-label")) $("hp-label").textContent = "生命";
+  if ($("san-label")) $("san-label").textContent = freeMode ? "精神" : "理智";
+  $("skill-sect")?.classList.toggle("hidden", freeMode);
+  $("roll-sect")?.classList.toggle("hidden", freeMode);
   statBar("hp", session.status.hp, session.status.hpMax);
   statBar("san", session.status.san, session.status.sanMax);
   $("money").textContent = String(session.status.money);
@@ -821,10 +843,12 @@ function renderSession() {
     evBox.appendChild(row);
   }
 
-  const worldStyle = session.mode === "free" ? "自由叙事" : session.scenario?.playStyle === "open-world" ? "开放世界" : "";
+  const worldStyle = session.mode === "free" ? "自由探索" : session.scenario?.playStyle === "open-world" ? "开放世界" : "";
   $("tb-title").textContent = `${session.scenario.title} · ${c.name}${worldStyle ? " · " + worldStyle : ""}`;
   $("tb-clock").textContent = compactClock(session.clock);
   $("tb-clock").title = session.clock || "";
+  if ($("turn-prev")) $("turn-prev").textContent = freeMode ? "‹ 上一段" : "‹ 上回合";
+  if ($("turn-next")) $("turn-next").textContent = freeMode ? "下一段 ›" : "下回合 ›";
   renderQuickActions();
 
   if (session.ended) showEnding(session.ended);
@@ -1267,13 +1291,13 @@ function showOpening() {
   const diff = meta?.difficulty?.[session.difficulty]?.label || "标准";
   $("op-title").textContent = `${sc.title || "剧本"} · 开场`;
   $("op-body").innerHTML =
-    `<div class="op-meta">${escHtml(sc.genre || "")} · ${diff}难度 · ${session.mode === "free" ? "自由叙事" : "跑团规则"} · ${escHtml(compactClock(session.clock))}</div>` +
+    `<div class="op-meta">${escHtml(sc.genre || "")} · ${session.mode === "free" ? "自由探索" : diff + "难度 · 跑团规则"} · ${escHtml(compactClock(session.clock))}</div>` +
     (sc.blurb ? `<div class="op-meta">${escHtml(sc.blurb)}</div>` : "") +
     `<div class="op-sec">你的角色</div>` +
     `<div>${escHtml(c.name || "无名旅人")}${c.role ? " · " + escHtml(c.role) : ""}</div>` +
     `<div class="op-attrs">${attrs}</div>` +
     (session.mode === "free" && c.ability ? `<div class="op-meta">能力：${escHtml(c.ability)}</div>` : "") +
-    `<div class="op-meta">随身：${(session.inventory || []).map(escHtml).join("、") || "空"}　生命 ${session.status?.hp}/${session.status?.hpMax}　理智 ${session.status?.san}/${session.status?.sanMax}</div>` +
+    `<div class="op-meta">随身：${(session.inventory || []).map(escHtml).join("、") || "空"}　生命 ${session.status?.hp}/${session.status?.hpMax}　${session.mode === "free" ? "精神" : "理智"} ${session.status?.san}/${session.status?.sanMax}</div>` +
     `<div class="op-meta">位置：${escHtml(session.location || "未记录")}　等级 ${session.growth?.level || 1}（${session.growth?.xp || 0} XP）</div>` +
     `<div class="op-sec">开场</div>` +
     `<div class="op-story">${escHtml(opening)}</div>` +
@@ -2809,13 +2833,24 @@ $("btn-export-play").addEventListener("click", () => {
   const attrs = (meta?.attrs || []).map((a) => `${a.label} ${c.attrs?.[a.key] ?? "-"}`).join("　");
   const skills = (meta?.skills || []).map((s) => `${s.name} ${c.attrs?.[s.attr] ?? "-"}`).join("　");
   slide("角色卡", `姓名：${c.name}\n称呼：${c.gender || ""}　年龄：${c.age || ""}\n身份：${c.role || ""}\n外貌：${c.appearance || ""}\n性格：${c.personality || ""}\n背景：${c.background || ""}${session.mode === "free" && c.ability ? `\n能力：${c.ability}` : ""}\n目标：${c.goal || ""}\n\n属性：${attrs}\n技能：${skills}`);
-  slide("状态与成长", `生命：${session.status?.hp}/${session.status?.hpMax}\n理智：${session.status?.san}/${session.status?.sanMax}\n金钱：${session.status?.money}\n等级：${g.level || 1}　经验：${g.xp || 0}\n地点：${session.location || "未记录"}\n已认识：${(session.npcsKnown || []).join("、") || "无"}\n\n物品：${(session.inventory || []).join("、") || "空"}\n线索：${(session.clues || []).join("、") || "无"}`);
+  slide("状态与成长", `生命：${session.status?.hp}/${session.status?.hpMax}\n${session.mode === "free" ? "精神" : "理智"}：${session.status?.san}/${session.status?.sanMax}\n金钱：${session.status?.money}\n等级：${g.level || 1}　经验：${g.xp || 0}\n地点：${session.location || "未记录"}\n已认识：${(session.npcsKnown || []).join("、") || "无"}\n\n物品：${(session.inventory || []).join("、") || "空"}\n${session.mode === "free" ? "发现与记录" : "线索"}：${(session.clues || []).join("、") || "无"}`);
   slide("关系与任务", `人物关系：\n${Object.entries(session.relations || {}).map(([k, v]) => `${k}：${v.attitude || ""}（${v.value ?? 0}）${v.note ? " " + v.note : ""}`).join("\n") || "无"}\n\n目标：${(session.objectives || []).map((o) => o.text + (o.done ? "（已完成）" : "")).join("、") || "无"}\n任务：${(session.quests || []).map((o) => o.text + (o.done ? "（已完成）" : "")).join("、") || "无"}`);
   slide("重要经历与历史", `${[...(session.eventLog || []), ...(session.history || [])]
     .map((e) => `${e.at || ""} ${e.title || e.text || ""}${e.note ? "：" + e.note : ""}`)
     .join("\n") || "无"}`);
   const lines = (session.log || []).map((e) => {
-    const tag = e.type === "player" ? "玩家" : e.type === "gm" ? "GM" : e.type === "dice" ? "判定" : e.type === "event" ? "事件" : e.type === "change" ? "变化" : "系统";
+    const tag =
+      e.type === "player"
+        ? "玩家"
+        : e.type === "gm"
+          ? session.mode === "free" ? "世界" : "GM"
+          : e.type === "dice"
+            ? "判定"
+            : e.type === "event"
+              ? "事件"
+              : e.type === "change"
+                ? "变化"
+                : "系统";
     return `[${tag}] ${e.text}`;
   });
   let buf = "", idx = 1;
