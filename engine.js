@@ -886,6 +886,7 @@ function askDeepSeek(prompt, settings) {
           const u = data.usage || {};
           resolve({
             text,
+            truncated: /length|max_tokens/i.test(String(data.choices?.[0]?.finish_reason || "")),
             usage: {
               input_tokens: u.prompt_tokens || 0,
               output_tokens: u.completion_tokens || 0,
@@ -954,7 +955,7 @@ function askCompatible(prompt, cfg) {
     const payload = anthropic
       ? JSON.stringify({
           model: String(cfg.model || ""),
-          max_tokens: 2000,
+          max_tokens: 4096,
           system: "你是一位跑团主持人（GM），严格按用户消息中的格式输出。",
           messages: [{ role: "user", content: prompt }],
         })
@@ -965,7 +966,7 @@ function askCompatible(prompt, cfg) {
             { role: "user", content: prompt },
           ],
           temperature: 0.9,
-          max_tokens: 2000,
+          max_tokens: 4096,
           stream: false,
         });
     const mod = base.protocol === "https:" ? https : require("node:http");
@@ -1024,6 +1025,9 @@ function askCompatible(prompt, cfg) {
           const u = data.usage || {};
           resolve({
             text,
+            truncated: /length|max_tokens/i.test(
+              String(anthropic ? data.stop_reason : data.choices?.[0]?.finish_reason || "")
+            ),
             usage: {
               input_tokens: u.prompt_tokens || u.input_tokens || 0,
               output_tokens: u.completion_tokens || u.output_tokens || 0,
@@ -1487,11 +1491,31 @@ function buildContinuePrompt(session, scenario, playerAction, opening, rolls, ev
 
 /* ---------- 解析模型输出 ---------- */
 
+/** 不同模型爱用全角尖括号、带属性或中文标签，先统一成标准写法再解析。 */
+function normalizeModelText(text) {
+  return String(text || "")
+    .replace(/＜/g, "<")
+    .replace(/＞/g, ">")
+    .replace(/〈/g, "<")
+    .replace(/〉/g, ">")
+    .replace(/／/g, "/")
+    .replace(/\u201c|\u201d/g, '"');
+}
+
+const TAG_ALIASES = {
+  state: ["state", "状态"],
+  checks: ["checks", "check", "检查", "判定"],
+};
+
 function extractBlock(text, tag) {
-  const re = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, "i");
-  const m = text.match(re);
-  if (!m) return null;
-  return { raw: m[0], body: m[1].trim() };
+  const source = normalizeModelText(text);
+  const aliases = TAG_ALIASES[tag] || [tag];
+  for (const name of aliases) {
+    const re = new RegExp("<\\s*" + name + "(?:\\s[^>]*)?>([\\s\\S]*?)<\\s*/\\s*" + name + "\\s*>", "i");
+    const m = source.match(re);
+    if (m) return { raw: m[0], body: m[1].trim() };
+  }
+  return null;
 }
 
 const SUGGESTION_HEADING =
@@ -1538,23 +1562,109 @@ function extractSuggestions(text) {
   };
 }
 
+function repairJson(body) {
+  let s = String(body || "").trim();
+  s = s.replace(/^```[a-z]*\s*/i, "").replace(/```\s*$/i, "").trim();
+  s = s.replace(/,\s*([}\]])/g, "$1");
+  return s;
+}
+
 function looseJson(body) {
   if (!body) return null;
-  try {
-    return JSON.parse(body);
-  } catch {}
-  const objMatch = body.match(/[[{][\s\S]*[\]}]/);
-  if (objMatch) {
+  const raw = String(body);
+  const repaired = repairJson(raw);
+  for (const candidate of [raw, repaired]) {
     try {
-      return JSON.parse(objMatch[0]);
+      return JSON.parse(candidate);
+    } catch {}
+    const objMatch = candidate.match(/[[{][\s\S]*[\]}]/);
+    if (objMatch) {
+      try {
+        return JSON.parse(objMatch[0]);
+      } catch {}
+      try {
+        return JSON.parse(repairJson(objMatch[0]));
+      } catch {}
+    }
+  }
+  // 兜底：模型用了单引号
+  const single = repaired.replace(/'([^'\\"]*)'/g, '"$1"');
+  try {
+    return JSON.parse(single);
+  } catch {}
+  const singleMatch = single.match(/[[{][\s\S]*[\]}]/);
+  if (singleMatch) {
+    try {
+      return JSON.parse(singleMatch[0]);
     } catch {}
   }
   return null;
 }
 
+const STATE_HINT_KEYS = [
+  "advance_minutes",
+  "hp",
+  "san",
+  "money",
+  "location",
+  "items_add",
+  "items_remove",
+  "npcs_add",
+  "relations",
+  "xp",
+  "level",
+  "clues_add",
+  "objectives_add",
+  "status_add",
+  "history_add",
+  "ending",
+  "time",
+];
+
+/** 标签丢失时（模型只吐了 JSON，或标签被截断）从正文里捞出状态对象。 */
+function findLooseState(text) {
+  const source = normalizeModelText(text);
+  const spans = [];
+  for (let start = source.indexOf("{"); start >= 0; start = source.indexOf("{", start + 1)) {
+    let depth = 0;
+    let inStr = false;
+    let esc = false;
+    for (let i = start; i < source.length; i += 1) {
+      const ch = source[i];
+      if (inStr) {
+        if (esc) esc = false;
+        else if (ch === "\\") esc = true;
+        else if (ch === '"') inStr = false;
+        continue;
+      }
+      if (ch === '"') {
+        inStr = true;
+        continue;
+      }
+      if (ch === "{") depth += 1;
+      else if (ch === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          spans.push(source.slice(start, i + 1));
+          break;
+        }
+      }
+    }
+  }
+  for (let i = spans.length - 1; i >= 0; i -= 1) {
+    const parsed = looseJson(spans[i]);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue;
+    if (STATE_HINT_KEYS.some((key) => Object.prototype.hasOwnProperty.call(parsed, key))) {
+      return { state: parsed, raw: spans[i] };
+    }
+  }
+  return null;
+}
+
 function parseModelTurn(text) {
-  const checksBlock = extractBlock(text, "checks");
-  const stateBlock = extractBlock(text, "state");
+  const source = normalizeModelText(text);
+  const checksBlock = extractBlock(source, "checks");
+  const stateBlock = extractBlock(source, "state");
   let checks = looseJson(checksBlock?.body) || [];
   if (!Array.isArray(checks)) checks = checks && typeof checks === "object" ? [checks] : [];
   checks = checks
@@ -1565,10 +1675,23 @@ function parseModelTurn(text) {
       dc: Number(c.dc) || 15,
       why: String(c.why || "").slice(0, 60),
     }));
-  const state = looseJson(stateBlock?.body) || {};
-  let narrative = text;
+  let state = looseJson(stateBlock?.body);
+  if (Array.isArray(state)) state = state.find((item) => item && typeof item === "object") || {};
+  let hadState = Boolean(stateBlock) && Boolean(state && typeof state === "object");
+  let looseRaw = "";
+  if (!hadState || !state || typeof state !== "object") {
+    const loose = findLooseState(source);
+    if (loose) {
+      state = loose.state;
+      looseRaw = loose.raw;
+      hadState = true;
+    }
+  }
+  if (!state || typeof state !== "object" || Array.isArray(state)) state = {};
+  let narrative = source;
   if (checksBlock) narrative = narrative.replace(checksBlock.raw, "");
   if (stateBlock) narrative = narrative.replace(stateBlock.raw, "");
+  if (looseRaw) narrative = narrative.replace(looseRaw, "");
   narrative = narrative.replace(/\n{3,}/g, "\n\n").trim();
   const extracted = extractSuggestions(narrative);
   return {
@@ -1576,7 +1699,7 @@ function parseModelTurn(text) {
     suggestions: extracted.suggestions,
     checks,
     state,
-    hadState: Boolean(stateBlock),
+    hadState,
   };
 }
 
@@ -1775,6 +1898,30 @@ function applyState(session, scenario, state, options = {}) {
 
 /* ---------- 回合流程 ---------- */
 
+/**
+ * 有些模型（Gemini / 本地小模型）会漏掉 <state> 块，或被 max_tokens 截断在状态块之前。
+ * 这里补一次“只问状态”的短呼叫，让任何模型都能把状态补齐。
+ */
+async function recoverTurnState(session, scenario, playerAction, narrative, settings, modelOverride) {
+  const prompt = [
+    "你只输出一个状态块，不要写任何叙述、解释或代码围栏。",
+    "格式严格如下，JSON 必须合法，不能有注释和尾逗号：",
+    '<state>{"advance_minutes":10}</state>',
+    "可写字段：advance_minutes、hp、san、money、location、items_add、items_remove、npcs_add、relations、xp、level、clues_add、objectives_add、status_add、history_add、ending。",
+    "只写本回合真实发生的改动；没有变化就输出 " + '{"advance_minutes":5}' + "。",
+    "",
+    "【本回合玩家行动】",
+    String(playerAction || "").slice(0, 600),
+    "",
+    "【本回合 GM 叙述（据此提炼状态变化）】",
+    String(narrative || "").slice(0, 1800),
+  ].join("\n");
+  const raw = await askModel(prompt, settings, modelOverride);
+  addUsage(session, raw.usage);
+  const parsed = parseModelTurn(raw.text);
+  return parsed.state && Object.keys(parsed.state).length ? parsed.state : null;
+}
+
 async function runTurn(session, scenario, playerAction, modelOverride) {
   const segments = [];
   const settings = getSettings();
@@ -1807,7 +1954,12 @@ async function runTurn(session, scenario, playerAction, modelOverride) {
       session.log.push({ type: "dice", text: line, at: startedAt });
     }
     // 前半段不推进时间，避免同一个动作被算两次耗时；时间只认结果叙述里的估算。
-    const pre = applyState(session, scenario, { ...parsed.state, advance_minutes: 0, ending: undefined }, storyGate);
+    let preState = parsed.state;
+    if (!parsed.hadState || !Object.keys(preState || {}).length) {
+      const recovered = await recoverTurnState(session, scenario, playerAction, narrative, settings, modelOverride).catch(() => null);
+      if (recovered) preState = recovered;
+    }
+    const pre = applyState(session, scenario, { ...preState, advance_minutes: 0, ending: undefined }, storyGate);
     firedEvents = pre.fired;
     for (const ev of firedEvents) {
       const at = clockText(session.time);
@@ -1825,7 +1977,13 @@ async function runTurn(session, scenario, playerAction, modelOverride) {
       segments.push({ type: "gm", text: parsed2.narrative, suggestions: parsed2.suggestions, at: startedAt });
       session.log.push({ type: "gm", text: parsed2.narrative, suggestions: parsed2.suggestions, at: startedAt });
     }
-    const post = applyState(session, scenario, parsed2.state, storyGate);
+    let postState = parsed2.state;
+    if (!parsed.hadState && !parsed2.hadState) {
+      const merged = [narrative, parsed2.narrative].filter(Boolean).join("\n\n");
+      const recovered = await recoverTurnState(session, scenario, playerAction, merged, settings, modelOverride).catch(() => null);
+      if (recovered) postState = recovered;
+    }
+    const post = applyState(session, scenario, postState, storyGate);
     for (const ev of post.fired) {
       const at = clockText(session.time);
       segments.push({ type: "event", text: `${ev.title}：${ev.note || ""}`, at });
@@ -1847,7 +2005,12 @@ async function runTurn(session, scenario, playerAction, modelOverride) {
       segments.push({ type: "change", text: ch });
     }
   } else {
-    const applied = applyState(session, scenario, parsed.state, storyGate);
+    let turnState = parsed.state;
+    if (!parsed.hadState || !Object.keys(turnState || {}).length) {
+      const recovered = await recoverTurnState(session, scenario, playerAction, narrative, settings, modelOverride).catch(() => null);
+      if (recovered) turnState = recovered;
+    }
+    const applied = applyState(session, scenario, turnState, storyGate);
     if (!applied.advanced) {
       const fb = applyState(session, scenario, { advance_minutes: fallbackMinutes });
       applied.fired = applied.fired.concat(fb.fired);
