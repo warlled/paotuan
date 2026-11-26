@@ -62,7 +62,7 @@ const BACKUP_SID_RULE = /^[A-Za-z0-9_-]{1,64}$/;
 const UPLOAD_NAME_RULE = /^[a-f0-9]{16}\.(png|jpg|gif|webp|mp4|webm)$/i;
 const communityLast = new Map();
 const i18nBusy = new Set();
-const SITE_THEMES = ["dark", "pink", "cream", "ink-green", "warm-brown", "night-blue", "violet-night", "pure-black"];
+const SITE_THEMES = ["pink", "cream", "ink-green", "warm-brown", "night-blue", "violet-night", "pure-black"];
 const STATIC_IMAGE_MIMES = new Set(["image/png", "image/jpeg", "image/webp"]);
 
 function userFile(sid) {
@@ -77,7 +77,7 @@ function loadProfileFor(sid) {
     bio: p?.bio || "",
     avatar: p?.avatar || "",
     theme: p?.theme || "#c8a06a",
-    siteTheme: SITE_THEMES.includes(p?.siteTheme) ? p.siteTheme : "dark",
+    siteTheme: SITE_THEMES.includes(p?.siteTheme) ? p.siteTheme : "cream",
     notes: p?.notes || "",
     updatedAt: p?.updatedAt || 0,
   };

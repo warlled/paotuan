@@ -1726,15 +1726,16 @@ $("fb-sort").addEventListener("click", (event) => {
 
 /* ---------- 网站主题 ---------- */
 
-const SITE_THEMES = new Set(["pink", "cream", "dark", "ink-green", "warm-brown", "night-blue", "violet-night", "pure-black"]);
+const DEFAULT_SITE_THEME = "cream";
+const SITE_THEMES = new Set(["pink", "cream", "ink-green", "warm-brown", "night-blue", "violet-night", "pure-black"]);
 
 function applySiteTheme(value) {
   if (SITE_THEMES.has(value)) document.documentElement.dataset.theme = value;
-  else document.documentElement.dataset.theme = "dark";
+  else document.documentElement.dataset.theme = DEFAULT_SITE_THEME;
 }
 
 function markThemeButtons() {
-  const current = me?.siteTheme || "dark";
+  const current = me?.siteTheme || DEFAULT_SITE_THEME;
   document.querySelectorAll("[data-site-theme]").forEach((btn) => {
     btn.classList.toggle("on", btn.dataset.siteTheme === current);
   });
@@ -1785,7 +1786,7 @@ async function saveMe() {
     bio: $("me-bio").value,
     theme: $("me-theme").value,
     avatar: me?.avatar || "",
-    siteTheme: me?.siteTheme || "dark",
+    siteTheme: me?.siteTheme || DEFAULT_SITE_THEME,
   };
   const r = await fetch("/api/me", {
     method: "POST",

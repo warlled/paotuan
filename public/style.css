@@ -495,7 +495,6 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent2); }
 }
 .sw.pink { background: #f7d9e3; color: #7a3b52; }
 .sw.cream { background: #f4ecd8; color: #6b5a35; }
-.sw.dark { background: #1b1f2c; color: #e7e8ee; }
 .sw.ink-green { background: #10231b; color: #c9e7d9; border-color: #3b6b56; }
 .sw.warm-brown { background: #2b1d16; color: #efd9c0; border-color: #6b4b34; }
 .sw.night-blue { background: #0f1d30; color: #d9e9ff; border-color: #35577e; }
