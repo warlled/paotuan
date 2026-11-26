@@ -34,6 +34,7 @@ const setupState = {
   difficulty: "normal",
   attrs: {},
   editingId: null,
+  editorDraftAvailable: false,
 };
 
 function selectedScenario() {
@@ -99,6 +100,84 @@ function returnToScenarioList() {
   $("setup").scrollTop = 0;
   updateScenarioEntry();
 }
+
+function setBottomNavActive(section) {
+  document.querySelectorAll("[data-bottom-nav]").forEach((button) => {
+    const active = button.dataset.bottomNav === section;
+    button.classList.toggle("on", active);
+    if (active) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
+  });
+}
+
+function closeMainOverlays() {
+  closeFeedback();
+  document.querySelectorAll(".modal2").forEach((panel) => panel.classList.add("hidden"));
+  closeScenarioDetail();
+}
+
+function showHomeSection() {
+  closeMainOverlays();
+  if (!$("custom-box").classList.contains("hidden")) {
+    setupState.editorDraftAvailable = true;
+    $("custom-box").classList.add("hidden");
+  }
+  $("game").classList.remove("on");
+  $("setup").classList.remove("hidden");
+  $("scenario-main").classList.remove("hidden");
+  $("character-setup").classList.add("hidden");
+  if (session || meta?.hasSave) {
+    bindResumeButton();
+    $("resume").classList.remove("hidden");
+  }
+  $("setup").scrollTo({ top: 0, behavior: "smooth" });
+  setBottomNavActive("home");
+}
+
+function showCreationSection() {
+  closeMainOverlays();
+  $("game").classList.remove("on");
+  $("setup").classList.remove("hidden");
+  $("scenario-main").classList.remove("hidden");
+  $("character-setup").classList.add("hidden");
+  if (setupState.editorDraftAvailable && $("custom-box").classList.contains("hidden")) {
+    openScenarioEditor();
+  } else if ($("custom-box").classList.contains("hidden")) {
+    $("btn-custom-scenario").click();
+  }
+  else openScenarioEditor();
+  setBottomNavActive("create");
+  $("setup").scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function showCommunitySection() {
+  closeMainOverlays();
+  setBottomNavActive("community");
+  $("cm-open").click();
+}
+
+function showNoticeFeedbackSection() {
+  closeMainOverlays();
+  setBottomNavActive("notice");
+  openFeedback();
+}
+
+function showProfileSection() {
+  closeMainOverlays();
+  setBottomNavActive("profile");
+  $("me-open").click();
+}
+
+document.querySelectorAll("[data-bottom-nav]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const section = button.dataset.bottomNav;
+    if (section === "home") showHomeSection();
+    else if (section === "create") showCreationSection();
+    else if (section === "community") showCommunitySection();
+    else if (section === "notice") showNoticeFeedbackSection();
+    else if (section === "profile") showProfileSection();
+  });
+});
 
 function storeScenarioSocial(id, social) {
   const scenario = meta?.scenarios?.find((item) => item.id === id);
@@ -476,6 +555,22 @@ function readMetaCache() {
   return null;
 }
 
+function bindResumeButton() {
+  const button = $("resume");
+  if (!button || button.dataset.ptBound) return;
+  button.dataset.ptBound = "1";
+  button.addEventListener("click", async () => {
+    const r = await fetch("/api/state");
+    const data = await r.json();
+    if (!data.session) {
+      button.classList.add("hidden");
+      return;
+    }
+    showSession(data.session);
+    setBottomNavActive("home");
+  });
+}
+
 function applyMetaData(data, cached = false) {
   meta = data;
   renderScenarios();
@@ -502,21 +597,9 @@ function applyMetaData(data, cached = false) {
     } catch {}
   }
 
-  if (meta.hasSave && !$("resume").dataset.ptBound) {
-    $("resume").dataset.ptBound = "1";
+  if (meta.hasSave) {
+    bindResumeButton();
     $("resume").classList.remove("hidden");
-    $("resume").addEventListener("click", async () => {
-      const r = await fetch("/api/state");
-      const data = await r.json();
-      if (data.session) {
-        session = data.session;
-        $("setup").classList.add("hidden");
-        $("game").classList.add("on");
-        renderSession();
-        session.log.forEach((entry) => appendSegment(entry, true));
-        renderTurnView(-1, true);
-      }
-    });
   }
 
   if (meta.isOwner === false) {
@@ -1190,6 +1273,7 @@ function showSession(sess) {
   session = sess;
   $("setup").classList.add("hidden");
   $("game").classList.add("on");
+  setBottomNavActive("home");
   $("log").innerHTML = "";
   renderSession();
   (session.log || []).forEach((entry) => appendSegment(entry, true));
@@ -1720,11 +1804,15 @@ function closeFeedback() {
   $("fb-modal").classList.add("hidden");
   clearInterval(fbTimer);
   fbTimer = null;
+  setBottomNavActive("home");
 }
 
 $("vote-up").addEventListener("click", () => castVote("up"));
 $("vote-down").addEventListener("click", () => castVote("down"));
-$("feedback-open").addEventListener("click", openFeedback);
+$("feedback-open").addEventListener("click", () => {
+  openFeedback();
+  setBottomNavActive("notice");
+});
 $("fb-close").addEventListener("click", closeFeedback);
 $("fb-modal").addEventListener("click", (e) => {
   if (e.target === $("fb-modal")) closeFeedback();
@@ -1857,6 +1945,7 @@ async function saveMe() {
 
 $("me-open").addEventListener("click", () => {
   $("me-modal").classList.remove("hidden");
+  setBottomNavActive("profile");
   loadMe();
   loadModelInfo();
 });
@@ -2486,6 +2575,7 @@ async function loadCommunity() {
 
 $("cm-open").addEventListener("click", () => {
   $("cm-modal").classList.remove("hidden");
+  setBottomNavActive("community");
   loadCommunity();
 });
 
@@ -2687,6 +2777,7 @@ document.querySelectorAll("[data-close]").forEach((btn) => {
   btn.addEventListener("click", () => {
     const id = btn.getAttribute("data-close");
     if (id) $(id).classList.add("hidden");
+    setBottomNavActive("home");
   });
 });
 
@@ -3888,6 +3979,9 @@ function resetScenarioEditor() {
 }
 
 function openScenarioEditor() {
+  $("game").classList.remove("on");
+  $("setup").classList.remove("hidden");
+  setupState.editorDraftAvailable = true;
   $("custom-box").classList.remove("hidden");
   $("editor-main")?.scrollTo?.({ top: 0 });
   $("scenario-editor-sections").scrollTop = 0;
@@ -3895,6 +3989,7 @@ function openScenarioEditor() {
 }
 
 function closeScenarioEditor() {
+  setupState.editorDraftAvailable = false;
   $("custom-box").classList.add("hidden");
   $("scenario-note").textContent = "";
 }
@@ -4061,6 +4156,7 @@ $("btn-del-scenario").addEventListener("click", async () => {
   if (data) {
     meta.scenarios = data.scenarios;
     setupState.editingId = null;
+    setupState.editorDraftAvailable = false;
     $("custom-box").classList.add("hidden");
     renderScenarios();
     $("scenario-note").textContent = "剧本已删除。";
@@ -4088,6 +4184,7 @@ $("btn-save-scenario").addEventListener("click", async () => {
   meta.scenarios = data.scenarios;
   setupState.editingId = data.id;
   setupState.scenarioId = data.id;
+  setupState.editorDraftAvailable = false;
   $("custom-box").classList.add("hidden");
   renderScenarios(data.id);
   $("scenario-note").textContent = "剧本已保存，并已选中它。";
