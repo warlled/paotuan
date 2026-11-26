@@ -51,6 +51,18 @@ const config = {
   ...envConfig,
 };
 
+const MODEL_DISPLAY_NAMES = {
+  "deepseek-v4-flash": "DeepSeek-V4-Flash",
+  "deepseek-v4-pro": "DeepSeek-V4-Pro",
+  "deepseek-chat": "DeepSeek-Chat",
+  "deepseek-reasoner": "DeepSeek-Reasoner",
+};
+
+function modelDisplayName(value) {
+  const id = String(value || "").trim();
+  return MODEL_DISPLAY_NAMES[id.toLowerCase()] || id || "未配置";
+}
+
 const CODEX_EXE =
   process.env.LOCAL_CHAT_CODEX ||
   path.join(
@@ -239,16 +251,31 @@ function readScenarioDir(dir) {
   }
 }
 
-function listScenarios(extraDir) {
+/** 剧本可见性：公开 / 指定联系人可见 / 仅自己。author 永远能看自己的。 */
+function scenarioVisibleTo(data, isOwnDir, viewer) {
+  if (isOwnDir) return true;
+  if (!viewer || viewer.owner) return true;
+  const vis = data.visibility === "private" || data.visibility === "contacts" ? data.visibility : "public";
+  if (vis === "public") return true;
+  if (vis === "private") return false;
+  const shared = (Array.isArray(data.sharedWith) ? data.sharedWith : []).map((x) => String(x).toLowerCase());
+  const who = [viewer.sid, viewer.pid, viewer.name].filter(Boolean).map((x) => String(x).toLowerCase());
+  return shared.some((token) => token && who.includes(token));
+}
+
+function listScenarios(extraDir, viewer) {
   const seen = new Set();
   const out = [];
+  const ownDir = extraDir ? path.resolve(extraDir) : "";
   for (const dir of scenarioDirs(extraDir)) {
     const publicGuest = path.resolve(dir) !== path.resolve(SCENARIO_DIR) && path.resolve(dir) !== path.resolve(USER_SCENARIO_DIR);
+    const isOwnDir = ownDir && path.resolve(dir) === ownDir;
     for (const f of readScenarioDir(dir)) {
       try {
         const data = JSON.parse(fs.readFileSync(path.join(dir, f), "utf8"));
         const id = data.id || path.basename(f, ".json");
         if (seen.has(id)) continue;
+        if (!scenarioVisibleTo(data, isOwnDir, viewer)) continue;
         seen.add(id);
         out.push({
           id,
@@ -257,9 +284,22 @@ function listScenarios(extraDir) {
           blurb: data.blurb || "",
           cover: data.cover || "",
           author: data.author || "",
+          visibility: data.visibility === "private" || data.visibility === "contacts" ? data.visibility : "public",
           duration: data.duration || "",
           rating: data.rating || "",
           tags: (Array.isArray(data.tags) ? data.tags : []).slice(0, 6),
+          // 搜索用：剧本名 / 作者 / 类型 / 简介 / 标签 / 详细介绍 都能命中
+          searchText: [
+            data.title,
+            data.author,
+            data.genre,
+            data.blurb,
+            (Array.isArray(data.tags) ? data.tags : []).join(" "),
+            String(data.intro || "").slice(0, 600),
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase(),
           players: data.players || "单人",
           playStyle: data.playStyle === "open-world" ? "open-world" : "content",
           startAt: formatDateTime(data.startAt),
@@ -470,6 +510,11 @@ function saveCustomScenario(input, existingId, targetDir) {
     intro: clip(input.intro, CLI.intro),
     tips: clip(input.tips, CLI.tips),
     tags: cleanList(input.tags, 20, 12),
+    visibility: input.visibility === "private" || input.visibility === "contacts" ? input.visibility : "public",
+    sharedWith:
+      input.visibility === "contacts"
+        ? cleanList(input.sharedWith, 40, 30)
+        : [],
     playStyle: input.playStyle === "open-world" ? "open-world" : "content",
     continuity: cleanList(input.continuity, 1200, 8),
     version: clip(input.version, 20) || "1.0",
@@ -876,7 +921,7 @@ function askDeepSeek(prompt, settings, systemPrompt) {
       reject(new Error("缺少 DEEPSEEK_API_KEY 环境变量"));
       return;
     }
-    const known = /^deepseek-(chat|reasoner|coder)/.test(String(config.model || ""));
+    const known = /^deepseek-/i.test(String(config.model || ""));
     const model = known ? config.model : process.env.DEEPSEEK_MODEL || "deepseek-chat";
     const payload = JSON.stringify({
       model,
@@ -2564,11 +2609,12 @@ function loadSession(file) {
 
 module.exports = {
   ROOT, WORK, SCENARIO_DIR, PRESET_DIR, USER_SCENARIO_DIR, config, ATTRS, SKILLS, DIFFICULTY, ATTR_POINTS, ATTR_MIN, ATTR_MAX,
+  modelDisplayName,
   NARRATIVE_LENGTH, DEFAULT_SETTINGS,
   LANGUAGES, normalizeLanguage, languageInstruction,
   promptProfileBlock, publicGmRules, freeRulesBlock,
   normalizePlayerProtocol,
-  listScenarios, loadScenario, clockText,
+  listScenarios, loadScenario, scenarioVisibleTo, clockText,
   parseDateTime, formatDateTime, scenarioStartParts, normalizeSessionTime,
   advanceTime, applyState, actionStateGate, parseModelTurn, buildPrompt, buildContinuePrompt,
   violatesContentBoundary,

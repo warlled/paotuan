@@ -243,6 +243,7 @@ async function publishScenarioToCommunity(id, origin = "原创") {
 const PAGE_SIZE = 4;
 let scFilter = "all";
 let scPage = 0;
+let scQuery = "";
 
 function scenarioSeries(s) {
   const genre = String(s.genre || "");
@@ -253,9 +254,17 @@ function scenarioSeries(s) {
 
 function filteredScenarios() {
   const all = meta?.scenarios || [];
-  if (scFilter === "all") return all;
-  if (scFilter === "favorites") return all.filter((s) => s.social?.favorited);
-  return all.filter((s) => scenarioSeries(s) === scFilter);
+  const byTab = scFilter === "all" ? all : scFilter === "favorites" ? all.filter((s) => s.social?.favorited) : all.filter((s) => scenarioSeries(s) === scFilter);
+  const q = scQuery.trim().toLowerCase();
+  if (!q) return byTab;
+  const terms = q.split(/\s+/).filter(Boolean);
+  return byTab.filter((s) => {
+    const haystack = String(
+      s.searchText ||
+        [s.title, s.author, s.genre, s.blurb, (s.tags || []).join(" ")].filter(Boolean).join(" ")
+    ).toLowerCase();
+    return terms.every((term) => haystack.includes(term));
+  });
 }
 
 function renderScenarioTabs() {
@@ -337,6 +346,8 @@ function renderScenarios(selectId) {
       cover.appendChild(el("span", "c-mark", String(s.title || "?").slice(0, 1)));
     }
     cover.appendChild(el("div", "c-badge", s.playStyle === "open-world" ? "开放世界" : "内容剧本"));
+    if (s.visibility === "private") cover.appendChild(el("div", "c-badge c-badge-private", "仅自己"));
+    else if (s.visibility === "contacts") cover.appendChild(el("div", "c-badge c-badge-private", "联系人可见"));
     cover.appendChild(el("div", "c-author-badge", `作者 · ${s.author || "匿名作者"}`));
     card.appendChild(cover);
 
@@ -426,6 +437,9 @@ function renderScenarios(selectId) {
     $("btn-del-scenario").classList.add("hidden");
     $("btn-share-scenario").classList.add("hidden");
     $("share-origin").classList.add("hidden");
+    if (scQuery.trim()) {
+      box.appendChild(el("div", "hint", `没有匹配「${scQuery.trim()}」的剧本，换个关键词试试。`));
+    }
   }
   if (sharedScenarioOpenPending && setupState.scenarioId === linkedScenarioId) {
     const linkedId = setupState.scenarioId;
@@ -433,6 +447,9 @@ function renderScenarios(selectId) {
     setTimeout(() => openScenarioDetail(linkedId), 0);
   }
 
+  if ($("sc-search-info")) {
+    $("sc-search-info").textContent = scQuery.trim() ? `找到 ${list.length} 个剧本` : "";
+  }
   $("sc-page").textContent = `第 ${scPage + 1} / ${pages} 页`;
   $("sc-prev").disabled = scPage <= 0;
   $("sc-next").disabled = scPage >= pages - 1;
@@ -440,11 +457,36 @@ function renderScenarios(selectId) {
   updateScenarioEntry();
 }
 
+let scSearchTimer = 0;
+$("sc-search")?.addEventListener("input", (event) => {
+  const value = String(event.target.value || "");
+  clearTimeout(scSearchTimer);
+  scSearchTimer = setTimeout(() => {
+    scQuery = value;
+    scPage = 0;
+    renderScenarios();
+  }, 180);
+});
+$("sc-search")?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    clearTimeout(scSearchTimer);
+    scQuery = String(event.target.value || "");
+    scPage = 0;
+    renderScenarios();
+  }
+});
+$("sc-search-clear")?.addEventListener("click", () => {
+  clearTimeout(scSearchTimer);
+  scQuery = "";
+  if ($("sc-search")) $("sc-search").value = "";
+  scPage = 0;
+  renderScenarios();
+});
+
 $("sc-prev").addEventListener("click", () => {
   if (scPage > 0) {
     scPage -= 1;
-    renderScenarios();
-  }
+    renderScenarios();  }
 });
 $("sc-next").addEventListener("click", () => {
   if (!meta) {
@@ -573,6 +615,7 @@ function bindResumeButton() {
 
 function applyMetaData(data, cached = false) {
   meta = data;
+  applyDefaultModelLabel(data.model, data.modelLabel);
   renderScenarios();
   renderDiffs();
   renderAttrs();
@@ -2057,7 +2100,7 @@ $("gm-reset").addEventListener("click", () => {
 });
 
 const MODEL_CATALOG = [
-  { id:"deepseek", name:"DeepSeek", color:"#4D6BFE", icon:"DS", baseUrl:"https://api.deepseek.com", models:["deepseek-chat","deepseek-reasoner","deepseek-v4.1-flash","deepseek-v4-flash"] },
+  { id:"deepseek", name:"DeepSeek", color:"#4D6BFE", icon:"DS", baseUrl:"https://api.deepseek.com", models:["deepseek-v4-flash","deepseek-v4-pro","deepseek-chat","deepseek-reasoner"] },
   { id:"openai", name:"ChatGPT / OpenAI", color:"#E8E4DA", icon:"GPT", baseUrl:"https://api.openai.com/v1", models:["gpt-4o","gpt-4o-mini","gpt-4.1","gpt-4.1-mini","o3","o4-mini"] },
   { id:"anthropic", name:"Anthropic Claude", color:"#D97757", icon:"C", baseUrl:"https://api.anthropic.com/v1", models:["claude-sonnet-4-20250514","claude-opus-4-20250514","claude-3-7-sonnet-20250219","claude-3-5-haiku-20241022"] },
   { id:"doubao", name:"豆包 Doubao", color:"#1664FF", icon:"豆", baseUrl:"https://ark.cn-beijing.volces.com/api/v3", models:["doubao-1-5-pro-32k","doubao-1-5-lite-32k","doubao-pro-32k","doubao-lite-32k"] },
@@ -2080,6 +2123,25 @@ const MODEL_CATALOG = [
   { id:"ollama", name:"本地 Ollama", color:"#333333", icon:"OL", baseUrl:"http://127.0.0.1:11434/v1", models:["qwen2.5:7b","llama3.1:8b"] },
   { id:"custom", name:"自定义 / 其他兼容接口", color:"#666666", icon:"AI", baseUrl:"", models:[] },
 ];
+
+function displayModelName(model, label) {
+  const id = String(model || "").trim();
+  if (label) return String(label);
+  const known = {
+    "deepseek-v4-flash": "DeepSeek-V4-Flash",
+    "deepseek-v4-pro": "DeepSeek-V4-Pro",
+    "deepseek-chat": "DeepSeek-Chat",
+    "deepseek-reasoner": "DeepSeek-Reasoner",
+  };
+  return known[id.toLowerCase()] || id || "未配置";
+}
+
+function applyDefaultModelLabel(model, label) {
+  const node = $("default-model-name");
+  if (!node) return;
+  node.textContent = displayModelName(model, label);
+  node.title = model ? `模型标识：${model}` : "";
+}
 
 function setModelIcon(p) {
   const el = $("model-icon");
@@ -2123,6 +2185,7 @@ function buildModelPicker() {
 async function loadModelInfo() {
   try {
     const m = await (await fetch("/api/model")).json();
+    applyDefaultModelLabel(m.defaultModel || meta?.model, m.defaultModelLabel || meta?.modelLabel);
     $("model-base").value = m.baseUrl || "";
     $("model-name").value = m.model || "";
     $("model-enabled").checked = !m.enabled;
@@ -2130,7 +2193,7 @@ async function loadModelInfo() {
     $("model-key").placeholder = m.keyMask ? `已保存：${m.keyMask}（留空不改）` : "sk-...";
     $("model-status").textContent = m.configured
       ? (m.enabled ? "已启用，你的对局会优先使用自己的模型" : "已保存，但未启用")
-      : "未配置，将使用站点免费模型";
+      : `未配置，将使用站点默认模型（${displayModelName(m.defaultModel || meta?.model, m.defaultModelLabel || meta?.modelLabel)}）`;
     const p = MODEL_CATALOG.find((x) => x.baseUrl && (m.baseUrl || "").startsWith(x.baseUrl));
     setModelIcon(p);
     if (p && p.models.includes(m.model)) $("model-picker").value = `${p.id}|${m.model}`;
@@ -3753,6 +3816,15 @@ function copyScenarioRow(card) {
   updateScenarioEditorCounts();
 }
 
+function updateSharedWrap() {
+  const wrap = $("s-shared-wrap");
+  const select = $("s-visibility");
+  if (!wrap || !select) return;
+  wrap.classList.toggle("hidden", select.value !== "contacts");
+}
+
+$("s-visibility")?.addEventListener("change", updateSharedWrap);
+
 function fillScenarioForm(s) {
   $("s-title").value = s.title || "";
   $("s-genre").value = s.genre || "";
@@ -3769,6 +3841,9 @@ function fillScenarioForm(s) {
   $("s-play-style").value = s.playStyle === "open-world" ? "open-world" : "content";
   $("s-version").value = s.version || "1.0";
   $("s-tags").value = (s.tags || []).join(", ");
+  $("s-visibility").value = s.visibility === "private" || s.visibility === "contacts" ? s.visibility : "public";
+  $("s-shared").value = (s.sharedWith || []).join(", ");
+  updateSharedWrap();
   $("s-version-note").value = s.versionNote || "";
   $("s-world").value = s.world || "";
   const rules = s.rules || {};
@@ -3836,6 +3911,8 @@ function readScenarioForm() {
     playStyle: $("s-play-style").value,
     version: $("s-version").value,
     tags: String($("s-tags").value || "").split(/[,，、]/).map((x) => x.trim()).filter(Boolean),
+    visibility: $("s-visibility").value === "private" || $("s-visibility").value === "contacts" ? $("s-visibility").value : "public",
+    sharedWith: String($("s-shared").value || "").split(/[,，、]/).map((x) => x.trim()).filter(Boolean),
     versionNote: $("s-version-note").value,
     world: $("s-world").value,
     rules: {
@@ -3946,6 +4023,9 @@ function resetScenarioEditor() {
   renderScenarioVisualPreview();
   $("s-version").value = "1.0";
   $("s-tags").value = "";
+  $("s-visibility").value = "public";
+  $("s-shared").value = "";
+  updateSharedWrap();
   $("s-play-style").value = "open-world";
   $("s-start-at").value = "2026-01-01T18:00";
   $("s-money").value = "100";
@@ -4440,8 +4520,8 @@ $("s-cover-file")?.addEventListener("change", async (event) => {
   event.target.value = "";
   if (!file) return;
   const note = $("s-cover-note");
-  if (!/^image\/(png|jpeg|webp)$/.test(file.type)) {
-    if (note) note.textContent = "只支持 JPG / PNG / WEBP 静态图片。";
+  if (!/^image\/(png|jpeg|webp|gif)$/.test(file.type)) {
+    if (note) note.textContent = "封面支持 JPG / PNG / WEBP 图片与 GIF 动图。";
     return;
   }
   if (file.size > 8 * 1024 * 1024) {
@@ -4766,6 +4846,7 @@ function renderScenarioDetail(d) {
   facts.innerHTML = "";
   const rows = [
     ["玩法", d.playStyle === "open-world" ? "自由开放世界" : "内容型剧本"],
+    ["可见范围", d.visibility === "private" ? "仅作者可见" : d.visibility === "contacts" ? "指定联系人可见" : "公开"],
     ["版本", d.version ? "v" + d.version : ""],
     ["内容分级", d.rating],
     ["开始地点", d.startLocation],

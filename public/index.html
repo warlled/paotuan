@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>玩家自由创作游玩社区网站平台</title>
-<link rel="stylesheet" href="/style.css?v=20261126-bottomnav1">
+<link rel="stylesheet" href="/style.css?v=20261126-model2">
 </head>
 <body>
 
@@ -159,7 +159,7 @@
       <div class="field"><label>API Key（留空则不修改）</label><input id="model-key" type="password" placeholder="sk-..."></div>
     </div>
     <div class="row2">
-      <label class="checkbox"><input type="checkbox" id="model-enabled"> 使用网站默认的 AI 模型（deepseek-v4.1-flash）</label>
+      <label class="checkbox"><input type="checkbox" id="model-enabled"> <span>使用网站默认的 AI 模型</span>（<span id="default-model-name">正在读取</span>）</label>
       <button id="model-save" type="button" class="ghost">保存</button>
       <button id="model-test" type="button" class="ghost">检查配置</button>
       <button id="model-clear" type="button" class="ghost">清除</button>
@@ -339,6 +339,11 @@
           <button id="sc-next" title="下一页">›</button>
         </div>
       </div>
+      <div class="sc-search">
+        <input id="sc-search" type="search" placeholder="搜索剧本名、作者、关键词、标签…" autocomplete="off">
+        <button id="sc-search-clear" type="button" class="ghost">清除</button>
+        <span id="sc-search-info" class="hint"></span>
+      </div>
       <div class="cards" id="scenarios"></div>
       <div class="start-bar">
         <button class="ghost" id="btn-custom-scenario">＋ 自己写一个剧本</button>
@@ -391,15 +396,15 @@
               </summary>
               <div class="editor-section-body">
                 <div class="editor-block">
-                  <div class="editor-block-head"><b>封面</b><span>卡片按 3:5 竖版展示，只支持 JPG / PNG / WEBP 静态图片</span></div>
+                  <div class="editor-block-head"><b>封面</b><span>卡片按 3:5 竖版展示，支持 JPG / PNG / WEBP 与 GIF 动图</span></div>
                   <div class="editor-cover">
                     <div class="editor-cover-preview" id="s-cover-preview"><span>还没有封面</span></div>
                     <div class="editor-cover-side">
                       <div class="editor-cover-actions">
-                        <label class="file-btn">上传封面<input id="s-cover-file" type="file" accept="image/png,image/jpeg,image/webp" hidden></label>
+                        <label class="file-btn">上传封面<input id="s-cover-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden></label>
                         <button type="button" class="editor-add-small" id="s-cover-clear">移除封面</button>
                       </div>
-                      <div class="editor-note" id="s-cover-note">建议竖图，比例 3:5（约 600×1000）。仅允许静态图片。</div>
+                      <div class="editor-note" id="s-cover-note">建议竖图，比例 3:5（约 600×1000）。GIF 会作为动图播放。</div>
                       <input id="s-cover" type="hidden" value="">
                     </div>
                   </div>
@@ -453,6 +458,8 @@
                     <label class="editor-field"><span>叙事基调</span><input id="s-tone" maxlength="200" placeholder="例如：冷、克制、压抑"></label>
                     <label class="editor-field"><span>标签</span><input id="s-tags" placeholder="悬疑, 民国, 单人（逗号分隔）"></label>
                     <label class="editor-field editor-span-2"><span>运行框架</span><select id="s-play-style"><option value="open-world">自由开放世界（玩家自行设定目标）</option><option value="content">内容型剧本（保留明确题材结构）</option></select></label>
+                    <label class="editor-field"><span>可见范围</span><select id="s-visibility"><option value="public">公开：所有人都能看到</option><option value="contacts">指定联系人可见</option><option value="private">仅自己可见</option></select></label>
+                    <label class="editor-field hidden" id="s-shared-wrap"><span>允许查看的玩家（昵称或玩家ID，逗号分隔）</span><input id="s-shared" maxlength="800" placeholder="例如：小明, 4f2a9c1b7d3e5a60"></label>
                   </div>
                 </div>
                 <div class="editor-block">
@@ -732,7 +739,7 @@
       </div>
       <div id="difficulty-options" style="margin-top:14px">
         <div class="hint" style="margin-bottom:8px">跑团规则难度</div>
-        <div class="cards" id="diffs" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))"></div>
+        <div class="cards diff-cards" id="diffs" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))"></div>
       </div>
     </div>
 
@@ -1031,8 +1038,8 @@
   </button>
 </nav>
 
-<script src="/i18n.js?v=20261126-bottomnav1"></script>
-<script src="/app.js?v=20261126-bottomnav1"></script>
+<script src="/i18n.js?v=20261126-model2"></script>
+<script src="/app.js?v=20261126-model2"></script>
 <script src="/vendor/pptxgen.bundle.js?v=3.12.0" async></script>
 </body>
 </html>

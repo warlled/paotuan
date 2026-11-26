@@ -2182,3 +2182,35 @@ body:has(.owner-closed-banner) #game { padding-top: 28px; }
   .editor-visual-preview { min-height: 170px; }
   .editor-visual-controls { grid-template-columns: 1fr; }
 }
+
+/* ---------- 跑团规则难度卡片：矮横条（约 430×150），不要继承剧本卡片的 3:5 竖版 ---------- */
+.diff-cards .card {
+  aspect-ratio: auto;
+  min-height: 148px;
+  max-height: 158px;
+  padding: 14px 16px;
+  gap: 6px;
+  justify-content: flex-start;
+}
+.diff-cards .card .t { font-size: 17px; font-weight: 600; line-height: 1.3; white-space: normal; }
+.diff-cards .card .b { font-size: 13px; line-height: 1.6; display: block; overflow: visible; -webkit-line-clamp: none; }
+.diff-cards .card:hover { transform: none; }
+
+/* ---------- 剧本搜索 ---------- */
+.sc-search { display: flex; align-items: center; gap: 8px; margin: 4px 0 14px; flex-wrap: wrap; }
+.sc-search input {
+  flex: 1 1 260px; max-width: 420px; min-height: 38px;
+  padding: 8px 12px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--text);
+}
+.sc-search input:focus { outline: none; border-color: var(--accent); }
+.sc-search button { min-height: 38px; }
+.sc-search .hint { color: var(--muted); font-size: 12px; }
+
+/* 非公开剧本的角标叠在玩法角标下面 */
+.card .c-badge-private {
+  top: 38px;
+  background: rgba(74, 42, 52, .82);
+  border-color: rgba(240, 163, 180, .45);
+  color: #ffd9e2;
+}

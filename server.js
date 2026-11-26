@@ -249,7 +249,7 @@ function saveUpload(base64, declaredMime, maxBytes, options = {}) {
   const mime = MIME_EXT[declaredMime] ? declaredMime : sniffed;
   if (!mime || !MIME_EXT[mime]) throw new Error("只支持图片（png/jpg/gif/webp）或视频（mp4/webm）");
   if (options.staticOnly && (!STATIC_IMAGE_MIMES.has(mime) || isAnimatedImage(buffer))) {
-    throw new Error("这里的背景与封面只允许静态 PNG / JPG / WEBP 图片");
+    throw new Error("剧本背景只支持静态 PNG / JPG / WEBP 图片（封面可以用 GIF 动图）");
   }
   if (sniffed && sniffed !== mime) throw new Error("文件内容与类型不符");
   const name = crypto.randomBytes(8).toString("hex") + MIME_EXT[mime];
@@ -698,9 +698,15 @@ function listOwnScenarios(entry) {
     .filter(Boolean);
 }
 
+function viewerFor(entry) {
+  if (!entry || entry.owner) return { owner: true };
+  const profile = loadProfileFor(entry.sid);
+  return { sid: entry.sid, pid: profile.pid || "", name: profile.name || "" };
+}
+
 function scenarioListFor(entry) {
   const ownIds = new Set(listOwnScenarios(entry).map((scenario) => scenario.id));
-  return engine.listScenarios(guestDir(entry)).map((scenario) => ({
+  return engine.listScenarios(guestDir(entry), viewerFor(entry)).map((scenario) => ({
     ...scenario,
     editable: ownIds.has(scenario.id),
     social: scenarioSocialSummary(scenario.id, entry.sid),
@@ -1974,7 +1980,7 @@ function parseTranslationReply(text, count) {
 /* ---------- 会话展示 ---------- */
 
 function scenarioMeta(entry, id) {
-  return engine.listScenarios(guestDir(entry)).find((s) => s.id === id) || null;
+  return engine.listScenarios(guestDir(entry), viewerFor(entry)).find((s) => s.id === id) || null;
 }
 
 function publicSession(entry) {
@@ -2194,6 +2200,7 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, {
       ok: true,
       model: engine.config.model,
+      modelLabel: engine.modelDisplayName(engine.config.model),
       shared: Boolean(shareKey),
       commit: String(process.env.RENDER_GIT_COMMIT || "").slice(0, 7) || "local",
     });
@@ -2213,6 +2220,7 @@ const server = http.createServer(async (req, res) => {
       attrMin: engine.ATTR_MIN,
       attrMax: engine.ATTR_MAX,
       model: engine.config.model,
+      modelLabel: engine.modelDisplayName(engine.config.model),
       isOwner: entry.owner,
       siteOpen: siteOpen(),
       guestTurnLimit: entry.owner ? null : guestTurnLimit,
@@ -2278,6 +2286,8 @@ const server = http.createServer(async (req, res) => {
   }
   if (p === "/api/scenario/detail") {
     const id = url.searchParams.get("id") || "";
+    // 不可见的剧本（别人的私密剧本）按不存在处理
+    if (!scenarioMeta(entry, id)) return send(res, 404, { error: "找不到这个剧本" });
     let scn = null;
     try {
       scn = engine.readScenarioRaw(id, guestDir(entry));
@@ -2318,6 +2328,7 @@ const server = http.createServer(async (req, res) => {
       linksCount: (Array.isArray(scn.links) ? scn.links : []).length,
       hasOpening: Boolean(scn.opening),
       custom: Boolean(scn.custom),
+      visibility: scn.visibility === "private" || scn.visibility === "contacts" ? scn.visibility : "public",
       mine: Boolean(ownScenario(entry, id)),
       social: scenarioSocialView(id, entry.sid),
     });
@@ -2688,7 +2699,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "POST" && p === "/api/upload") {
     const body = await readBody(req);
     try {
-      const staticOnly = body.kind === "scenario-visual" || body.kind === "scenario-cover";
+      const staticOnly = body.kind === "scenario-visual";
       const out = saveUpload(body.data, String(body.mime || ""), body.avatar ? AVATAR_MAX : UPLOAD_MAX, { staticOnly });
       return send(res, 200, out);
     } catch (err) {
@@ -2969,7 +2980,7 @@ const server = http.createServer(async (req, res) => {
       .slice(0, 10)
       .map((x) => ({ pid: x.pid, name: x.name || "匿名旅人", avatar: x.avatar || "", bio: x.bio || "" }));
     const scenarios = engine
-      .listScenarios(guestDir(entry))
+      .listScenarios(guestDir(entry), viewerFor(entry))
       .filter((scenario) =>
         [scenario.title, scenario.genre, scenario.blurb, scenario.author]
           .some((value) => String(value || "").toLowerCase().includes(q))
@@ -3194,7 +3205,13 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (p === "/api/model") {
-    if (req.method === "GET") return send(res, 200, publicModel(loadModelFor(entry.sid)));
+    if (req.method === "GET") {
+      return send(res, 200, {
+        ...publicModel(loadModelFor(entry.sid)),
+        defaultModel: engine.config.model,
+        defaultModelLabel: engine.modelDisplayName(engine.config.model),
+      });
+    }
     if (req.method === "DELETE") {
       try {
         if (fs.existsSync(modelFile(entry.sid))) fs.unlinkSync(modelFile(entry.sid));
@@ -3411,7 +3428,7 @@ function start(port, retries) {
     } catch {}
     console.log(`跑团面板已启动：http://127.0.0.1:${port}`);
     if (HOST === "0.0.0.0") console.log(`局域网访问：http://<本机IP>:${port}`);
-    console.log(`模型：${engine.config.model}`);
+    console.log(`模型：${engine.modelDisplayName(engine.config.model)}（${engine.config.model}）`);
     console.log(`邀请码：${shareKey || "（未设置，任何人都能进）"}`);
   });
 }
