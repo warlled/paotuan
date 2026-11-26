@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>玩家自由创作游玩社区网站平台</title>
-<link rel="stylesheet" href="/style.css?v=20261126-themecream1">
+<link rel="stylesheet" href="/style.css?v=20261126-publicscenario1">
 </head>
 <body>
 
@@ -329,7 +329,7 @@
           <option value="原创" selected>原创</option>
           <option value="同人">同人</option>
         </select>
-        <button class="ghost hidden" id="btn-share-scenario">分享到社区</button>
+        <button class="ghost hidden" id="btn-share-scenario">一键发布到社区</button>
         <span class="hint" id="scenario-note"></span>
       </div>
       <div class="custom scenario-workspace hidden" id="custom-box">
@@ -976,13 +976,21 @@
     </div>
     <div class="scd-foot">
       <span id="scd-status"></span>
-      <button id="scd-pick">就用这个剧本</button>
+      <div class="scd-foot-actions">
+        <select id="scd-share-origin" class="hidden" title="社区作品性质">
+          <option value="原创" selected>原创</option>
+          <option value="同人">同人</option>
+        </select>
+        <button id="scd-publish" class="ghost hidden" type="button">发布到社区</button>
+        <button id="scd-share-link" class="ghost" type="button">分享剧本页面</button>
+        <button id="scd-pick" type="button">就用这个剧本</button>
+      </div>
     </div>
   </div>
 </div>
 
-<script src="/i18n.js?v=20261126-themecream1"></script>
-<script src="/app.js?v=20261126-themecream1"></script>
+<script src="/i18n.js?v=20261126-publicscenario1"></script>
+<script src="/app.js?v=20261126-publicscenario1"></script>
 <script src="/vendor/pptxgen.bundle.js?v=3.12.0" async></script>
 </body>
 </html>

@@ -15,8 +15,19 @@ let metaRetryTimer = 0;
 const META_CACHE_KEY = "pt-meta-cache-v1";
 let scenarioLinks = [];
 let settingLinks = [];
-const sharedScenarioId = new URLSearchParams(location.search).get("scenario") || "";
+const sharedScenarioId = (() => {
+  const queryId = new URLSearchParams(location.search).get("scenario") || "";
+  if (queryId) return queryId;
+  const match = location.pathname.match(/^\/scenario\/([^/]+)\/?$/);
+  if (!match) return "";
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return "";
+  }
+})();
 let sharedScenarioPending = Boolean(sharedScenarioId);
+let sharedScenarioOpenPending = Boolean(sharedScenarioId);
 
 const setupState = {
   scenarioId: null,
@@ -108,6 +119,46 @@ async function scenarioSocialAction(path, id) {
   return data;
 }
 
+async function shareScenarioPage(id, statusNode = null) {
+  const data = await scenarioSocialAction("/api/scenario/forward", id);
+  const scenario = scDetailId === id ? scDetailData : (meta?.scenarios || []).find((item) => item.id === id);
+  const title = scenario?.title || "剧本";
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        title,
+        text: `来看看这个剧本：${title}`,
+        url: data.shareUrl,
+      });
+      if (statusNode) statusNode.textContent = "已打开系统分享";
+      return data.shareUrl;
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        if (statusNode) statusNode.textContent = "已取消分享";
+        return data.shareUrl;
+      }
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(data.shareUrl);
+    if (statusNode) statusNode.textContent = "剧本页面链接已复制";
+  } catch {
+    prompt("复制这个剧本页面链接：", data.shareUrl);
+  }
+  return data.shareUrl;
+}
+
+async function publishScenarioToCommunity(id, origin = "原创") {
+  const response = await fetch("/api/scenario/share", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ id, origin }),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || "发布失败");
+  return data;
+}
+
 /* ---------- 开局界面 ---------- */
 
 const PAGE_SIZE = 4;
@@ -153,6 +204,7 @@ function renderScenarioTabs() {
 }
 
 function renderScenarios(selectId) {
+  const linkedScenarioId = selectId || (sharedScenarioPending || sharedScenarioOpenPending ? sharedScenarioId : "");
   if (!selectId && sharedScenarioPending) {
     selectId = sharedScenarioId;
     sharedScenarioPending = false;
@@ -174,6 +226,9 @@ function renderScenarios(selectId) {
     renderScenarioTabs();
   }
   const list = filteredScenarios();
+  if (sharedScenarioOpenPending && !list.some((scenario) => scenario.id === sharedScenarioId)) {
+    sharedScenarioOpenPending = false;
+  }
   const pages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
   if (selectId) {
     const idx = list.findIndex((s) => s.id === selectId);
@@ -246,12 +301,7 @@ function renderScenarios(selectId) {
         if (kind === "comments") return openScenarioDetail(s.id);
         try {
           if (kind === "forward") {
-            const data = await scenarioSocialAction("/api/scenario/forward", s.id);
-            try {
-              await navigator.clipboard.writeText(data.shareUrl);
-            } catch {
-              prompt("复制这个剧本链接：", data.shareUrl);
-            }
+            await shareScenarioPage(s.id);
           } else {
             await scenarioSocialAction(kind === "like" ? "/api/scenario/like" : "/api/scenario/favorite", s.id);
           }
@@ -297,6 +347,11 @@ function renderScenarios(selectId) {
     $("btn-del-scenario").classList.add("hidden");
     $("btn-share-scenario").classList.add("hidden");
     $("share-origin").classList.add("hidden");
+  }
+  if (sharedScenarioOpenPending && setupState.scenarioId === linkedScenarioId) {
+    const linkedId = setupState.scenarioId;
+    sharedScenarioOpenPending = false;
+    setTimeout(() => openScenarioDetail(linkedId), 0);
   }
 
   $("sc-page").textContent = `第 ${scPage + 1} / ${pages} 页`;
@@ -2202,7 +2257,17 @@ function renderCommunity(posts) {
       imp.className = "cm-import";
       imp.textContent = "导入到我的剧本";
       imp.addEventListener("click", () => importScenario(post.id, post.title));
-      badge.append(head2, blurb, imp);
+      const actions = document.createElement("div");
+      actions.className = "cm-scenario-actions";
+      if (post.scenarioId) {
+        const open = document.createElement("a");
+        open.className = "cm-import";
+        open.textContent = "打开剧本页面";
+        open.href = `/scenario/${encodeURIComponent(post.scenarioId)}`;
+        actions.appendChild(open);
+      }
+      actions.appendChild(imp);
+      badge.append(head2, blurb, actions);
       card.appendChild(badge);
     } else if (post.text) {
       const p = document.createElement("div");
@@ -2597,11 +2662,13 @@ async function runSearch() {
         m.className = "hint";
         m.textContent = [s.genre, "作者：" + (s.author || "匿名旅人")].filter(Boolean).join(" · ");
         info.append(t, m);
-        const imp = document.createElement("button");
-        imp.className = "cm-import";
-        imp.textContent = "导入";
-        imp.addEventListener("click", () => importScenario(s.id, s.title));
-        row.append(info, imp);
+        const open = document.createElement("a");
+        open.className = "cm-import";
+        open.textContent = "打开剧本";
+        open.href = `/scenario/${encodeURIComponent(s.id)}`;
+        open.target = "_blank";
+        open.rel = "noopener";
+        row.append(info, open);
         box.appendChild(row);
       }
     }
@@ -4002,18 +4069,12 @@ $("btn-del-scenario").addEventListener("click", async () => {
 
 $("btn-share-scenario").addEventListener("click", async () => {
   if (!setupState.editingId) return;
-  if (!confirm("把这个剧本分享到创作社区？其他玩家可以导入并游玩。")) return;
-  const r = await fetch("/api/scenario/share", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ id: setupState.editingId }),
-  });
-  const data = await r.json();
-  if (!r.ok) {
-    alert(data.error || "分享失败");
-    return;
+  try {
+    const data = await publishScenarioToCommunity(setupState.editingId, $("share-origin").value || "原创");
+    $("scenario-note").textContent = data.updated ? "社区推广信息已更新。" : "已发布到创作社区。";
+  } catch (error) {
+    alert(error.message || "发布失败");
   }
-  alert("已分享到创作社区。");
 });
 
 $("btn-save-scenario").addEventListener("click", async () => {
@@ -4430,13 +4491,7 @@ function renderScenarioSocial(social) {
     button.addEventListener("click", async () => {
       try {
         if (kind === "forward") {
-          const data = await scenarioSocialAction("/api/scenario/forward", scDetailId);
-          try {
-            await navigator.clipboard.writeText(data.shareUrl);
-            $("scd-status").textContent = "剧本链接已复制";
-          } catch {
-            prompt("复制这个剧本链接：", data.shareUrl);
-          }
+          await shareScenarioPage(scDetailId, $("scd-status"));
         } else {
           await scenarioSocialAction(kind === "like" ? "/api/scenario/like" : "/api/scenario/favorite", scDetailId);
         }
@@ -4595,6 +4650,8 @@ function renderScenarioDetail(d) {
   scDetailData = d;
   $("scd-title").textContent = d.title || "未命名剧本";
   $("scd-sub").textContent = [d.genre, d.duration, d.players, d.author ? "作者 " + d.author : ""].filter(Boolean).join(" · ");
+  $("scd-publish")?.classList.toggle("hidden", !d.mine);
+  $("scd-share-origin")?.classList.toggle("hidden", !d.mine);
 
   const cover = $("scd-cover");
   cover.innerHTML = "";
@@ -4685,6 +4742,28 @@ $("scd-pick")?.addEventListener("click", () => {
     scFilter = "all";
     renderScenarios(id);
     $("scenarios")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+});
+$("scd-publish")?.addEventListener("click", async () => {
+  if (!scDetailId) return;
+  const button = $("scd-publish");
+  button.disabled = true;
+  $("scd-status").textContent = "正在发布到社区…";
+  try {
+    const data = await publishScenarioToCommunity(scDetailId, $("scd-share-origin")?.value || "原创");
+    $("scd-status").textContent = data.updated ? "社区推广信息已更新。" : "已发布到创作社区。";
+  } catch (error) {
+    $("scd-status").textContent = error.message || "发布失败";
+  } finally {
+    button.disabled = false;
+  }
+});
+$("scd-share-link")?.addEventListener("click", async () => {
+  if (!scDetailId) return;
+  try {
+    await shareScenarioPage(scDetailId, $("scd-status"));
+  } catch (error) {
+    $("scd-status").textContent = error.message || "分享失败";
   }
 });
 $("scd-comment-sort")?.addEventListener("click", (event) => {

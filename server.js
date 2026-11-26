@@ -667,6 +667,7 @@ function communityView(post, sid) {
     tags: post.tags || [],
     genre: post.scenario?.genre || "",
     blurb: post.scenario?.blurb || "",
+    scenarioId: post.scenario?.id || "",
     comments: post.comments.slice(-50).map((comment) => communityCommentView(comment, sid)),
     commentCount: post.comments.reduce((sum, comment) => sum + 1 + (comment.replies || []).length, 0),
     media: post.media || null,
@@ -697,8 +698,24 @@ function listOwnScenarios(entry) {
     .filter(Boolean);
 }
 
+function scenarioListFor(entry) {
+  const ownIds = new Set(listOwnScenarios(entry).map((scenario) => scenario.id));
+  return engine.listScenarios(guestDir(entry)).map((scenario) => ({
+    ...scenario,
+    editable: ownIds.has(scenario.id),
+    social: scenarioSocialSummary(scenario.id, entry.sid),
+  }));
+}
+
 function ownScenario(entry, id) {
   return listOwnScenarios(entry).find((s) => s.id === id) || null;
+}
+
+function scenarioShareUrl(id) {
+  const base = String(engine.config.publicBase || "https://paotuan.onrender.com").replace(/\/+$/, "");
+  const url = new URL(`${base}/scenario/${encodeURIComponent(id)}`);
+  if (shareKey) url.searchParams.set("k", shareKey);
+  return url.toString();
 }
 
 function allProfiles() {
@@ -2138,6 +2155,17 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "GET" && (p === "/" || p === "/index.html")) {
     return send(res, 200, fs.readFileSync(path.join(PUBLIC, "index.html"), "utf8"), "text/html; charset=utf-8");
   }
+  if (req.method === "GET" && p.startsWith("/scenario/")) {
+    const encodedId = p.slice("/scenario/".length);
+    let scenarioId = "";
+    try {
+      scenarioId = decodeURIComponent(encodedId);
+    } catch {}
+    if (!scenarioId || scenarioId.includes("/") || !engine.loadScenario(scenarioId, guestDir(entry))) {
+      return send(res, 404, "not found", "text/plain; charset=utf-8");
+    }
+    return send(res, 200, fs.readFileSync(path.join(PUBLIC, "index.html"), "utf8"), "text/html; charset=utf-8");
+  }
   if (req.method === "GET" && (p === "/app.js" || p === "/i18n.js" || p === "/style.css")) {
     const type = p.endsWith(".css") ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8";
     if (!fs.existsSync(path.join(PUBLIC, p))) return send(res, 404, "not found", "text/plain; charset=utf-8");
@@ -2174,11 +2202,7 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, {
       // 本机/内网打开页面时，分享链接要回落到这个公开地址
       publicBase: String(engine.config.publicBase || "https://paotuan.onrender.com"),
-      scenarios: engine.listScenarios(guestDir(entry)).map((s) => ({
-        ...s,
-        editable: entry.owner ? s.custom : Boolean(s.guestOwned),
-        social: scenarioSocialSummary(s.id, entry.sid),
-      })),
+      scenarios: scenarioListFor(entry),
       presets: engine.listPresets(presetDirFor(entry)),
       attrs: engine.ATTRS,
       skills: engine.SKILLS,
@@ -2332,10 +2356,10 @@ const server = http.createServer(async (req, res) => {
     item.shares += 1;
     item.updatedAt = Date.now();
     writeJsonFile(SCENARIO_SOCIAL_FILE, scenarioSocial);
-    const base = String(engine.config.publicBase || "https://paotuan.onrender.com").replace(/\/+$/, "");
-    const query = new URLSearchParams({ scenario: id });
-    if (shareKey) query.set("k", shareKey);
-    return send(res, 200, { social: scenarioSocialView(id, entry.sid), shareUrl: `${base}/?${query}` });
+    return send(res, 200, {
+      social: scenarioSocialView(id, entry.sid),
+      shareUrl: scenarioShareUrl(id),
+    });
   }
 
   if (req.method === "POST" && p === "/api/scenario/comment") {
@@ -2450,7 +2474,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, {
         ok: true,
         id: out.id,
-        scenarios: engine.listScenarios(guestDir(entry)).map((s) => ({ ...s, editable: entry.owner ? s.custom : Boolean(s.guestOwned) })),
+        scenarios: scenarioListFor(entry),
       });
     } catch (err) {
       return send(res, 400, { error: String(err.message || err) });
@@ -2467,7 +2491,7 @@ const server = http.createServer(async (req, res) => {
       engine.deleteCustomScenario(id, dir);
       return send(res, 200, {
         ok: true,
-        scenarios: engine.listScenarios(guestDir(entry)).map((s) => ({ ...s, editable: entry.owner ? s.custom : Boolean(s.guestOwned) })),
+        scenarios: scenarioListFor(entry),
       });
     } catch (err) {
       return send(res, 400, { error: String(err.message || err) });
@@ -2826,10 +2850,32 @@ const server = http.createServer(async (req, res) => {
     const body = await readBody(req);
     const sc = ownScenario(entry, String(body.id || ""));
     if (!sc) return send(res, 400, { error: "只能分享你自己创作的剧本。" });
+    const profile = loadProfileFor(entry.sid);
+    const origin = COMMUNITY_ORIGINS.includes(body.origin) ? body.origin : "原创";
+    const existing = community.find(
+      (item) => item.type === "scenario" && item.sid === entry.sid && item.scenario?.id === sc.id
+    );
+    if (existing) {
+      existing.author = profile.name || "匿名旅人";
+      existing.avatar = profile.avatar || "";
+      existing.title = sc.title;
+      existing.text = sc.blurb || "";
+      existing.category = COMMUNITY_CATEGORIES.includes(sc.genre) ? sc.genre : "奇幻";
+      existing.origin = origin;
+      existing.scenario = sc;
+      existing.tags = sc.tags || [];
+      existing.updatedAt = new Date().toISOString();
+      writeJsonFile(COMMUNITY_FILE, community);
+      return send(res, 200, {
+        ok: true,
+        updated: true,
+        post: communityView(existing, entry.sid),
+        shareUrl: scenarioShareUrl(sc.id),
+      });
+    }
     const last = communityLast.get(entry.sid) || 0;
     if (Date.now() - last < 30000) return send(res, 429, { error: "发得太快了，歇一会儿再分享。" });
     communityLast.set(entry.sid, Date.now());
-    const profile = loadProfileFor(entry.sid);
     const post = {
       id: crypto.randomUUID(),
       type: "scenario",
@@ -2839,8 +2885,8 @@ const server = http.createServer(async (req, res) => {
       avatar: profile.avatar || "",
       title: sc.title,
       text: sc.blurb || "",
-      category: "奇幻",
-      origin: COMMUNITY_ORIGINS.includes(body.origin) ? body.origin : "原创",
+      category: COMMUNITY_CATEGORIES.includes(sc.genre) ? sc.genre : "奇幻",
+      origin,
       scenario: sc,
       tags: sc.tags || [],
       comments: [],
@@ -2851,7 +2897,12 @@ const server = http.createServer(async (req, res) => {
     community.push(post);
     while (community.length > 200) community.shift();
     writeJsonFile(COMMUNITY_FILE, community);
-    return send(res, 200, { ok: true, post: communityView(post, entry.sid) });
+    return send(res, 200, {
+      ok: true,
+      updated: false,
+      post: communityView(post, entry.sid),
+      shareUrl: scenarioShareUrl(sc.id),
+    });
   }
 
   if (req.method === "POST" && p === "/api/community/import") {
@@ -2917,15 +2968,20 @@ const server = http.createServer(async (req, res) => {
       .filter((x) => String(x.name || "").toLowerCase().includes(q) || String(x.bio || "").toLowerCase().includes(q))
       .slice(0, 10)
       .map((x) => ({ pid: x.pid, name: x.name || "匿名旅人", avatar: x.avatar || "", bio: x.bio || "" }));
-    const scenarios = community
-      .filter(
-        (c) =>
-          c.type === "scenario" &&
-          [c.title, c.text, c.scenario?.genre, c.scenario?.blurb].some((v) => String(v || "").toLowerCase().includes(q))
+    const scenarios = engine
+      .listScenarios(guestDir(entry))
+      .filter((scenario) =>
+        [scenario.title, scenario.genre, scenario.blurb, scenario.author]
+          .some((value) => String(value || "").toLowerCase().includes(q))
       )
-      .slice(-20)
-      .reverse()
-      .map((c) => communityView(c, entry.sid));
+      .slice(0, 20)
+      .map((scenario) => ({
+        id: scenario.id,
+        title: scenario.title,
+        genre: scenario.genre,
+        blurb: scenario.blurb,
+        author: scenario.author,
+      }));
     return send(res, 200, { players, scenarios });
   }
 

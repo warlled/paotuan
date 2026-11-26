@@ -446,6 +446,8 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent2); }
   margin-top: 8px; background: var(--accent); color: #1a1408; border: 0;
   border-radius: 8px; padding: 5px 12px; font-size: 12px; font-weight: 600; cursor: pointer;
 }
+.cm-scenario-actions { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-top: 8px; }
+.cm-scenario-actions .cm-import { display: inline-flex; align-items: center; margin-top: 0; text-decoration: none; }
 .cm-tabs { display: flex; gap: 6px; margin: 0 0 10px; flex-wrap: wrap; }
 .cm-tabs button {
   background: transparent; border: 1px solid var(--line); color: var(--muted);
@@ -2047,6 +2049,9 @@ body:has(.owner-closed-banner) #game { padding-top: 28px; }
 .scd-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .scd-chip { font-size: 12px; padding: 4px 10px; border-radius: 999px; background: #1a1f2b; border: 1px solid #262d3d; color: #aab3c6; }
 .scd-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; border-top: 1px solid var(--line); }
+.scd-foot-actions { display: flex; align-items: center; justify-content: flex-end; gap: 7px; flex-wrap: wrap; }
+.scd-foot-actions select { min-height: 34px; border: 1px solid var(--line); border-radius: 8px; background: var(--input-bg); color: var(--text); padding: 4px 8px; }
+.scd-foot-actions .ghost { border: 1px solid var(--line); border-radius: 9px; background: var(--panel2); color: var(--text); padding: 7px 12px; }
 .scd-social { padding-top: 4px; border-top: 1px dashed var(--line); }
 .scd-social-actions {
   display: flex;
@@ -2081,6 +2086,9 @@ body:has(.owner-closed-banner) #game { padding-top: 28px; }
   .scd-body { grid-template-columns: 1fr; }
   .scd-cover { max-width: 170px; margin: 0 auto; }
   .scd-facts { margin-top: 10px; }
+  .scd-foot { align-items: stretch; flex-direction: column; }
+  .scd-foot-actions { justify-content: stretch; }
+  .scd-foot-actions select, .scd-foot-actions button { flex: 1 1 auto; min-height: 40px; }
   .editor-cover { gap: 12px; }
   .editor-cover-preview { width: 104px; }
   .editor-visual-grid { grid-template-columns: 1fr; }

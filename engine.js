@@ -198,17 +198,36 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /* ---------- 剧本 ---------- */
 
-/** 访客私有剧本目录排在最前，其后才是宿主机的公共剧本目录。 */
+function publicGuestScenarioDirs() {
+  const root = path.join(WORK, "guest-scenarios");
+  try {
+    return fs
+      .readdirSync(root, { withFileTypes: true })
+      .filter((item) => item.isDirectory())
+      .map((item) => path.join(root, item.name))
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+/** 当前玩家自己的剧本排在最前，其余玩家公开剧本、房主剧本和内置剧本随后汇入。 */
 function scenarioDirs(extraDir) {
   const dirs = [];
-  if (extraDir && path.resolve(extraDir) !== path.resolve(SCENARIO_DIR)) dirs.push(extraDir);
+  const add = (dir) => {
+    if (!dir) return;
+    const resolved = path.resolve(dir);
+    if (!dirs.some((item) => path.resolve(item) === resolved)) dirs.push(dir);
+  };
+  if (extraDir) add(extraDir);
+  for (const dir of publicGuestScenarioDirs()) add(dir);
   if (
     path.resolve(USER_SCENARIO_DIR) !== path.resolve(SCENARIO_DIR) &&
-    !dirs.some((d) => path.resolve(d) === path.resolve(USER_SCENARIO_DIR))
+    !dirs.some((dir) => path.resolve(dir) === path.resolve(USER_SCENARIO_DIR))
   ) {
-    dirs.push(USER_SCENARIO_DIR);
+    add(USER_SCENARIO_DIR);
   }
-  dirs.push(SCENARIO_DIR);
+  add(SCENARIO_DIR);
   return dirs;
 }
 
@@ -224,7 +243,7 @@ function listScenarios(extraDir) {
   const seen = new Set();
   const out = [];
   for (const dir of scenarioDirs(extraDir)) {
-    const isExtra = path.resolve(dir) !== path.resolve(SCENARIO_DIR);
+    const publicGuest = path.resolve(dir) !== path.resolve(SCENARIO_DIR) && path.resolve(dir) !== path.resolve(USER_SCENARIO_DIR);
     for (const f of readScenarioDir(dir)) {
       try {
         const data = JSON.parse(fs.readFileSync(path.join(dir, f), "utf8"));
@@ -245,7 +264,7 @@ function listScenarios(extraDir) {
           playStyle: data.playStyle === "open-world" ? "open-world" : "content",
           startAt: formatDateTime(data.startAt),
           custom: Boolean(data.custom),
-          guestOwned: isExtra,
+          guestOwned: publicGuest,
           hasOpening: Boolean(data.opening),
           linksCount: (data.links || []).length,
           visual: data.visual && typeof data.visual === "object" ? sanitizeScenarioVisual(data.visual) : null,
