@@ -20,5 +20,7 @@ services:
         value: "4"
       - key: DATA_DIR
         value: /data
+      - key: SITE_DEFAULT_OPEN
+        value: "1"
       - key: BIND_HOST
         value: 0.0.0.0

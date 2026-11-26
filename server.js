@@ -919,31 +919,46 @@ function secureCookie(name, value, maxAge) {
 function loadShareState() {
   try {
     const s = JSON.parse(fs.readFileSync(SHARE_STATE_FILE, "utf8"));
-    const open = s.open === true;
-    return {
-      version: 2,
-      open,
-      openUntil: 0,
-      lockedClosed: open ? false : s.lockedClosed !== false,
-      updatedAt: Number(s.updatedAt) || 0,
-      reason: String(s.reason || "legacy-state"),
-    };
+    return normalizeShareState(s, "legacy-state");
   } catch {
-    return { version: 2, open: false, openUntil: 0, lockedClosed: true, updatedAt: 0, reason: "state-missing-or-invalid" };
+    return normalizeShareState(
+      { open: process.env.SITE_DEFAULT_OPEN !== "0" },
+      "state-missing-default-open"
+    );
   }
+}
+
+function normalizedScheduleAt(value) {
+  const stamp = Number(value);
+  return Number.isFinite(stamp) && stamp > 0 ? Math.floor(stamp) : 0;
+}
+
+function normalizeShareState(source, fallbackReason) {
+  const s = source && typeof source === "object" ? source : {};
+  const open = s.open === true;
+  return {
+    version: 3,
+    open,
+    openUntil: 0,
+    lockedClosed: !open,
+    scheduleOpenAt: normalizedScheduleAt(s.scheduleOpenAt),
+    scheduleCloseAt: normalizedScheduleAt(s.scheduleCloseAt),
+    updatedAt: Number(s.updatedAt) || 0,
+    reason: String(s.reason || fallbackReason || "legacy-state"),
+  };
 }
 
 let shareState = loadShareState();
 
 function saveShareState(next) {
-  shareState = {
-    version: 2,
-    open: next.open === true,
-    openUntil: 0,
-    lockedClosed: next.open === true ? false : next.lockedClosed !== false,
-    updatedAt: Number(next.updatedAt) || Date.now(),
-    reason: String(next.reason || (next.open === true ? "manual-open" : "manual-close")),
-  };
+  shareState = normalizeShareState(
+    {
+      ...next,
+      updatedAt: Number(next.updatedAt) || Date.now(),
+      reason: String(next.reason || (next.open === true ? "manual-open" : "manual-close")),
+    },
+    "manual-close"
+  );
   try {
     fs.mkdirSync(path.dirname(SHARE_STATE_FILE), { recursive: true });
     const temp = SHARE_STATE_FILE + ".tmp";
@@ -963,8 +978,32 @@ function saveShareState(next) {
   }
 }
 
+function applyDueShareSchedules(now = Date.now()) {
+  const due = [
+    { type: "close", at: shareState.scheduleCloseAt },
+    { type: "open", at: shareState.scheduleOpenAt },
+  ]
+    .filter((item) => item.at > 0 && item.at <= now)
+    .sort((a, b) => a.at - b.at);
+  if (!due.length) return { changed: false, applied: [] };
+
+  for (const item of due) {
+    shareState.open = item.type === "open";
+    shareState.lockedClosed = item.type !== "open";
+    if (item.type === "open") shareState.scheduleOpenAt = 0;
+    else shareState.scheduleCloseAt = 0;
+  }
+  const last = due[due.length - 1];
+  const saved = saveShareState({
+    ...shareState,
+    updatedAt: now,
+    reason: `scheduled-${last.type}`,
+  });
+  return { changed: true, saved, applied: due.map((item) => item.type) };
+}
+
 function siteOpen() {
-  if (shareState.lockedClosed) return false;
+  applyDueShareSchedules();
   return shareState.open === true;
 }
 
@@ -1174,7 +1213,7 @@ function loginPage(error, blocked) {
       : "";
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>房主登录</title>
+<title>后台服务器数据查看和管理界面</title>
 <style>
 body{margin:0;min-height:100vh;background:#0d0f15;color:#e7e8ee;font:15px/1.7 'Microsoft YaHei',sans-serif;display:grid;place-items:center;padding:24px}
 form{width:min(380px,100%);background:#151823;border:1px solid #262b3a;border-radius:18px;padding:28px}
@@ -1187,7 +1226,7 @@ button{margin-top:16px;width:100%;border:0;border-radius:10px;padding:11px;backg
 .hint{margin-top:16px;color:#6f7486;font-size:12px;line-height:1.7}
 </style></head><body>
 <form method="post" action="/admin/login">
-  <h1>房主登录</h1>
+  <h1>后台服务器数据查看和管理界面</h1>
   <div class="sub">这里是私密后台，只有房主可以进入。</div>
   <input type="password" name="password" placeholder="管理密码" autocomplete="current-password" autofocus>
   <button type="submit">进入</button>
@@ -1197,14 +1236,17 @@ button{margin-top:16px;width:100%;border:0;border-radius:10px;padding:11px;backg
 }
 
 function adminState() {
+  const scheduled = applyDueShareSchedules();
   return {
-    open: siteOpen(),
+    open: shareState.open === true,
     manualOpen: shareState.open,
     lockedClosed: Boolean(shareState.lockedClosed),
     openUntil: 0,
-    minutesLeft: 0,
+    scheduleOpenAt: shareState.scheduleOpenAt,
+    scheduleCloseAt: shareState.scheduleCloseAt,
     updatedAt: shareState.updatedAt || 0,
     reason: shareState.reason || "",
+    scheduleApplied: scheduled.applied,
     guestTurnLimit,
     guestDailyCalls,
     callsToday: readStats().calls,
@@ -1584,10 +1626,11 @@ function adminPage() {
   const html = [
     '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width,initial-scale=1">',
-    "<title>跑团入口开关</title><style>",
+    "<title>后台服务器数据查看和管理界面</title><style>",
     "body{margin:0;min-height:100vh;background:#0d0f15;color:#e7e8ee;font:15px/1.7 'Microsoft YaHei',sans-serif;display:grid;place-items:center;padding:24px}",
-    ".card{width:min(560px,100%);background:#151823;border:1px solid #262b3a;border-radius:18px;padding:26px}",
+    ".card{width:min(720px,100%);background:#151823;border:1px solid #262b3a;border-radius:18px;padding:26px}",
     "h1{font-size:20px;margin:0 0 6px;letter-spacing:2px}",
+    "h2{font-size:15px;margin:0 0 6px;letter-spacing:1px;color:#d7dbe8}",
     ".sub{color:#8b90a0;font-size:13px;margin-bottom:20px}",
     ".status{padding:14px 16px;border-radius:12px;margin-bottom:18px;font-size:16px;letter-spacing:1px}",
     ".on{background:#14251c;border:1px solid #2f6a4a;color:#8fd8ac}",
@@ -1597,18 +1640,38 @@ function adminPage() {
     "button{border:0;border-radius:10px;padding:10px 18px;font:inherit;cursor:pointer;background:#262b3a;color:#e7e8ee}",
     "button.primary{background:#c8a06a;color:#1a1408;font-weight:600}",
     "button.danger{background:#5a2330;color:#ffd7de}",
+    "button:disabled{opacity:.45;cursor:default}",
+    ".schedule{margin-top:18px;padding:16px;border:1px solid #2b3140;border-radius:14px;background:#11141d}",
+    ".schedule-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}",
+    ".schedule-field{display:grid;gap:6px;color:#9fa6b8;font-size:12.5px}",
+    "input[type=datetime-local]{width:100%;box-sizing:border-box;border:1px solid #353b4c;border-radius:9px;background:#0e1118;color:#e7e8ee;padding:9px 10px;font:inherit}",
+    "#schedule-status{min-height:22px;color:#8b90a0;font-size:12.5px;margin-top:10px}",
     ".note{color:#6f7486;font-size:12.5px;margin-top:18px;line-height:1.7}",
+    "@media(max-width:620px){.schedule-grid{grid-template-columns:1fr}.card{padding:20px}body{padding:12px}}",
     "</style></head><body><div class=card>",
-    "<h1>跑团入口开关</h1>",
-    '<div class="sub">“立即关闭”会持久锁定入口；除非你在后台手动开放，否则重启或定时任务都不会自动恢复营业。</div>',
+    "<h1>后台服务器数据查看和管理界面</h1>",
+    '<div class="sub">手动开关与定时开关是仅有的两种状态变化来源。手动关闭后会保持关闭，手动开放后会保持开放，直到你下一次主动操作或到达已设置的定时时间。</div>',
     '<div id="status" class="status off">读取中…</div>',
     '<div class="row">',
     '<button id="close" class="danger">立即关闭并锁定</button>',
-    '<button id="open0" class="primary">持续开放（不会自动关闭）</button>',
+    '<button id="open0" class="primary">持续开放</button>',
     "</div>",
     '<div class="note">每日调用上限：<b id="cap"></b> 次（今天已用 <b id="used"></b> 次）。<br>',
-    "达到上限后会自动停止接待，次日恢复。上限在主机的 GUEST_DAILY_CALLS 环境变量里改。</div>",
-    '<div class="note" style="margin-top:10px">只有“立即关闭并锁定”会关服；持续开放后不会因为倒计时自动关闭。</div>',
+    "达到上限只会拒绝新的模型调用，不会改变服务器开关状态；次日恢复模型调用。上限在主机的 GUEST_DAILY_CALLS 环境变量里改。</div>",
+    '<div class="schedule">',
+    "<h2>定时开关</h2>",
+    '<div class="sub" style="margin:0">按你所在的本地时间设置。到达时间后执行一次，随后保持该状态，直到你下次手动开关。</div>',
+    '<div class="schedule-grid">',
+    '<label class="schedule-field"><span>定时开放</span><input id="schedule-open" type="datetime-local"></label>',
+    '<label class="schedule-field"><span>定时关闭</span><input id="schedule-close" type="datetime-local"></label>',
+    "</div>",
+    '<div class="row">',
+    '<button id="save-schedule" class="primary" type="button">保存定时设置</button>',
+    '<button id="clear-schedule" type="button">清除全部定时</button>',
+    "</div>",
+    '<div id="schedule-status">尚未读取定时设置。</div>',
+    "</div>",
+    '<div class="note" style="margin-top:12px">除“立即关闭并锁定”“持续开放”、你保存的定时开放和定时关闭外，系统不会主动改变入口状态。</div>',
     '<div class="note" style="margin-top:16px;border-top:1px solid #262b3a;padding-top:14px">',
     "<b>数据总览</b><br>在线 <b id=\"d-online\">-</b> · 游玩中 <b id=\"d-playing\">-</b> 局 / <b id=\"d-players\">-</b> 人<br>留言 <b id=\"d-fb\">-</b> · 好评 <b id=\"d-up\">-</b> · 差评 <b id=\"d-down\">-</b> · 用户 <b id=\"d-users\">-</b><br>",
     "作品 <b id=\"d-cm\">-</b> · 房间 <b id=\"d-rooms\">-</b> · 存档 <b id=\"d-sessions\">-</b> · 上传 <b id=\"d-uploads\">-</b> · 翻译缓存 <b id=\"d-tr\">-</b><br>",
@@ -1626,30 +1689,91 @@ function adminPage() {
     "</div>",
     "</div><script>",
     'const statusEl = document.getElementById("status");',
-    'function fmt(){ return "持续开放（不会自动关闭）"; }',
+    'const scheduleOpenInput = document.getElementById("schedule-open");',
+    'const scheduleCloseInput = document.getElementById("schedule-close");',
+    'const scheduleStatus = document.getElementById("schedule-status");',
+    'let scheduleDirty = false;',
+    'scheduleOpenInput.addEventListener("input", () => { scheduleDirty = true; });',
+    'scheduleCloseInput.addEventListener("input", () => { scheduleDirty = true; });',
+    'function fmtDate(stamp){ return stamp ? new Date(stamp).toLocaleString("zh-CN") : "未设置"; }',
+    'function toLocalInput(stamp){',
+    '  if (!stamp) return "";',
+    "  const d = new Date(stamp);",
+    '  const pad = (n) => String(n).padStart(2, "0");',
+    '  return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + "T" + pad(d.getHours()) + ":" + pad(d.getMinutes());',
+    "}",
+    'function fromLocalInput(input){',
+    '  if (!input.value) return 0;',
+    '  const stamp = new Date(input.value).getTime();',
+    '  return Number.isFinite(stamp) ? stamp : 0;',
+    "}",
+    'function reasonText(reason){',
+    '  const names = {',
+    '    "manual-open": "你手动设置了持续开放",',
+    '    "manual-close": "你手动设置了关闭并锁定",',
+    '    "scheduled-open": "定时开放已执行",',
+    '    "scheduled-close": "定时关闭已执行",',
+    '    "schedule-updated": "定时设置已更新",',
+    '    "schedule-cleared": "定时设置已清除",',
+    '    "state-missing-default-open": "未找到旧状态文件，按安全默认值开放"',
+    "  };",
+    '  return names[reason] || "状态已保存";',
+    "}",
+    'function renderSchedule(s){',
+    '  if (!scheduleDirty) {',
+    '    scheduleOpenInput.value = toLocalInput(s.scheduleOpenAt);',
+    '    scheduleCloseInput.value = toLocalInput(s.scheduleCloseAt);',
+    "  }",
+    '  const parts = [];',
+    '  if (s.scheduleOpenAt) parts.push("下次定时开放：" + fmtDate(s.scheduleOpenAt));',
+    '  if (s.scheduleCloseAt) parts.push("下次定时关闭：" + fmtDate(s.scheduleCloseAt));',
+    '  scheduleStatus.textContent = parts.length ? parts.join(" · ") : "当前没有定时任务。";',
+    "}",
     "async function refresh(){",
     '  const r = await fetch("/api/admin/state");',
     '  if (r.status === 403) { statusEl.className = "status off"; statusEl.textContent = "登录已失效，正在返回登录页…"; setTimeout(() => location.href = "/admin", 700); return; }',
     '  if (!r.ok) { statusEl.className = "status off"; statusEl.textContent = "读取状态失败：HTTP " + r.status; return; }',
     "  const s = await r.json();",
     '  statusEl.className = "status " + (s.open ? "on" : "off");',
-    '  const closedText = s.lockedClosed ? "已手动关闭并锁定，只有你再次手动开放才会恢复" : "当前处于关闭状态";',
+    '  const closedText = "已关闭并锁定，等待你手动持续开放或定时开放";',
     '  const changedAt = s.updatedAt ? new Date(s.updatedAt).toLocaleString("zh-CN") : "未记录";',
     '  statusEl.innerHTML = (s.open ? "● 正在营业" : "● 已关闭") +',
-    '    `<div class="meta">` + (s.open ? fmt(s.minutesLeft) : closedText) + " · 上次切换：" + changedAt + "</div>";',
+    '    `<div class="meta">` + (s.open ? "持续开放，直到你手动关闭或到达定时关闭时间" : closedText) + " · " + reasonText(s.reason) + " · 上次切换：" + changedAt + "</div>";',
+    "  renderSchedule(s);",
     '  const cap = document.getElementById("cap");',
     '  cap.textContent = s.guestDailyCalls > 0 ? s.guestDailyCalls : "不限（有费用风险）";',
     '  cap.style.color = s.guestDailyCalls > 0 ? "#8fd8ac" : "#f0a3b4";',
     '  document.getElementById("used").textContent = s.callsToday;',
     "}",
-    "async function setState(open, minutes){",
+    "async function setState(open){",
     '  const r = await fetch("/api/admin/state", {',
     '    method: "POST", headers: {"content-type": "application/json"},',
-    "    body: JSON.stringify({action: open ? 'open' : 'close', open, minutes})",
+    "    body: JSON.stringify({action: open ? 'open' : 'close', open})",
     "  });",
     "  const data = await r.json();",
     "  if (r.status === 403) { alert('管理登录已失效，请重新登录后台。'); location.href = '/admin'; return; }",
     "  if (!r.ok) alert(data.error || '状态保存失败，请重试');",
+    "  refresh();",
+    "}",
+    "async function saveSchedule(clear){",
+    '  const payload = clear ? {action:"schedule", clear:true} : {',
+    '    action: "schedule",',
+    '    openAt: fromLocalInput(scheduleOpenInput),',
+    '    closeAt: fromLocalInput(scheduleCloseInput)',
+    "  };",
+    '  if (!clear && !payload.openAt && !payload.closeAt) {',
+    '    scheduleStatus.textContent = "至少设置一个定时开放或定时关闭时间。";',
+    "    return;",
+    "  }",
+    '  const r = await fetch("/api/admin/state", {',
+    '    method: "POST", headers: {"content-type": "application/json"},',
+    "    body: JSON.stringify(payload)",
+    "  });",
+    "  const data = await r.json();",
+    "  if (r.status === 403) { alert('管理登录已失效，请重新登录后台。'); location.href = '/admin'; return; }",
+    "  if (!r.ok) { scheduleStatus.textContent = data.error || '定时设置保存失败'; return; }",
+    "  scheduleDirty = false;",
+    '  scheduleStatus.textContent = clear ? "全部定时任务已清除。" : "定时设置已保存。";',
     "  refresh();",
     "}",
     "async function refreshStats(){",
@@ -1725,11 +1849,16 @@ function adminPage() {
     '    status.textContent = r.ok ? "恢复完成：" + restoreSummary(d.restored || {}) : (d.error || "恢复失败");',
     '  } catch (err) { status.textContent = "恢复失败：" + (err.message || err); }',
     "  refreshStats();",
+    "  refresh();",
     "};",
     "refreshStats();",
-    'document.getElementById("close").onclick = () => { if (confirm("立即关闭并锁定入口？在你手动开放前，服务器重启或定时任务都不会自动开服。")) setState(false, 0); };',
-    'document.getElementById("open0").onclick = () => setState(true, 0);',
+    'document.getElementById("close").onclick = () => { if (confirm("立即关闭并锁定入口？之后只有你手动持续开放或到达定时开放时间才会恢复。")) setState(false); };',
+    'document.getElementById("open0").onclick = () => setState(true);',
+    'document.getElementById("save-schedule").onclick = () => saveSchedule(false);',
+    'document.getElementById("clear-schedule").onclick = () => { if (confirm("清除全部定时开放和定时关闭设置？当前入口状态不会改变。")) saveSchedule(true); };',
     "refresh();",
+    "setInterval(refresh, 5000);",
+    "setInterval(refreshStats, 15000);",
     "</script></body></html>",
   ];
   return html.join("");
@@ -1929,11 +2058,40 @@ const server = http.createServer(async (req, res) => {
     if (req.method !== "POST") return send(res, 405, { error: "只允许 GET 或 POST" });
     const body = await readBody(req);
     const action = String(body.action || "");
-    const open = action === "close" ? false : action === "open" ? true : Boolean(body.open);
+    applyDueShareSchedules();
+    if (action === "schedule") {
+      const clear = body.clear === true;
+      const openAt = clear ? 0 : normalizedScheduleAt(body.openAt);
+      const closeAt = clear ? 0 : normalizedScheduleAt(body.closeAt);
+      if (!clear && !openAt && !closeAt) {
+        return send(res, 400, { error: "至少设置一个定时开放或定时关闭时间。" });
+      }
+      if (openAt && openAt <= Date.now()) {
+        return send(res, 400, { error: "定时开放时间必须晚于当前时间。" });
+      }
+      if (closeAt && closeAt <= Date.now()) {
+        return send(res, 400, { error: "定时关闭时间必须晚于当前时间。" });
+      }
+      if (openAt && closeAt && openAt === closeAt) {
+        return send(res, 400, { error: "定时开放和定时关闭不能设置为同一时间。" });
+      }
+      const saved = saveShareState({
+        ...shareState,
+        scheduleOpenAt: openAt,
+        scheduleCloseAt: closeAt,
+        updatedAt: Date.now(),
+        reason: clear ? "schedule-cleared" : "schedule-updated",
+      });
+      if (!saved) return send(res, 500, { error: "定时设置未能写入数据目录。", state: adminState() });
+      return send(res, 200, adminState());
+    }
+    if (action !== "open" && action !== "close") {
+      return send(res, 400, { error: "未知的入口状态操作。" });
+    }
+    const open = action === "open";
     const saved = saveShareState({
+      ...shareState,
       open,
-      openUntil: 0,
-      lockedClosed: !open,
       updatedAt: Date.now(),
       reason: open ? "manual-open" : "manual-close",
     });
@@ -3164,6 +3322,10 @@ setInterval(() => {
     victims.forEach((v) => store.delete(v.sid));
   }
 }, 10 * 60 * 1000).unref();
+
+/* 定时入口只在到达用户设置的时间点时改变一次，其余时间不会调整营业状态。 */
+applyDueShareSchedules();
+setInterval(() => applyDueShareSchedules(), 1000).unref();
 
 /* ---------- 启动 ---------- */
 
