@@ -1172,11 +1172,45 @@ function openProtocolConfirmation(action) {
 
 async function act(text) {
   if (historyReadonly || !text.trim() || busy || session?.ended) return;
-  if (protocolState.enabled) {
+  if (shouldConfirmProtocol()) {
     openProtocolConfirmation(text);
     return;
   }
   await submitAction(text);
+}
+
+/** 协议弹窗默认只在本局第一次行动前出现，之后不再打断；玩家可在右侧「协议」里改。 */
+const PROTOCOL_CONFIRM_KEY = "pt-protocol-confirmed-run";
+let protocolConfirmedRun = "";
+
+function protocolRunKey() {
+  return String(session?.createdAt || session?.openingAt || "run");
+}
+
+function protocolAlreadyConfirmed() {
+  const key = protocolRunKey();
+  if (protocolConfirmedRun === key) return true;
+  try {
+    return localStorage.getItem(PROTOCOL_CONFIRM_KEY) === key;
+  } catch {
+    return false;
+  }
+}
+
+function markProtocolConfirmed() {
+  const key = protocolRunKey();
+  protocolConfirmedRun = key;
+  try {
+    localStorage.setItem(PROTOCOL_CONFIRM_KEY, key);
+  } catch {}
+}
+
+function shouldConfirmProtocol() {
+  if (!protocolState.enabled) return false;
+  const mode = protocolState.confirmMode || "first";
+  if (mode === "never") return false;
+  if (mode === "always") return true;
+  return !protocolAlreadyConfirmed();
 }
 
 $("protocol-confirm-check").addEventListener("change", () => {
@@ -1189,6 +1223,7 @@ $("protocol-cancel").addEventListener("click", () => {
 $("protocol-confirm").addEventListener("click", async () => {
   const action = pendingProtocolAction;
   pendingProtocolAction = "";
+  markProtocolConfirmed();
   $("protocol-modal").classList.add("hidden");
   if (action) await submitAction(action);
 });
@@ -3082,10 +3117,16 @@ const PROTOCOL_DEFAULT = [
   "危险行动有代价，结果符合世界规则与已建立的能力边界。",
   "不直接泄露幕后真相，只通过可观察、可验证的细节逐步揭示。",
 ];
-let protocolState = { enabled: true, extra: [] };
+let protocolState = { enabled: true, extra: [], confirmMode: "first" };
 try {
   const saved = JSON.parse(localStorage.getItem(PROTOCOL_KEY) || "null");
-  if (saved) protocolState = { enabled: saved.enabled !== false, extra: Array.isArray(saved.extra) ? saved.extra.slice(0, 20) : [] };
+  if (saved) {
+    protocolState = {
+      enabled: saved.enabled !== false,
+      extra: Array.isArray(saved.extra) ? saved.extra.slice(0, 20) : [],
+      confirmMode: ["first", "always", "never"].includes(saved.confirmMode) ? saved.confirmMode : "first",
+    };
+  }
 } catch {}
 
 function protocolRules() {
@@ -3100,11 +3141,17 @@ function renderProtocolSettings() {
     list.appendChild(item);
   }
   $("protocol-enabled").checked = protocolState.enabled;
+  if ($("protocol-confirm-mode")) {
+    $("protocol-confirm-mode").value = protocolState.confirmMode || "first";
+  }
   $("protocol-extra").value = protocolState.extra.join("\n");
 }
 
 function saveProtocolSettings() {
   protocolState.enabled = $("protocol-enabled").checked;
+  protocolState.confirmMode = ["first", "always", "never"].includes($("protocol-confirm-mode").value)
+    ? $("protocol-confirm-mode").value
+    : "first";
   protocolState.extra = String($("protocol-extra").value || "")
     .split(/\r?\n/)
     .map((line) => line.trim())

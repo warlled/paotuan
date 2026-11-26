@@ -846,7 +846,15 @@
         <div class="hint protocol-hint">确认后，协议会随行动发送给叙事引擎；它可以调整虚构世界规则、叙事方式和探索自由度，但不能覆盖输出语言、内容边界和世界连续性。</div>
         <div class="hint protocol-hint">现实敏感政治、严重违法伤害、未成年人性内容、仇恨煽动及隐私侵害不在可自定义范围内。</div>
         <div class="protocol-list" id="protocol-list"></div>
-        <label class="checkbox protocol-toggle"><input id="protocol-enabled" type="checkbox" checked> 每次提交行动前确认协议</label>
+        <label class="checkbox protocol-toggle"><input id="protocol-enabled" type="checkbox" checked> 启用玩家协议（会随行动一起发送给叙事引擎）</label>
+        <div class="field" style="margin-top:8px">
+          <label>确认弹窗时机</label>
+          <select id="protocol-confirm-mode">
+            <option value="first">只在第一回合弹一次（默认）</option>
+            <option value="always">每次提交行动都弹</option>
+            <option value="never">从不弹窗</option>
+          </select>
+        </div>
         <div class="field" style="margin-top:8px">
           <label>自定义协议（每行一条，最多 20 条）</label>
           <textarea id="protocol-extra" placeholder="例如：NPC 会按自己的计划行动；不要替玩家决定台词。"></textarea>
