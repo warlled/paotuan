@@ -2308,6 +2308,7 @@ const server = http.createServer(async (req, res) => {
       rating: trim(scn.rating, 60),
       tags: (Array.isArray(scn.tags) ? scn.tags : []).slice(0, 12).map((t) => trim(t, 20)),
       cover: trim(scn.cover, 200),
+      coverStyle: engine.sanitizeCoverStyle ? engine.sanitizeCoverStyle(scn.coverStyle) : null,
       playStyle: scn.playStyle === "open-world" ? "open-world" : "content",
       version: trim(scn.version, 20),
       versionNote: trim(scn.versionNote, 400),

@@ -283,6 +283,7 @@ function listScenarios(extraDir, viewer) {
           genre: data.genre || "",
           blurb: data.blurb || "",
           cover: data.cover || "",
+          coverStyle: sanitizeCoverStyle(data.coverStyle),
           author: data.author || "",
           visibility: data.visibility === "private" || data.visibility === "contacts" ? data.visibility : "public",
           duration: data.duration || "",
@@ -335,11 +336,32 @@ function loadScenario(id, extraDir) {
 }
 
 const NAME_RULE = /^[\w\u4e00-\u9fa5-]{1,40}$/;
-/** 剧本封面与背景只接受站内上传的静态图片。 */
-const COVER_RULE = /^\/uploads\/[a-f0-9]{16}\.(png|jpg|webp)$/i;
+/** 封面允许静态图与 GIF 动图；剧本背景只允许静态图。 */
+const COVER_RULE = /^\/uploads\/[a-f0-9]{16}\.(png|jpg|gif|webp)$/i;
+const STATIC_IMAGE_RULE = /^\/uploads\/[a-f0-9]{16}\.(png|jpg|webp)$/i;
 function sanitizeCover(value) {
   const url = String(value || "").trim();
   return COVER_RULE.test(url) ? url : "";
+}
+function sanitizeStaticImage(value) {
+  const url = String(value || "").trim();
+  return STATIC_IMAGE_RULE.test(url) ? url : "";
+}
+
+/** 封面取景：填充方式、焦点、缩放（创作者自由裁剪）。 */
+const COVER_FITS = ["cover", "contain"];
+function sanitizeCoverStyle(input) {
+  const source = input && typeof input === "object" ? input : {};
+  const num = (value, lo, hi, fallback) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? Math.max(lo, Math.min(hi, Math.round(n))) : fallback;
+  };
+  return {
+    fit: COVER_FITS.includes(source.fit) ? source.fit : "cover",
+    x: num(source.x, 0, 100, 50),
+    y: num(source.y, 0, 100, 50),
+    zoom: num(source.zoom, 100, 220, 100),
+  };
 }
 
 const SCENARIO_VISUAL_THEMES = ["ink-green", "warm-brown", "night-blue", "violet-night", "pure-black"];
@@ -351,13 +373,20 @@ function sanitizeScenarioVisual(input) {
   const overlay = Math.max(0, Math.min(90, Math.round(Number(source.overlay) || 42)));
   const blur = Math.max(0, Math.min(16, Math.round(Number(source.blur) || 0)));
   const position = ["center", "top", "bottom"].includes(source.position) ? source.position : "center";
+  const num = (value, lo, hi, fallback) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? Math.max(lo, Math.min(hi, Math.round(n))) : fallback;
+  };
   return {
     theme,
-    image: sanitizeCover(source.image),
+    image: sanitizeStaticImage(source.image),
     accent,
     overlay,
     blur,
     position,
+    zoom: num(source.zoom, 100, 200, 100),
+    focalX: num(source.focalX, 0, 100, 50),
+    focalY: num(source.focalY, 0, 100, 50),
   };
 }
 
@@ -502,6 +531,7 @@ function saveCustomScenario(input, existingId, targetDir) {
     genre: clip(input.genre, CLI.genre) || "自定义",
     blurb: clip(input.blurb, CLI.blurb) || background.slice(0, 80),
     cover: sanitizeCover(input.cover),
+    coverStyle: sanitizeCoverStyle(input.coverStyle),
     visual: sanitizeScenarioVisual(input.visual),
     author: clip(input.author, CLI.author),
     duration: clip(input.duration, CLI.duration),
@@ -2614,7 +2644,7 @@ module.exports = {
   LANGUAGES, normalizeLanguage, languageInstruction,
   promptProfileBlock, publicGmRules, freeRulesBlock,
   normalizePlayerProtocol,
-  listScenarios, loadScenario, scenarioVisibleTo, clockText,
+  listScenarios, loadScenario, scenarioVisibleTo, sanitizeCoverStyle, sanitizeScenarioVisual, clockText,
   parseDateTime, formatDateTime, scenarioStartParts, normalizeSessionTime,
   advanceTime, applyState, actionStateGate, parseModelTurn, buildPrompt, buildContinuePrompt,
   violatesContentBoundary,

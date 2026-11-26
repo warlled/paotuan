@@ -1372,7 +1372,7 @@ body:has(.owner-closed-banner) #game { padding-top: 28px; }
 #main::before {
   z-index: 0;
   background-image: var(--scenario-image, none);
-  background-size: cover;
+  background-size: var(--scenario-size, cover);
   background-position: var(--scenario-position, center);
   filter: blur(var(--scenario-blur, 0px));
   transform: scale(1.04);
@@ -2237,3 +2237,14 @@ body:has(.owner-closed-banner) #game { padding-top: 28px; }
   border-color: rgba(240, 163, 180, .45);
   color: #ffd9e2;
 }
+
+/* ---------- 封面裁剪控件 ---------- */
+.cover-style-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
+  gap: 8px 12px;
+  margin-top: 4px;
+}
+.cover-style-grid .editor-field input[type="range"] { padding: 0; }
+.cover-style-grid .editor-field span b { color: var(--accent); font-weight: 600; }
+.editor-cover-preview { overflow: hidden; }

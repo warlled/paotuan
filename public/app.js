@@ -340,6 +340,7 @@ function renderScenarios(selectId) {
       img.alt = "";
       img.loading = "lazy";
       img.decoding = "async";
+      applyCoverStyle(img, s.coverStyle);
       cover.appendChild(img);
     } else {
       cover.classList.add("c-fallback");
@@ -3883,6 +3884,8 @@ function fillScenarioForm(s) {
   $("s-intro").value = s.intro || "";
   $("s-tips").value = s.tips || "";
   scenarioCover = s.cover || "";
+  scenarioCoverStyle = normalizeCoverStyle(s.coverStyle);
+  syncCoverStyleControls();
   renderCoverPreview();
   $("s-tone").value = s.tone || "";
   $("s-play-style").value = s.playStyle === "open-world" ? "open-world" : "content";
@@ -3940,6 +3943,12 @@ function readScenarioForm() {
     genre: $("s-genre").value,
     blurb: $("s-blurb").value,
     cover: scenarioCover,
+    coverStyle: {
+      fit: $("s-cover-fit")?.value === "contain" ? "contain" : "cover",
+      x: Number($("s-cover-x")?.value ?? 50),
+      y: Number($("s-cover-y")?.value ?? 50),
+      zoom: Number($("s-cover-zoom")?.value ?? 100),
+    },
     visual: {
       theme: $("s-visual-theme").value,
       image: scenarioVisual.image,
@@ -3947,6 +3956,7 @@ function readScenarioForm() {
       overlay: Number($("s-visual-overlay").value) || 0,
       blur: Number($("s-visual-blur").value) || 0,
       position: $("s-visual-position").value,
+      zoom: Number($("s-visual-zoom")?.value || 100),
     },
     author: $("s-author").value,
     duration: $("s-duration").value,
@@ -4065,6 +4075,8 @@ function resetScenarioEditor() {
     $(id).value = "";
   }
   scenarioCover = "";
+  scenarioCoverStyle = normalizeCoverStyle({ fit: "cover", x: 50, y: 50, zoom: 100 });
+  syncCoverStyleControls();
   renderCoverPreview();
   scenarioVisual = normalizeScenarioVisual({ theme: "night-blue", overlay: 42, accent: "#79aee8" });
   renderScenarioVisualPreview();
@@ -4441,6 +4453,31 @@ $("btn-refresh-research").addEventListener("click", async () => {
 /* ---------- 剧本封面 ---------- */
 
 let scenarioCover = "";
+let scenarioCoverStyle = { fit: "cover", x: 50, y: 50, zoom: 100 };
+
+/** 封面取景：填充方式 + 焦点 + 缩放，创作者可自由裁剪。 */
+function normalizeCoverStyle(style) {
+  const source = style && typeof style === "object" ? style : {};
+  const clamp = (value, lo, hi, fallback) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? Math.max(lo, Math.min(hi, Math.round(n))) : fallback;
+  };
+  return {
+    fit: source.fit === "contain" ? "contain" : "cover",
+    x: clamp(source.x, 0, 100, 50),
+    y: clamp(source.y, 0, 100, 50),
+    zoom: clamp(source.zoom, 100, 220, 100),
+  };
+}
+
+function applyCoverStyle(img, style) {
+  if (!img) return;
+  const s = normalizeCoverStyle(style);
+  img.style.objectFit = s.fit;
+  img.style.objectPosition = `${s.x}% ${s.y}%`;
+  img.style.transformOrigin = `${s.x}% ${s.y}%`;
+  img.style.transform = s.zoom > 100 ? `scale(${s.zoom / 100})` : "";
+}
 const SCENARIO_VISUAL_PALETTES = {
   "ink-green": { accent: "#77b594", bg: "#07130f", panel: "#10231b", soft: "#163026", line: "#27483a" },
   "warm-brown": { accent: "#d3a46f", bg: "#17110d", panel: "#241a15", soft: "#34261e", line: "#4b392c" },
@@ -4461,13 +4498,20 @@ function normalizeScenarioVisual(input) {
   const source = input && typeof input === "object" ? input : {};
   const theme = SCENARIO_VISUAL_PALETTES[source.theme] ? source.theme : "night-blue";
   const palette = SCENARIO_VISUAL_PALETTES[theme];
+  const clamp = (value, lo, hi, fallback) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? Math.max(lo, Math.min(hi, Math.round(n))) : fallback;
+  };
   return {
     theme,
     image: /^\/uploads\/[a-f0-9]{16}\.(png|jpg|webp)$/i.test(String(source.image || "")) ? String(source.image) : "",
     accent: /^#[0-9a-f]{6}$/i.test(String(source.accent || "")) ? String(source.accent) : palette.accent,
-    overlay: Math.max(0, Math.min(90, Math.round(Number(source.overlay) || 42))),
-    blur: Math.max(0, Math.min(16, Math.round(Number(source.blur) || 0))),
+    overlay: clamp(source.overlay, 0, 90, 42),
+    blur: clamp(source.blur, 0, 16, 0),
     position: ["center", "top", "bottom"].includes(source.position) ? source.position : "center",
+    zoom: clamp(source.zoom, 100, 200, 100),
+    focalX: clamp(source.focalX, 0, 100, 50),
+    focalY: clamp(source.focalY, 0, 100, 50),
   };
 }
 
@@ -4508,6 +4552,7 @@ function applyScenarioVisual(input) {
   game.style.setProperty("--scenario-image", visual.image ? `url("${visual.image}")` : "none");
   game.style.setProperty("--scenario-background", background);
   game.style.setProperty("--scenario-position", position);
+  game.style.setProperty("--scenario-size", visual.zoom > 100 ? `${visual.zoom}% auto` : "cover");
   game.style.setProperty("--scenario-blur", `${visual.blur}px`);
   game.style.setProperty("--scenario-overlay-alpha", String(visual.overlay / 100));
   game.style.setProperty("--scenario-accent", visual.accent || palette.accent);
@@ -4524,15 +4569,17 @@ function renderScenarioVisualPreview() {
   $("s-visual-overlay").value = String(scenarioVisual.overlay);
   $("s-visual-blur").value = String(scenarioVisual.blur);
   $("s-visual-position").value = scenarioVisual.position;
+  if ($("s-visual-zoom")) $("s-visual-zoom").value = String(scenarioVisual.zoom);
   $("s-visual-image").value = scenarioVisual.image;
   $("s-visual-overlay-value").textContent = `${scenarioVisual.overlay}%`;
   $("s-visual-blur-value").textContent = `${scenarioVisual.blur}px`;
+  if ($("s-visual-zoom-value")) $("s-visual-zoom-value").textContent = `${scenarioVisual.zoom}%`;
   const preview = $("s-visual-preview");
   if (preview) {
     const layer = visualLayerStyle(scenarioVisual);
     const image = scenarioVisual.image ? `url("${scenarioVisual.image}"), ` : "";
     preview.style.background = `linear-gradient(rgb(5 8 12 / ${scenarioVisual.overlay / 100}), rgb(5 8 12 / 0.68)), ${image}${layer.background}`;
-    preview.style.backgroundSize = "cover";
+    preview.style.backgroundSize = scenarioVisual.zoom > 100 ? `${scenarioVisual.zoom}% auto, auto` : "cover";
     preview.style.backgroundPosition = layer.position;
     preview.style.borderColor = scenarioVisual.accent;
   }
@@ -4552,11 +4599,13 @@ function renderCoverPreview() {
     const img = document.createElement("img");
     img.src = scenarioCover;
     img.alt = "剧本封面预览";
+    applyCoverStyle(img, scenarioCoverStyle);
     box.appendChild(img);
-    if (note) note.textContent = "已设置静态封面。";
+    const gif = /\.gif$/i.test(scenarioCover);
+    if (note) note.textContent = gif ? "已设置 GIF 封面（卡片上会动）。" : "已设置静态封面。";
   } else {
     box.appendChild(el("span", "", "还没有封面"));
-    if (note) note.textContent = "建议竖图，比例 3:5（约 600×1000）。仅允许静态图片。";
+    if (note) note.textContent = "支持 JPG / PNG / WEBP 与 GIF 动图；下方可以调整裁剪与取景。";
   }
   const hidden = $("s-cover");
   if (hidden) hidden.value = scenarioCover;
@@ -4605,7 +4654,35 @@ $("s-cover-clear")?.addEventListener("click", () => {
   renderCoverPreview();
 });
 
-for (const id of ["s-visual-theme", "s-visual-accent", "s-visual-overlay", "s-visual-blur", "s-visual-position"]) {
+/** 封面裁剪控件：填充方式、焦点、缩放 */
+function syncCoverStyleControls() {
+  const style = normalizeCoverStyle(scenarioCoverStyle);
+  if ($("s-cover-fit")) $("s-cover-fit").value = style.fit;
+  if ($("s-cover-x")) $("s-cover-x").value = String(style.x);
+  if ($("s-cover-y")) $("s-cover-y").value = String(style.y);
+  if ($("s-cover-zoom")) $("s-cover-zoom").value = String(style.zoom);
+  if ($("s-cover-x-value")) $("s-cover-x-value").textContent = style.x + "%";
+  if ($("s-cover-y-value")) $("s-cover-y-value").textContent = style.y + "%";
+  if ($("s-cover-zoom-value")) $("s-cover-zoom-value").textContent = style.zoom + "%";
+}
+
+function readCoverStyleControls() {
+  scenarioCoverStyle = normalizeCoverStyle({
+    fit: $("s-cover-fit")?.value,
+    x: Number($("s-cover-x")?.value ?? 50),
+    y: Number($("s-cover-y")?.value ?? 50),
+    zoom: Number($("s-cover-zoom")?.value ?? 100),
+  });
+  syncCoverStyleControls();
+  renderCoverPreview();
+}
+
+for (const id of ["s-cover-fit", "s-cover-x", "s-cover-y", "s-cover-zoom"]) {
+  $(id)?.addEventListener("input", readCoverStyleControls);
+  $(id)?.addEventListener("change", readCoverStyleControls);
+}
+
+for (const id of ["s-visual-theme", "s-visual-accent", "s-visual-overlay", "s-visual-blur", "s-visual-position", "s-visual-zoom"]) {
   const syncVisual = () => {
     const theme = $("s-visual-theme").value;
     const accent = id === "s-visual-theme"
@@ -4618,6 +4695,7 @@ for (const id of ["s-visual-theme", "s-visual-accent", "s-visual-overlay", "s-vi
       overlay: Number($("s-visual-overlay").value) || 0,
       blur: Number($("s-visual-blur").value) || 0,
       position: $("s-visual-position").value,
+      zoom: Number($("s-visual-zoom")?.value || 100),
     });
     renderScenarioVisualPreview();
   };
@@ -4883,6 +4961,7 @@ function renderScenarioDetail(d) {
     const img = document.createElement("img");
     img.src = d.cover;
     img.alt = "";
+    applyCoverStyle(img, d.coverStyle);
     cover.appendChild(img);
   } else {
     cover.appendChild(el("span", "", "封面待补充"));
