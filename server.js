@@ -2172,11 +2172,15 @@ const server = http.createServer(async (req, res) => {
     }
     return send(res, 200, fs.readFileSync(path.join(PUBLIC, "index.html"), "utf8"), "text/html; charset=utf-8");
   }
-  if (req.method === "GET" && (p === "/app.js" || p === "/i18n.js" || p === "/style.css")) {
+  if (
+    req.method === "GET" &&
+    (p === "/app.js" || p === "/i18n.js" || p === "/style.css" || p === "/bottom-nav.js" || p === "/bottom-nav.css")
+  ) {
     const type = p.endsWith(".css") ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8";
-    if (!fs.existsSync(path.join(PUBLIC, p))) return send(res, 404, "not found", "text/plain; charset=utf-8");
+    const name = p.slice(1);
+    if (!fs.existsSync(path.join(PUBLIC, name))) return send(res, 404, "not found", "text/plain; charset=utf-8");
     res.setHeader("cache-control", "no-cache");
-    return send(res, 200, fs.readFileSync(path.join(PUBLIC, p), "utf8"), type);
+    return send(res, 200, fs.readFileSync(path.join(PUBLIC, name), "utf8"), type);
   }
 
   // 第三方库（PPT 导出）放本地，避免依赖外部 CDN

@@ -143,9 +143,8 @@ function showCreationSection() {
   if (setupState.editorDraftAvailable && $("custom-box").classList.contains("hidden")) {
     openScenarioEditor();
   } else if ($("custom-box").classList.contains("hidden")) {
-    $("btn-custom-scenario").click();
-  }
-  else openScenarioEditor();
+    startNewScenarioDraft();
+  } else openScenarioEditor();
   setBottomNavActive("create");
   $("setup").scrollTo({ top: 0, behavior: "smooth" });
 }
@@ -178,6 +177,36 @@ document.querySelectorAll("[data-bottom-nav]").forEach((button) => {
     else if (section === "profile") showProfileSection();
   });
 });
+
+function applyPanelScale(modalId, buttonId, compact) {
+  const modal = $(modalId);
+  const button = $(buttonId);
+  if (!modal || !button) return;
+  modal.classList.toggle("compact-view", compact);
+  button.textContent = compact ? "全屏" : "缩放";
+  button.setAttribute("aria-pressed", compact ? "true" : "false");
+}
+
+for (const [modalId, buttonId, key] of [
+  ["fb-modal", "fb-scale", "notice"],
+  ["me-modal", "me-scale", "profile"],
+  ["cm-modal", "cm-scale", "community"],
+]) {
+  const button = $(buttonId);
+  if (!button) continue;
+  let compact = false;
+  try {
+    compact = localStorage.getItem(`pt-panel-${key}-compact`) === "1";
+  } catch {}
+  applyPanelScale(modalId, buttonId, compact);
+  button.addEventListener("click", () => {
+    const next = !$(modalId).classList.contains("compact-view");
+    applyPanelScale(modalId, buttonId, next);
+    try {
+      localStorage.setItem(`pt-panel-${key}-compact`, next ? "1" : "0");
+    } catch {}
+  });
+}
 
 function storeScenarioSocial(id, social) {
   const scenario = meta?.scenarios?.find((item) => item.id === id);
@@ -3276,6 +3305,10 @@ try {
 buildModelPicker();
 loadMe();
 loadMeta();
+const landingSection = new URLSearchParams(location.search).get("section");
+if (["home", "create", "community", "notice", "profile"].includes(landingSection)) {
+  setTimeout(() => document.querySelector(`[data-bottom-nav="${landingSection}"]`)?.click(), 0);
+}
 
 /* ---------- 角色预设 ---------- */
 
@@ -4133,13 +4166,13 @@ function closeScenarioEditor() {
   $("scenario-note").textContent = "";
 }
 
-$("btn-custom-scenario").addEventListener("click", () => {
+function startNewScenarioDraft() {
   setupState.editingId = null;
   resetScenarioEditor();
   if (!$("s-author").value && me?.name) $("s-author").value = me.name;
   openScenarioEditor();
   $("scenario-note").textContent = "分层创作台已打开；保存后会出现在上面的剧本列表里。";
-});
+}
 
 function escHtml(value) {
   return String(value == null ? "" : value).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -4265,11 +4298,27 @@ $("btn-editor-expand").addEventListener("click", () => {
   $("btn-editor-expand").textContent = shouldOpen ? "收起全部" : "展开全部";
 });
 
+function applyScenarioEditorScale(compact) {
+  $("custom-box").classList.toggle("editor-compact-view", compact);
+  $("btn-editor-scale").textContent = compact ? "全屏" : "缩放";
+  $("btn-editor-scale").setAttribute("aria-pressed", compact ? "true" : "false");
+}
+
+$("btn-editor-scale").addEventListener("click", () => {
+  const compact = !$("custom-box").classList.contains("editor-compact-view");
+  applyScenarioEditorScale(compact);
+  try {
+    localStorage.setItem("pt-editor-compact", compact ? "1" : "0");
+  } catch {}
+});
+try {
+  applyScenarioEditorScale(localStorage.getItem("pt-editor-compact") === "1");
+} catch {
+  applyScenarioEditorScale(false);
+}
+
 $("btn-cancel-scenario").addEventListener("click", closeScenarioEditor);
 $("btn-cancel-scenario-bottom").addEventListener("click", closeScenarioEditor);
-
-$("quick-new-scenario").addEventListener("click", () => $("btn-custom-scenario").click());
-$("quick-community").addEventListener("click", () => $("cm-open").click());
 
 $("btn-edit-scenario").addEventListener("click", async () => {
   if (!setupState.editingId) return;
