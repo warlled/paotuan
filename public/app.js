@@ -13,6 +13,7 @@ let busy = false;
 let metaLoading = false;
 let metaRetryTimer = 0;
 const META_CACHE_KEY = "pt-meta-cache-v1";
+const SCENARIO_VISIBILITIES_FOR_UI = ["public", "contacts", "private"];
 let scenarioLinks = [];
 let settingLinks = [];
 const sharedScenarioId = (() => {
@@ -2076,6 +2077,98 @@ $("me-open").addEventListener("click", () => {
   setBottomNavActive("profile");
   loadMe();
   loadModelInfo();
+});
+
+function fillPrivacyForm(profile) {
+  $("privacy-discoverable").checked = profile?.discoverable !== false;
+  $("privacy-show-profile").checked = profile?.showProfile !== false;
+  $("privacy-show-activity").checked = profile?.showActivity !== false;
+  $("privacy-show-online").checked = profile?.showOnline !== false;
+  $("privacy-default-visibility").value = SCENARIO_VISIBILITIES_FOR_UI.includes(profile?.creatorDefaultVisibility)
+    ? profile.creatorDefaultVisibility
+    : "public";
+  $("privacy-accepted").checked = Number(profile?.privacyAcceptedAt) > 0;
+  $("privacy-status").textContent = profile?.privacyVersion
+    ? `协议版本 ${profile.privacyVersion} 已记录同意`
+    : "保存前请阅读协议并勾选同意。";
+}
+
+async function openPrivacyCenter() {
+  if (!me) await loadMe();
+  fillPrivacyForm(me);
+  $("privacy-modal").classList.remove("hidden");
+}
+
+$("me-privacy").addEventListener("click", openPrivacyCenter);
+
+$("privacy-save").addEventListener("click", async () => {
+  $("privacy-status").textContent = "保存中…";
+  const payload = {
+    discoverable: $("privacy-discoverable").checked,
+    showProfile: $("privacy-show-profile").checked,
+    showActivity: $("privacy-show-activity").checked,
+    showOnline: $("privacy-show-online").checked,
+    creatorDefaultVisibility: $("privacy-default-visibility").value,
+    privacyAccepted: $("privacy-accepted").checked,
+  };
+  const r = await fetch("/api/me", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await r.json();
+  if (!r.ok) {
+    $("privacy-status").textContent = data.error || "保存失败";
+    return;
+  }
+  me = { ...(me || {}), ...data };
+  $("privacy-status").textContent = $("privacy-accepted").checked
+    ? "隐私设置已保存，同意记录已更新。"
+    : "隐私设置已保存；未记录协议同意。";
+});
+
+$("privacy-export").addEventListener("click", async () => {
+  const button = $("privacy-export");
+  button.disabled = true;
+  $("privacy-status").textContent = "正在整理个人数据…";
+  try {
+    const r = await fetch("/api/privacy/export");
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `paotuan-privacy-export-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 3000);
+    $("privacy-status").textContent = "个人数据已导出到本机。";
+  } catch (error) {
+    $("privacy-status").textContent = `导出失败：${error.message || error}`;
+  } finally {
+    button.disabled = false;
+  }
+});
+
+$("privacy-delete").addEventListener("click", async () => {
+  const typed = prompt("此操作不可撤销。请输入“删除我的数据”以继续：");
+  if (typed !== "删除我的数据") return;
+  if (!confirm("最后确认：删除当前匿名身份下的资料、剧本、预设、存档和公开互动？")) return;
+  $("privacy-status").textContent = "正在删除…";
+  const r = await fetch("/api/privacy/delete", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ confirm: typed }),
+  });
+  const data = await r.json();
+  if (!r.ok) {
+    $("privacy-status").textContent = data.error || "删除失败";
+    return;
+  }
+  alert(`删除完成。剧本 ${data.removed?.scenarios || 0} 个、帖子 ${data.removed?.posts || 0} 条、留言 ${data.removed?.feedback || 0} 条。`);
+  location.reload();
 });
 
 const GM_SLIDER_IDS = [
@@ -4267,7 +4360,9 @@ function resetScenarioEditor() {
   renderScenarioVisualPreview();
   $("s-version").value = "1.0";
   $("s-tags").value = "";
-  $("s-visibility").value = "public";
+  $("s-visibility").value = SCENARIO_VISIBILITIES_FOR_UI.includes(me?.creatorDefaultVisibility)
+    ? me.creatorDefaultVisibility
+    : "public";
   $("s-shared").value = "";
   updateSharedWrap();
   $("s-play-style").value = "open-world";

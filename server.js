@@ -64,6 +64,8 @@ const UPLOAD_NAME_RULE = /^[a-f0-9]{16}\.(png|jpg|gif|webp|mp4|webm)$/i;
 const communityLast = new Map();
 const i18nBusy = new Set();
 const SITE_THEMES = ["pink", "cream", "ink-green", "warm-brown", "night-blue", "violet-night", "pure-black"];
+const SCENARIO_VISIBILITIES = ["public", "contacts", "private"];
+const PRIVACY_VERSION = "2026-11-27-v1";
 const STATIC_IMAGE_MIMES = new Set(["image/png", "image/jpeg", "image/webp"]);
 
 function userFile(sid) {
@@ -80,6 +82,15 @@ function loadProfileFor(sid) {
     theme: p?.theme || "#c8a06a",
     siteTheme: SITE_THEMES.includes(p?.siteTheme) ? p.siteTheme : "cream",
     notes: p?.notes || "",
+    discoverable: p?.discoverable !== false,
+    showProfile: p?.showProfile !== false,
+    showActivity: p?.showActivity !== false,
+    showOnline: p?.showOnline !== false,
+    creatorDefaultVisibility: SCENARIO_VISIBILITIES.includes(p?.creatorDefaultVisibility)
+      ? p.creatorDefaultVisibility
+      : "public",
+    privacyAcceptedAt: Number(p?.privacyAcceptedAt) || 0,
+    privacyVersion: String(p?.privacyVersion || ""),
     updatedAt: p?.updatedAt || 0,
   };
 }
@@ -92,11 +103,69 @@ function saveProfileFor(sid, patch) {
   const theme = /^#[0-9a-f]{6}$/i.test(String(patch.theme || "")) ? String(patch.theme) : current.theme;
   const siteTheme = SITE_THEMES.includes(patch.siteTheme) ? patch.siteTheme : current.siteTheme;
   const notes = String(patch.notes ?? current.notes).slice(0, 2000);
+  const boolValue = (key) => typeof patch[key] === "boolean" ? patch[key] : current[key];
+  const discoverable = boolValue("discoverable");
+  const showProfile = boolValue("showProfile");
+  const showActivity = boolValue("showActivity");
+  const showOnline = boolValue("showOnline");
+  const creatorDefaultVisibility = SCENARIO_VISIBILITIES.includes(patch.creatorDefaultVisibility)
+    ? patch.creatorDefaultVisibility
+    : current.creatorDefaultVisibility;
+  const privacyAcceptedAt = patch.privacyAccepted === true
+    ? Date.now()
+    : patch.privacyAccepted === false
+      ? 0
+      : current.privacyAcceptedAt;
+  const privacyVersion = privacyAcceptedAt ? PRIVACY_VERSION : "";
   let avatar = String(patch.avatar ?? current.avatar);
   if (avatar && !/^\/uploads\/[a-z0-9]+\.[a-z0-9]+$/i.test(avatar)) avatar = current.avatar;
-  const next = { sid, pid, name, bio, avatar, theme, siteTheme, notes, updatedAt: Date.now() };
+  const next = {
+    sid, pid, name, bio, avatar, theme, siteTheme, notes,
+    discoverable, showProfile, showActivity, showOnline,
+    creatorDefaultVisibility, privacyAcceptedAt, privacyVersion,
+    updatedAt: Date.now(),
+  };
   writeJsonFile(userFile(sid), next);
   return next;
+}
+
+function publicProfileView(profile) {
+  const {
+    sid, discoverable, showProfile, showActivity, showOnline,
+    creatorDefaultVisibility, privacyAcceptedAt, privacyVersion, updatedAt,
+  } = profile;
+  return {
+    pid: profile.pid || "",
+    name: profile.name || "",
+    bio: profile.bio || "",
+    avatar: profile.avatar || "",
+    theme: profile.theme || "#c8a06a",
+    siteTheme: profile.siteTheme || "cream",
+    notes: profile.notes || "",
+    discoverable,
+    showProfile,
+    showActivity,
+    showOnline,
+    creatorDefaultVisibility,
+    privacyAcceptedAt,
+    privacyVersion,
+    updatedAt,
+  };
+}
+
+function displayIdentityForSid(sid, viewerSid, fallback = {}) {
+  const profile = sid ? loadProfileFor(sid) : null;
+  const isSelf = Boolean(sid && sid === viewerSid);
+  if (profile && !isSelf && profile.showActivity === false) {
+    return { pid: "", name: "匿名旅人", avatar: "" };
+  }
+  return {
+    pid: profile && (isSelf || profile.showProfile !== false)
+      ? profile.pid || fallback.pid || ""
+      : fallback.pid || "",
+    name: profile?.name || fallback.name || "匿名旅人",
+    avatar: profile?.avatar || fallback.avatar || "",
+  };
 }
 
 const PROMPT_PROFILE_DEFAULTS = {
@@ -266,13 +335,16 @@ const COMMUNITY_CATEGORIES = ["历史","奇幻","科幻","现实","言情","脑�
 const COMMUNITY_ORIGINS = ["原创", "同人"];
 
 function communityGroupView(group, sid) {
-  const profile = group.ownerSid ? loadProfileFor(group.ownerSid) : null;
+  const owner = displayIdentityForSid(group.ownerSid, sid, {
+    pid: group.ownerPid || "",
+    name: group.ownerName || "",
+  });
   return {
     id: group.id,
     name: group.name,
     description: group.description || "",
-    ownerPid: group.ownerPid || profile?.pid || "",
-    ownerName: group.ownerName || profile?.name || "匿名旅人",
+    ownerPid: owner.pid,
+    ownerName: owner.name,
     mine: Boolean(group.ownerSid && group.ownerSid === sid),
     postCount: community.filter((post) => post.communityId === group.id).length,
     builtin: false,
@@ -296,11 +368,14 @@ function ensureCommunityComments(post) {
 }
 
 function communityReplyView(reply, sid) {
-  const profile = reply.sid ? loadProfileFor(reply.sid) : null;
+  const identity = displayIdentityForSid(reply.sid, sid, {
+    name: reply.who,
+    avatar: reply.avatar,
+  });
   return {
     id: reply.id,
-    author: (profile && profile.name) || reply.who || "匿名旅人",
-    avatar: (profile && profile.avatar) || reply.avatar || "",
+    author: identity.name,
+    avatar: identity.avatar,
     text: reply.text || "",
     at: reply.at || "",
     replyToName: reply.replyToName || "",
@@ -311,12 +386,15 @@ function communityReplyView(reply, sid) {
 }
 
 function communityCommentView(comment, sid) {
-  const profile = comment.sid ? loadProfileFor(comment.sid) : null;
+  const identity = displayIdentityForSid(comment.sid, sid, {
+    name: comment.who,
+    avatar: comment.avatar,
+  });
   const replies = (comment.replies || []).map((reply) => communityReplyView(reply, sid));
   return {
     id: comment.id,
-    author: (profile && profile.name) || comment.who || "匿名旅人",
-    avatar: (profile && profile.avatar) || comment.avatar || "",
+    author: identity.name,
+    avatar: identity.avatar,
     text: comment.text || "",
     at: comment.at || "",
     likes: (comment.likes || []).length,
@@ -372,11 +450,14 @@ function ensureFeedbackMessage(message) {
 }
 
 function feedbackReplyView(reply, sid) {
-  const profile = reply.sid ? loadProfileFor(reply.sid) : null;
+  const identity = displayIdentityForSid(reply.sid, sid, {
+    name: reply.name,
+    avatar: reply.avatar,
+  });
   return {
     id: reply.id,
-    name: (profile && profile.name) || reply.name || "匿名旅人",
-    avatar: (profile && profile.avatar) || reply.avatar || "",
+    name: identity.name,
+    avatar: identity.avatar,
     text: reply.text || "",
     at: reply.at || "",
     replyToName: reply.replyToName || "",
@@ -388,11 +469,14 @@ function feedbackReplyView(reply, sid) {
 
 function feedbackView(message, sid) {
   ensureFeedbackMessage(message);
-  const profile = message.sid ? loadProfileFor(message.sid) : null;
+  const identity = displayIdentityForSid(message.sid, sid, {
+    name: message.name,
+    avatar: message.avatar,
+  });
   return {
     id: message.id,
-    name: (profile && profile.name) || message.name || "匿名旅人",
-    avatar: (profile && profile.avatar) || message.avatar || "",
+    name: identity.name,
+    avatar: identity.avatar,
     text: message.text,
     at: message.at,
     editedAt: message.editedAt || null,
@@ -443,6 +527,7 @@ function newRoomState(scenario = {}) {
 function publicRoom(room, sid) {
   const scenario = room.scenario || {};
   engine.normalizeSessionTime(room.state, scenario);
+  const hostIdentity = displayIdentityForSid(room.hostSid, sid, { pid: room.hostPid });
   return {
     code: room.code,
     status: room.status,
@@ -456,15 +541,22 @@ function publicRoom(room, sid) {
       visual: room.scenario.visual || null,
     },
     language: engine.normalizeLanguage(room.language),
-    players: room.players.map((p) => ({
-      pid: p.pid,
-      name: p.name,
-      avatar: p.avatar,
-      character: p.character,
-      ready: Boolean(room.actions[p.sid]),
-    })),
+    players: room.players.map((p) => {
+      const identity = displayIdentityForSid(p.sid, sid, {
+        pid: p.pid,
+        name: p.name,
+        avatar: p.avatar,
+      });
+      return {
+        pid: identity.pid,
+        name: identity.name,
+        avatar: identity.avatar,
+        character: p.character,
+        ready: Boolean(room.actions[p.sid]),
+      };
+    }),
     isHost: room.hostSid === sid,
-    hostPid: room.hostPid,
+    hostPid: hostIdentity.pid,
     turn: room.turn,
     log: room.log.slice(-80),
     state: {
@@ -672,15 +764,20 @@ function initRoomStatus(character) {
 
 function communityView(post, sid) {
   ensureCommunityComments(post);
+  const identity = displayIdentityForSid(post.sid, sid, {
+    pid: post.pid,
+    name: post.author,
+    avatar: post.avatar,
+  });
   const group = post.communityId
     ? communityGroups.find((item) => item.id === post.communityId)
     : null;
   return {
     id: post.id,
     type: post.type || "post",
-    author: post.author,
-    pid: post.pid || "",
-    avatar: post.avatar || "",
+    author: identity.name,
+    pid: identity.pid,
+    avatar: identity.avatar,
     title: post.title,
     text: post.text,
     category: post.category || "现实",
@@ -760,6 +857,81 @@ function allProfiles() {
       }
     })
     .filter((p) => p && p.pid && p.sid);
+}
+
+function removeSidLikes(record, sid) {
+  if (!record || !Array.isArray(record.likes)) return;
+  record.likes = record.likes.filter((value) => value !== sid);
+}
+
+function collectUploadUrls(value, out) {
+  if (typeof value === "string") {
+    const match = value.match(/^\/uploads\/([a-f0-9]{16}\.(?:png|jpg|gif|webp|mp4|webm))$/i);
+    if (match) out.add(match[1]);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectUploadUrls(item, out);
+    return;
+  }
+  if (value && typeof value === "object") {
+    for (const item of Object.values(value)) collectUploadUrls(item, out);
+  }
+}
+
+function privacyExportData(entry) {
+  const sid = entry.sid;
+  const ownPostIds = new Set(community.filter((post) => post.sid === sid).map((post) => post.id));
+  return {
+    format: "paotuan-privacy-export",
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    privacyAgreementVersion: PRIVACY_VERSION,
+    profile: publicProfileView(loadProfileFor(sid)),
+    scenarios: listOwnScenarios(entry),
+    presets: readJsonDirFiles(presetDirFor(entry)),
+    session: entry.session ? publicSession(entry) : null,
+    communityPosts: community
+      .filter((post) => post.sid === sid)
+      .map((post) => communityView(post, sid)),
+    communityComments: community
+      .filter((post) => !ownPostIds.has(post.id))
+      .flatMap((post) =>
+        (post.comments || [])
+          .flatMap((comment) => {
+            const items = [];
+            if (comment.sid === sid) {
+              items.push({ postId: post.id, postTitle: post.title, type: "comment", text: comment.text, at: comment.at });
+            }
+            for (const reply of comment.replies || []) {
+              if (reply.sid === sid) {
+                items.push({ postId: post.id, postTitle: post.title, type: "reply", text: reply.text, at: reply.at });
+              }
+            }
+            return items;
+          })
+      ),
+    feedback: feedback
+      .filter((message) => message.sid === sid)
+      .map((message) => feedbackView(message, sid)),
+    rooms: Object.values(rooms)
+      .filter((room) => room.hostSid === sid || room.players?.some((player) => player.sid === sid))
+      .map((room) => ({
+        code: room.code,
+        status: room.status,
+        scenario: room.scenario?.title || "",
+        hostedByMe: room.hostSid === sid,
+        createdAt: room.createdAt || 0,
+        updatedAt: room.updatedAt || 0,
+      })),
+    likedScenarios: Object.entries(scenarioSocial)
+      .filter(([, value]) => value?.likes?.includes(sid))
+      .map(([id]) => id),
+    favoritedScenarios: Object.entries(scenarioSocial)
+      .filter(([, value]) => value?.favorites?.includes(sid))
+      .map(([id]) => id),
+    model: publicModel(loadModelFor(sid)),
+  };
 }
 
 /* ---------- 在线人数 / 好评差评 / 留言板 ---------- */
@@ -870,7 +1042,7 @@ function onlineCount() {
   const now = Date.now();
   let n = 0;
   for (const [sid, seen] of presence) {
-    if (now - seen <= PRESENCE_TTL) n += 1;
+    if (now - seen <= PRESENCE_TTL && loadProfileFor(sid).showOnline !== false) n += 1;
     else presence.delete(sid);
   }
   return n;
@@ -2579,7 +2751,9 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (p === "/api/presence") {
-    presence.set(entry.sid, Date.now());
+    const profile = loadProfileFor(entry.sid);
+    if (profile.showOnline === false) presence.delete(entry.sid);
+    else presence.set(entry.sid, Date.now());
     return send(res, 200, { online: onlineCount(), ...voteSnapshot(entry.sid) });
   }
 
@@ -2717,9 +2891,131 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (p === "/api/me") {
-    if (req.method === "GET") return send(res, 200, loadProfileFor(entry.sid));
+    if (req.method === "GET") return send(res, 200, publicProfileView(loadProfileFor(entry.sid)));
     const body = await readBody(req);
-    return send(res, 200, saveProfileFor(entry.sid, body));
+    return send(res, 200, publicProfileView(saveProfileFor(entry.sid, body)));
+  }
+
+  if (p === "/api/privacy/export" && req.method === "GET") {
+    return send(res, 200, privacyExportData(entry));
+  }
+
+  if (req.method === "POST" && p === "/api/privacy/delete") {
+    if (entry.owner) return send(res, 403, { error: "房主账号请在后台备份并处理，本站内不允许删除管理员数据。" });
+    const body = await readBody(req);
+    if (String(body.confirm || "") !== "删除我的数据") {
+      return send(res, 400, { error: "请完整输入“删除我的数据”后再确认。" });
+    }
+    const sid = entry.sid;
+    const profile = loadProfileFor(sid);
+    const ownScenarios = listOwnScenarios(entry);
+    const ownPresets = engine.listPresets(presetDirFor(entry));
+    const uploadCandidates = new Set();
+    collectUploadUrls(profile, uploadCandidates);
+    collectUploadUrls(ownScenarios, uploadCandidates);
+    collectUploadUrls(community.filter((post) => post.sid === sid), uploadCandidates);
+    const removedPosts = community.filter((post) => post.sid === sid).length;
+    community = community.filter((post) => post.sid !== sid);
+    for (const post of community) {
+      removeSidLikes(post, sid);
+      post.comments = (post.comments || []).filter((comment) => comment.sid !== sid);
+      for (const comment of post.comments) {
+        removeSidLikes(comment, sid);
+        comment.replies = (comment.replies || []).filter((reply) => reply.sid !== sid);
+      }
+    }
+    const removedFeedback = feedback.filter((message) => message.sid === sid).length;
+    feedback = feedback.filter((message) => message.sid !== sid);
+    for (const message of feedback) {
+      removeSidLikes(message, sid);
+      message.replies = (message.replies || []).filter((reply) => reply.sid !== sid);
+    }
+    const ownGroups = communityGroups.filter((group) => group.ownerSid === sid);
+    for (const group of ownGroups) {
+      group.ownerSid = "";
+      group.ownerPid = "";
+      group.ownerName = "已注销用户";
+    }
+    for (const item of Object.values(scenarioSocial)) {
+      if (!item || typeof item !== "object") continue;
+      item.likes = (item.likes || []).filter((value) => value !== sid);
+      item.favorites = (item.favorites || []).filter((value) => value !== sid);
+      item.comments = (item.comments || []).filter((comment) => comment.sid !== sid);
+      for (const comment of item.comments) {
+        removeSidLikes(comment, sid);
+        comment.replies = (comment.replies || []).filter((reply) => reply.sid !== sid);
+      }
+    }
+    let removedRooms = 0;
+    for (const [code, room] of Object.entries(rooms)) {
+      if (room.hostSid === sid) {
+        delete rooms[code];
+        removedRooms += 1;
+        continue;
+      }
+      const player = room.players?.find((item) => item.sid === sid);
+      if (player?.pid && room.state?.status) delete room.state.status[player.pid];
+      room.players = (room.players || []).filter((item) => item.sid !== sid);
+      delete room.actions?.[sid];
+    }
+    const previousVote = votes.voters[sid];
+    if (previousVote) votes[previousVote] = Math.max(0, (Number(votes[previousVote]) || 0) - 1);
+    delete votes.voters[sid];
+    presence.delete(sid);
+
+    for (const scenario of ownScenarios) {
+      try {
+        engine.deleteCustomScenario(scenario.id, ownScenarioDir(entry));
+      } catch {}
+    }
+    for (const preset of ownPresets) {
+      try {
+        engine.deletePreset(preset.name, presetDirFor(entry));
+      } catch {}
+    }
+    for (const file of [userFile(sid), promptProfileFile(sid), modelFile(sid), sessFile(sid)]) {
+      try {
+        if (file && fs.existsSync(file)) fs.unlinkSync(file);
+      } catch {}
+    }
+    entry.session = null;
+    store.delete(sid);
+    writeJsonFile(COMMUNITY_FILE, community);
+    writeJsonFile(COMMUNITY_GROUPS_FILE, communityGroups);
+    writeJsonFile(FEEDBACK_FILE, feedback);
+    writeJsonFile(VOTES_FILE, votes);
+    writeJsonFile(SCENARIO_SOCIAL_FILE, scenarioSocial);
+    saveRooms();
+    const remainingUploads = new Set();
+    collectUploadUrls({
+      community,
+      communityGroups,
+      feedback,
+      scenarioSocial,
+      rooms,
+      users: readJsonDirFiles(USERS_DIR),
+      scenarios: engine.listScenarios(undefined, { owner: true }),
+    }, remainingUploads);
+    for (const name of uploadCandidates) {
+      if (remainingUploads.has(name)) continue;
+      try {
+        const file = path.join(UPLOAD_DIR, name);
+        if (fs.existsSync(file)) fs.unlinkSync(file);
+      } catch {}
+    }
+    const nextSid = crypto.randomBytes(12).toString("hex");
+    setCookie(res, `tg_sid=${nextSid}; Path=/; Max-Age=2592000; SameSite=Lax`);
+    return send(res, 200, {
+      ok: true,
+      removed: {
+        scenarios: ownScenarios.length,
+        presets: ownPresets.length,
+        posts: removedPosts,
+        feedback: removedFeedback,
+        rooms: removedRooms,
+        groupsAnonymized: ownGroups.length,
+      },
+    });
   }
 
   if (p === "/api/gm-console") {
@@ -3024,6 +3320,7 @@ const server = http.createServer(async (req, res) => {
   if (p === "/api/players") {
     const q = String(url.searchParams.get("q") || "").trim().toLowerCase();
     const list = allProfiles()
+      .filter((x) => x.discoverable !== false && x.showProfile !== false)
       .filter((x) => !q || String(x.name || "").toLowerCase().includes(q) || String(x.bio || "").toLowerCase().includes(q))
       .slice(0, 30)
       .map((x) => ({
@@ -3040,6 +3337,9 @@ const server = http.createServer(async (req, res) => {
     const pid = String(url.searchParams.get("pid") || "");
     const prof = allProfiles().find((x) => x.pid === pid);
     if (!prof) return send(res, 404, { error: "找不到这位玩家" });
+    if (prof.sid !== entry.sid && prof.showProfile === false) {
+      return send(res, 404, { error: "这位玩家没有公开个人空间" });
+    }
     const posts = community
       .filter((c) => c.sid === prof.sid)
       .slice(-50)
@@ -3058,6 +3358,7 @@ const server = http.createServer(async (req, res) => {
     const q = String(url.searchParams.get("q") || "").trim().toLowerCase();
     if (!q) return send(res, 200, { players: [], scenarios: [] });
     const players = allProfiles()
+      .filter((x) => x.discoverable !== false && x.showProfile !== false)
       .filter((x) => String(x.name || "").toLowerCase().includes(q) || String(x.bio || "").toLowerCase().includes(q))
       .slice(0, 10)
       .map((x) => ({ pid: x.pid, name: x.name || "匿名旅人", avatar: x.avatar || "", bio: x.bio || "" }));
