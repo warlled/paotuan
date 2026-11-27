@@ -10,7 +10,9 @@ ENV NODE_ENV=production \
 
 COPY . .
 
-RUN mkdir -p /data
+RUN mkdir -p /data && chown -R node:node /app /data
+
+USER node
 
 EXPOSE 8890
 

@@ -76,6 +76,10 @@ const BACKUP_UPLOAD_LIMIT = Math.max(0, Number(process.env.BACKUP_UPLOAD_LIMIT) 
 const RESTORE_BODY_LIMIT = Math.max(8 * 1024 * 1024, Number(process.env.RESTORE_BODY_LIMIT) || 128 * 1024 * 1024);
 const JSON_BODY_LIMIT = Math.max(1024 * 1024, Number(process.env.JSON_BODY_LIMIT) || 12 * 1024 * 1024);
 const FORM_BODY_LIMIT = 16 * 1024;
+const MAX_CONNECTIONS = Math.max(32, Number(process.env.MAX_CONNECTIONS) || 320);
+const MAX_INFLIGHT_REQUESTS = Math.max(16, Number(process.env.MAX_INFLIGHT_REQUESTS) || 160);
+const GLOBAL_REQUESTS_PER_MINUTE = Math.max(600, Number(process.env.GLOBAL_REQUESTS_PER_MINUTE) || 12_000);
+const MAX_MODEL_WAITERS = Math.max(4, Number(process.env.MAX_MODEL_WAITERS) || 40);
 const BACKUP_NAME_RULE = /^[\w\u4e00-\u9fa5-]{1,60}\.json$/;
 const BACKUP_SID_RULE = /^[A-Za-z0-9_-]{1,64}$/;
 const UPLOAD_NAME_RULE = /^[a-f0-9]{16}\.(png|jpg|gif|webp|mp4|webm)$/i;
@@ -90,8 +94,101 @@ function userFile(sid) {
   return path.join(USERS_DIR, `${sid.replace(/[^a-z0-9]/gi, "")}.json`);
 }
 
+const ACCOUNT_AAD = Buffer.from("paotuan-account-v1", "utf8");
+const ACCOUNT_FILE_RULE = /^(?:owner|[a-f0-9]{16,40})(?:-(?:prompt|model))?\.json$/i;
+let accountKeysCache;
+
+function accountKeyFromBase(base) {
+  return crypto.createHash("sha256").update(base + "|paotuan-account|v1").digest();
+}
+
+function accountKeyId(key) {
+  return crypto.createHash("sha256").update(key).digest("hex").slice(0, 16);
+}
+
+function accountEncryptionKeys() {
+  if (accountKeysCache !== undefined) return accountKeysCache;
+  const bases = [
+    process.env.ACCOUNT_DATA_KEY,
+    process.env.ACCOUNT_DATA_KEY_PREVIOUS,
+    process.env.DATA_KEY,
+    process.env.SECRET_KEY,
+    process.env.DEEPSEEK_API_KEY,
+    engine.config.apiKey,
+    ADMIN_PASSWORD,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  accountKeysCache = [...new Set(bases)].map((base) => {
+    const key = accountKeyFromBase(base);
+    return { key, id: accountKeyId(key) };
+  });
+  return accountKeysCache;
+}
+
+function accountEncryptionKey() {
+  return accountEncryptionKeys()[0]?.key || null;
+}
+
+function encryptAccountData(data) {
+  const key = accountEncryptionKey();
+  if (!key) return data;
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  cipher.setAAD(ACCOUNT_AAD);
+  const payload = Buffer.concat([
+    cipher.update(JSON.stringify(data), "utf8"),
+    cipher.final(),
+  ]);
+  return {
+    __accountEnc: 1,
+    alg: "aes-256-gcm",
+    kid: accountKeyId(key),
+    iv: iv.toString("base64"),
+    tag: cipher.getAuthTag().toString("base64"),
+    data: payload.toString("base64"),
+  };
+}
+
+function decryptAccountData(value) {
+  if (!value || typeof value !== "object" || value.__accountEnc !== 1) return value;
+  if (value.alg !== "aes-256-gcm") return null;
+  const keys = value.kid
+    ? accountEncryptionKeys().filter((item) => item.id === value.kid)
+    : accountEncryptionKeys();
+  for (const item of keys) {
+    try {
+      const decipher = crypto.createDecipheriv("aes-256-gcm", item.key, Buffer.from(value.iv, "base64"));
+      decipher.setAAD(ACCOUNT_AAD);
+      decipher.setAuthTag(Buffer.from(value.tag, "base64"));
+      const plain = Buffer.concat([
+        decipher.update(Buffer.from(value.data, "base64")),
+        decipher.final(),
+      ]);
+      return JSON.parse(plain.toString("utf8"));
+    } catch {}
+  }
+  return null;
+}
+
+function readAccountJsonFile(file, fallback) {
+  try {
+    return decryptAccountData(JSON.parse(fs.readFileSync(file, "utf8"))) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeAccountJsonFile(file, data) {
+  const payload =
+    data && typeof data === "object" && data.__accountEnc === 1
+      ? data
+      : encryptAccountData(data);
+  writeJsonFile(file, payload);
+}
+
 function loadProfileFor(sid) {
-  const p = readJsonFile(userFile(sid), null);
+  const p = readAccountJsonFile(userFile(sid), null);
   return {
     pid: p?.pid || "",
     name: p?.name || "",
@@ -115,7 +212,7 @@ function loadProfileFor(sid) {
 
 function saveProfileFor(sid, patch) {
   const current = loadProfileFor(sid);
-  const pid = current.pid || crypto.randomBytes(4).toString("hex");
+  const pid = current.pid || crypto.randomBytes(12).toString("hex");
   const name = String(patch.name ?? current.name).trim().slice(0, 24);
   const bio = String(patch.bio ?? current.bio).trim().slice(0, 200);
   const theme = /^#[0-9a-f]{6}$/i.test(String(patch.theme || "")) ? String(patch.theme) : current.theme;
@@ -143,7 +240,7 @@ function saveProfileFor(sid, patch) {
     creatorDefaultVisibility, privacyAcceptedAt, privacyVersion,
     updatedAt: Date.now(),
   };
-  writeJsonFile(userFile(sid), next);
+  writeAccountJsonFile(userFile(sid), next);
   return next;
 }
 
@@ -221,12 +318,12 @@ function normalizePromptProfile(input = {}) {
 }
 
 function loadPromptProfileFor(sid) {
-  return normalizePromptProfile(readJsonFile(promptProfileFile(sid), PROMPT_PROFILE_DEFAULTS));
+  return normalizePromptProfile(readAccountJsonFile(promptProfileFile(sid), PROMPT_PROFILE_DEFAULTS));
 }
 
 function savePromptProfileFor(sid, patch) {
   const next = normalizePromptProfile(patch);
-  writeJsonFile(promptProfileFile(sid), next);
+  writeAccountJsonFile(promptProfileFile(sid), next);
   return next;
 }
 
@@ -264,7 +361,8 @@ function decSecret(blob) {
 
 function loadModelFor(sid) {
   try {
-    const p = JSON.parse(fs.readFileSync(modelFile(sid), "utf8"));
+    const p = readAccountJsonFile(modelFile(sid), null);
+    if (!p) return null;
     return {
       enabled: Boolean(p.enabled),
       provider: p.provider || "custom",
@@ -282,6 +380,11 @@ function usableModelFor(entry, sid = entry.sid) {
   if (!cfg) return null;
   const localProcess = process.env.NODE_ENV !== "production" && process.env.RENDER !== "true";
   return { ...cfg, allowPrivate: Boolean(entry.owner && localProcess) };
+}
+
+function hasUsableByok(sid) {
+  const cfg = loadModelFor(sid);
+  return Boolean(cfg?.enabled && cfg.apiKey && cfg.baseUrl && cfg.model);
 }
 
 async function validateModelDestination(entry, rawUrl) {
@@ -325,7 +428,7 @@ function saveModelFor(sid, patch) {
     apiKeyEnc: apiKey ? encSecret(apiKey) : "",
     updatedAt: Date.now(),
   };
-  writeJsonFile(modelFile(sid), next);
+  writeAccountJsonFile(modelFile(sid), next);
   return loadModelFor(sid);
 }
 
@@ -940,12 +1043,52 @@ function allProfiles() {
     .filter((f) => f.endsWith(".json"))
     .map((f) => {
       try {
-        return JSON.parse(fs.readFileSync(path.join(USERS_DIR, f), "utf8"));
+        return readAccountJsonFile(path.join(USERS_DIR, f), null);
       } catch {
         return null;
       }
     })
     .filter((p) => p && p.pid && p.sid);
+}
+
+function migrateAccountFilesAtRest() {
+  const primaryKey = accountEncryptionKey();
+  if (!primaryKey) return { encrypted: 0, unreadable: 0, skipped: 0 };
+  const primaryId = accountKeyId(primaryKey);
+  let encrypted = 0;
+  let unreadable = 0;
+  let skipped = 0;
+  let entries = [];
+  try {
+    entries = fs.readdirSync(USERS_DIR, { withFileTypes: true });
+  } catch {
+    return { encrypted, unreadable, skipped };
+  }
+  for (const entry of entries) {
+    if (!entry.isFile() || !ACCOUNT_FILE_RULE.test(entry.name)) continue;
+    const file = path.join(USERS_DIR, entry.name);
+    let raw;
+    try {
+      raw = JSON.parse(fs.readFileSync(file, "utf8"));
+    } catch {
+      unreadable += 1;
+      continue;
+    }
+    if (raw?.__accountEnc === 1 && raw.kid === primaryId) {
+      skipped += 1;
+      continue;
+    }
+    const data = decryptAccountData(raw);
+    if (!data) {
+      unreadable += 1;
+      continue;
+    }
+    writeAccountJsonFile(file, data);
+    const check = readAccountJsonFile(file, null);
+    if (check) encrypted += 1;
+    else unreadable += 1;
+  }
+  return { encrypted, unreadable, skipped };
 }
 
 function removeSidLikes(record, sid) {
@@ -1038,9 +1181,26 @@ function readJsonFile(file, fallback) {
 }
 
 function writeJsonFile(file, data) {
+  const temp = `${file}.${process.pid}.${crypto.randomBytes(4).toString("hex")}.tmp`;
   try {
-    fs.writeFileSync(file, JSON.stringify(data));
-  } catch {}
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(temp, JSON.stringify(data), { mode: 0o600 });
+    try {
+      fs.renameSync(temp, file);
+    } catch {
+      fs.writeFileSync(file, JSON.stringify(data), { mode: 0o600 });
+      try {
+        fs.unlinkSync(temp);
+      } catch {}
+    }
+    try {
+      fs.chmodSync(file, 0o600);
+    } catch {}
+  } catch {
+    try {
+      if (fs.existsSync(temp)) fs.unlinkSync(temp);
+    } catch {}
+  }
 }
 
 let votes = readJsonFile(VOTES_FILE, { up: 0, down: 0, voters: {} });
@@ -1151,6 +1311,7 @@ const shareKey = requireInvite ? String(engine.config.shareKey || "").trim() : "
 const numOr = (value, fallback) => (Number.isFinite(Number(value)) ? Number(value) : fallback);
 const guestTurnLimit = numOr(engine.config.guestTurnLimit, 60);
 const guestDailyCalls = numOr(engine.config.guestDailyCalls, 150);
+const guestHardDailyCalls = Math.max(0, numOr(process.env.GUEST_HARD_DAILY_CALLS, 1200));
 const maxConcurrentModels = numOr(engine.config.maxConcurrentModels, 2);
 const TRUST_PROXY_HEADERS = /^(?:1|true|yes|on)$/i.test(
   String(process.env.TRUST_PROXY_HEADERS || process.env.RENDER || "")
@@ -1165,11 +1326,30 @@ const ADMIN_PASSWORD = (() => {
   return crypto.createHash("sha256").update(apiKey + "|paotuan-admin|v1").digest("hex").slice(0, 24);
 })();
 
-const SESSION_SECRET = crypto.createHash("sha256").update("paotuan-session|" + ADMIN_PASSWORD).digest();
+const PLAYER_SESSION_SECRET = crypto
+  .createHash("sha256")
+  .update(
+    "paotuan-player-session|" +
+      String(
+        process.env.SESSION_SECRET ||
+          process.env.ACCOUNT_DATA_KEY ||
+          process.env.DATA_KEY ||
+          process.env.SECRET_KEY ||
+          process.env.DEEPSEEK_API_KEY ||
+          engine.config.apiKey ||
+          ADMIN_PASSWORD ||
+          ""
+      )
+  )
+  .digest();
+const ADMIN_SESSION_SECRET = crypto
+  .createHash("sha256")
+  .update("paotuan-admin-session|" + ADMIN_PASSWORD)
+  .digest();
 const ADMIN_TTL_MS = 30 * 24 * 3600 * 1000;
 
 function signToken(exp) {
-  return crypto.createHmac("sha256", SESSION_SECRET).update(String(exp)).digest("hex");
+  return crypto.createHmac("sha256", ADMIN_SESSION_SECRET).update(String(exp)).digest("hex");
 }
 
 function makeAdminToken() {
@@ -1199,6 +1379,20 @@ function safeEqualText(left, right) {
   return crypto.timingSafeEqual(a, b);
 }
 
+function sidSignature(sid) {
+  return crypto.createHmac("sha256", PLAYER_SESSION_SECRET).update("sid|" + sid).digest("hex");
+}
+
+function signedSidValue(sid) {
+  return `${sid}.${sidSignature(sid)}`;
+}
+
+function verifiedSid(value) {
+  const [sid, signature, extra] = String(value || "").split(".");
+  if (extra !== undefined || !/^[a-f0-9]{16,40}$/i.test(sid || "")) return "";
+  return safeEqualText(signature || "", sidSignature(sid)) ? sid.toLowerCase() : "";
+}
+
 function isAdminReq(req) {
   return validAdminToken(parseCookies(req.headers.cookie).pt_admin);
 }
@@ -1221,6 +1415,12 @@ function loginBlocked(ip) {
 }
 
 function recordLoginFail(ip) {
+  if (loginFails.size >= 5000 && !loginFails.has(ip)) {
+    const oldest = [...loginFails.entries()]
+      .sort((a, b) => Number(a[1]?.reset || 0) - Number(b[1]?.reset || 0))
+      .slice(0, 500);
+    oldest.forEach(([key]) => loginFails.delete(key));
+  }
   const rec = loginFails.get(ip);
   if (!rec || Date.now() > rec.reset) {
     loginFails.set(ip, { count: 1, reset: Date.now() + 10 * 60 * 1000 });
@@ -1242,6 +1442,13 @@ function clientCookie(name, value, maxAge) {
 function shareCookie(value, maxAge) {
   const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
   return `rk=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${secure}`;
+}
+
+const accountMigration = migrateAccountFilesAtRest();
+if (accountMigration.encrypted || accountMigration.unreadable) {
+  console.log(
+    `账号数据加密迁移：已加密 ${accountMigration.encrypted} 个文件，无法读取 ${accountMigration.unreadable} 个文件。`
+  );
 }
 
 function loadShareState() {
@@ -1337,12 +1544,17 @@ function siteOpen() {
 
 const store = new Map(); // sid -> { sid, owner, session, busy, lastSeen }
 let activeModels = 0;
-const waiters = []; // 超并发时不拒绝人，按先来后到排队
+const waiters = []; // 超出并发后按先来后到排队，但队列也有硬上限
 
 function acquireSlot() {
   if (activeModels < maxConcurrentModels) {
     activeModels += 1;
     return Promise.resolve();
+  }
+  if (waiters.length >= MAX_MODEL_WAITERS) {
+    const error = new Error("当前模型队列已满，请稍后重试。");
+    error.code = "MODEL_QUEUE_FULL";
+    return Promise.reject(error);
   }
   return new Promise((resolve) => waiters.push(resolve));
 }
@@ -1354,6 +1566,15 @@ function releaseSlot() {
     return;
   }
   activeModels = Math.max(0, activeModels - 1);
+}
+
+async function withModelSlot(task) {
+  await acquireSlot();
+  try {
+    return await task();
+  } finally {
+    releaseSlot();
+  }
 }
 
 /* ---------- 工具 ---------- */
@@ -1664,7 +1885,14 @@ function requestRateLimit(req, pathname, sid, ip) {
 function isLocal(req) {
   const host = String(req.headers.host || "");
   const localHost = /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i.test(host);
-  return localHost && !req.headers["cf-connecting-ip"] && !req.headers["cf-ray"];
+  const remote = normalizeIp(req.socket?.remoteAddress);
+  const proxied = Boolean(
+    req.headers["cf-connecting-ip"] ||
+      req.headers["cf-ray"] ||
+      req.headers["x-real-ip"] ||
+      (TRUST_PROXY_HEADERS && req.headers["x-forwarded-for"])
+  );
+  return localHost && (remote === "127.0.0.1" || remote === "::1") && !proxied;
 }
 
 function sessFile(sid) {
@@ -1788,6 +2016,7 @@ function adminState() {
     scheduleApplied: scheduled.applied,
     guestTurnLimit,
     guestDailyCalls,
+    guestHardDailyCalls,
     callsToday: readStats().calls,
   };
 }
@@ -1818,6 +2047,8 @@ function dataStats() {
     translations: Object.keys(i18nCache).length,
     dataDir: engine.WORK,
     persistent: process.env.PERSISTENT === "1" || !process.env.RENDER,
+    accountEncryption: Boolean(accountEncryptionKey()),
+    accountKeyVersions: accountEncryptionKeys().length,
   };
 }
 
@@ -2038,7 +2269,16 @@ function restoreBackup(b) {
       continue;
     }
     const file = path.join(USERS_DIR, name);
-    writeJsonFile(file, u.data);
+    if (ACCOUNT_FILE_RULE.test(name)) {
+      const accountData = decryptAccountData(u.data);
+      if (!accountData) {
+        out.skipped += 1;
+        continue;
+      }
+      writeAccountJsonFile(file, accountData);
+    } else {
+      writeJsonFile(file, u.data);
+    }
     if (fs.existsSync(file)) out.users += 1;
     else out.skipped += 1;
   }
@@ -2289,8 +2529,9 @@ function adminPage() {
     '    `<div class="meta">` + (s.open ? "持续开放，直到你手动关闭或到达定时关闭时间" : closedText) + " · " + reasonText(s.reason) + " · 上次切换：" + changedAt + "</div>";',
     "  renderSchedule(s);",
     '  const cap = document.getElementById("cap");',
-    '  cap.textContent = s.guestDailyCalls > 0 ? s.guestDailyCalls : "不限（有费用风险）";',
-    '  cap.style.color = s.guestDailyCalls > 0 ? "#8fd8ac" : "#f0a3b4";',
+    '  const effectiveCap = s.guestDailyCalls > 0 ? Math.min(s.guestDailyCalls, s.guestHardDailyCalls || s.guestDailyCalls) : (s.guestHardDailyCalls || 0);',
+    '  cap.textContent = effectiveCap > 0 ? effectiveCap + (s.guestDailyCalls > 0 ? "" : "（安全硬上限）") : "不限（有费用风险）";',
+    '  cap.style.color = effectiveCap > 0 ? "#8fd8ac" : "#f0a3b4";',
     '  document.getElementById("used").textContent = s.callsToday;',
     "}",
     "async function setState(open){",
@@ -2344,7 +2585,7 @@ function adminPage() {
     '  document.getElementById("d-tr").textContent = s.translations;',
     '  const p = document.getElementById("d-persist");',
     '  p.style.color = s.persistent ? "#8fd8ac" : "#f0a3b4";',
-    '  p.textContent = s.persistent ? "数据目录：" + s.dataDir + "（已使用持久目录）" : "⚠ 当前没有持久盘：重启/部署会清空留言、票数、用户与作品。请定期备份，或在 Render 挂载 /data 磁盘。";',
+    '  p.textContent = (s.persistent ? "数据目录：" + s.dataDir + "（已使用持久目录）" : "⚠ 当前没有持久盘：重启/部署会清空留言、票数、用户与作品。请定期备份，或在 Render 挂载 /data 磁盘。") + (s.accountEncryption ? " · 账号数据：AES-256-GCM 已加密" : " · ⚠ 账号数据加密未启用");',
     "}",
     'function fmtSize(bytes){ return bytes >= 1048576 ? (bytes/1048576).toFixed(1) + "MB" : Math.max(1, Math.round(bytes/1024)) + "KB"; }',
     'function restoreSummary(x){',
@@ -2430,15 +2671,19 @@ function ctxFor(req, res) {
     if (!safeEqualText(provided, shareKey)) return { denied: true, ip };
     if (!safeEqualText(cookies.rk || "", shareKey)) setCookie(res, shareCookie(shareKey, 2592000));
   }
-  let sid = cookies.tg_sid;
-  if (!/^[a-f0-9]{16,40}$/.test(String(sid || ""))) {
+  const rawSid = String(cookies.tg_sid || "");
+  let sid = verifiedSid(rawSid);
+  let freshCookie = false;
+  if (!sid) {
     const limited = hitRateBucket(`ip-new-sid:${ip}`, 180, 10 * 60 * 1000);
     if (limited) return { rateLimited: limited, ip };
-    sid = crypto.randomBytes(12).toString("hex");
-    setCookie(res, clientCookie("tg_sid", sid, 2592000));
-    return { entry: getEntry(sid, false), local: false, freshCookie: true, ip };
+    sid = /^[a-f0-9]{16,40}$/i.test(rawSid)
+      ? rawSid.toLowerCase()
+      : crypto.randomBytes(12).toString("hex");
+    setCookie(res, clientCookie("tg_sid", signedSidValue(sid), 2592000));
+    freshCookie = true;
   }
-  return { entry: getEntry(sid, false), local: false, freshCookie: false, ip };
+  return { entry: getEntry(sid, false), local: false, freshCookie, ip };
 }
 
 /* ---------- 访客配额 ---------- */
@@ -2465,8 +2710,11 @@ function addGuestCalls(n) {
 }
 
 function guestQuotaLeft() {
-  if (guestDailyCalls <= 0) return Infinity;
-  return Math.max(0, guestDailyCalls - readStats().calls);
+  const configured = guestDailyCalls > 0 ? guestDailyCalls : Infinity;
+  const safetyCap = guestHardDailyCalls > 0 ? guestHardDailyCalls : Infinity;
+  const effective = Math.min(configured, safetyCap);
+  if (!Number.isFinite(effective)) return Infinity;
+  return Math.max(0, effective - readStats().calls);
 }
 
 function translationCacheKey(language, text) {
@@ -2544,8 +2792,24 @@ function publicSession(entry) {
 
 /* ---------- 请求处理 ---------- */
 
-const server = http.createServer(async (req, res) => {
+let activeRequestCount = 0;
+let activeConnectionCount = 0;
+
+async function handleRequest(req, res) {
+  activeRequestCount += 1;
+  let requestReleased = false;
+  const releaseRequest = () => {
+    if (requestReleased) return;
+    requestReleased = true;
+    activeRequestCount = Math.max(0, activeRequestCount - 1);
+  };
+  res.once("finish", releaseRequest);
+  res.once("close", releaseRequest);
   applySecurityHeaders(req, res);
+  if (activeRequestCount > MAX_INFLIGHT_REQUESTS) {
+    res.setHeader("retry-after", "3");
+    return send(res, 503, { error: "网站正在处理过多请求，请稍后重试。" });
+  }
   let url;
   try {
     url = new URL(req.url, "http://127.0.0.1");
@@ -2553,6 +2817,22 @@ const server = http.createServer(async (req, res) => {
     return send(res, 400, "bad request", "text/plain; charset=utf-8");
   }
   const p = url.pathname;
+
+  const adminControlRequest = isAdminReq(req) || (p === "/admin/login" && req.method === "POST");
+  if (p === "/admin/login" && req.method === "POST") {
+    const loginLimited = hitRateBucket("global:admin-login", 120, 60 * 1000);
+    if (loginLimited) {
+      res.setHeader("retry-after", String(loginLimited.retry));
+      return send(res, 429, loginPage("", true), "text/html; charset=utf-8");
+    }
+  }
+  if (!adminControlRequest) {
+    const globallyLimited = hitRateBucket("global:all", GLOBAL_REQUESTS_PER_MINUTE, 60 * 1000);
+    if (globallyLimited) {
+      res.setHeader("retry-after", String(globallyLimited.retry));
+      return send(res, 429, { error: "网站全局请求量过高，请稍后重试。" });
+    }
+  }
 
   if (!requestOriginAllowed(req)) {
     return send(res, 403, { error: "跨站请求已被拒绝。" });
@@ -3367,7 +3647,7 @@ const server = http.createServer(async (req, res) => {
       feedback,
       scenarioSocial,
       rooms,
-      users: readJsonDirFiles(USERS_DIR),
+      users: allProfiles(),
       scenarios: engine.listScenarios(undefined, { owner: true }),
     }, remainingUploads);
     for (const name of uploadCandidates) {
@@ -3378,7 +3658,7 @@ const server = http.createServer(async (req, res) => {
       } catch {}
     }
     const nextSid = crypto.randomBytes(12).toString("hex");
-    setCookie(res, clientCookie("tg_sid", nextSid, 2592000));
+    setCookie(res, clientCookie("tg_sid", signedSidValue(nextSid), 2592000));
     return send(res, 200, {
       ok: true,
       removed: {
@@ -3880,6 +4160,10 @@ const server = http.createServer(async (req, res) => {
     if (room.hostSid !== entry.sid) return send(res, 403, { error: "只有房主可以推进剧情" });
     if (room.status !== "playing") return send(res, 400, { error: "游戏还没开始" });
     if (room.busy) return send(res, 429, { error: "正在推演，稍等" });
+    const roomUsesByok = hasUsableByok(room.hostSid);
+    if (!entry.owner && !roomUsesByok && guestQuotaLeft() <= 0) {
+      return send(res, 429, { error: "今天网站默认模型的公用额度已经达到安全上限，明天再试或使用自己的模型 Key。" });
+    }
     if (body.language != null) room.language = engine.normalizeLanguage(body.language);
     room.promptProfile = loadPromptProfileFor(room.hostSid);
     if (!Object.keys(room.actions).length) return send(res, 400, { error: "还没有人提交行动" });
@@ -3896,7 +4180,10 @@ const server = http.createServer(async (req, res) => {
     room.busy = true;
     try {
       room.research = await ensureScenarioResearch(room.scenario);
-      const result = await engine.askModel(roomPrompt(room), { reasoningEffort: "low" }, usableModelFor(entry, room.hostSid));
+      const result = await withModelSlot(async () => {
+        if (!entry.owner && !roomUsesByok) addGuestCalls(1);
+        return engine.askModel(roomPrompt(room), { reasoningEffort: "low" }, usableModelFor(entry, room.hostSid));
+      });
       const parsed = engine.parseModelTurn(result.text);
       let narration = parsed.narrative || String(result.text || "").slice(0, 4000);
       if (
@@ -3921,7 +4208,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { ok: true, room: publicRoom(room, entry.sid) });
     } catch (err) {
       saveRooms();
-      return send(res, 500, { error: `推演失败：${err.message}` });
+      return send(res, err.code === "MODEL_QUEUE_FULL" ? 503 : 500, { error: `推演失败：${err.message}` });
     } finally {
       room.busy = false;
     }
@@ -4027,7 +4314,8 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === "POST" && p === "/api/new") {
     if (entry.busy) return send(res, 429, { error: "上一回合还在进行中，稍等。" });
-    if (!entry.owner && guestQuotaLeft() <= 0) {
+    const usesByok = hasUsableByok(entry.sid);
+    if (!entry.owner && !usesByok && guestQuotaLeft() <= 0) {
       return send(res, 429, { error: "今天大家的试玩额度已经用完了，明天再来吧。" });
     }
     const body = await readBody(req);
@@ -4055,23 +4343,26 @@ const server = http.createServer(async (req, res) => {
     entry.busy = true;
     fresh.scenarioResearch = await ensureScenarioResearch(scenario);
     entry.session = fresh;
-    await acquireSlot();
-    if (!entry.owner) addGuestCalls(1);
     try {
-      const opening = await engine.runOpening(entry.session, scenario, usableModelFor(entry));
+      const opening = await withModelSlot(async () => {
+        if (!entry.owner && !usesByok) addGuestCalls(1);
+        return engine.runOpening(entry.session, scenario, usableModelFor(entry));
+      });
       const firstGm = entry.session.log.find((e) => e.type === "gm");
       if (firstGm) entry.session.opening = firstGm.text;
       saveEntry(entry);
       return send(res, 200, { session: publicSession(entry), segments: opening.segments });
     } catch (err) {
       saveEntry(entry);
+      if (err.code === "MODEL_QUEUE_FULL") {
+        return send(res, 503, { error: err.message, session: publicSession(entry) });
+      }
       return send(res, 200, {
         session: publicSession(entry),
         segments: [{ type: "sys", text: `开场没能生成：${err.message}。可以直接输入第一个行动试试。` }],
       });
     } finally {
       entry.busy = false;
-      releaseSlot();
     }
   }
 
@@ -4086,7 +4377,8 @@ const server = http.createServer(async (req, res) => {
     if (!entry.owner && entry.session.turns >= guestTurnLimit) {
       return send(res, 403, { error: `试玩到这里啦：每位访客最多 ${guestTurnLimit} 回合。` });
     }
-    if (!entry.owner && guestQuotaLeft() <= 0) {
+    const usesByok = hasUsableByok(entry.sid);
+    if (!entry.owner && !usesByok && guestQuotaLeft() <= 0) {
       return send(res, 429, { error: "今天大家的试玩额度已经用完了，明天再来吧。" });
     }
     const body = await readBody(req);
@@ -4101,19 +4393,19 @@ const server = http.createServer(async (req, res) => {
     if (!scenario) return send(res, 403, { error: "剧本文件不存在，或作者已经取消了对你的公开。" });
     entry.busy = true;
     entry.session.scenarioResearch = await ensureScenarioResearch(scenario);
-    await acquireSlot();
-    if (!entry.owner) addGuestCalls(1);
     try {
-      const out = await engine.runTurn(entry.session, scenario, text, usableModelFor(entry));
-      if (!entry.owner && out.segments.some((s) => s.type === "dice")) addGuestCalls(1);
+      const out = await withModelSlot(async () => {
+        if (!entry.owner && !usesByok) addGuestCalls(1);
+        return engine.runTurn(entry.session, scenario, text, usableModelFor(entry));
+      });
+      if (!entry.owner && !usesByok && out.segments.some((s) => s.type === "dice")) addGuestCalls(1);
       saveEntry(entry);
       return send(res, 200, { session: publicSession(entry), segments: out.segments });
     } catch (err) {
       saveEntry(entry);
-      return send(res, 500, { error: `这一回合出了问题：${err.message}` });
+      return send(res, err.code === "MODEL_QUEUE_FULL" ? 503 : 500, { error: `这一回合出了问题：${err.message}` });
     } finally {
       entry.busy = false;
-      releaseSlot();
     }
   }
 
@@ -4150,6 +4442,33 @@ const server = http.createServer(async (req, res) => {
   }
 
   return send(res, 404, "not found", "text/plain; charset=utf-8");
+}
+
+const server = http.createServer((req, res) => {
+  handleRequest(req, res).catch((error) => {
+    console.error(`请求处理异常：${String(error?.message || error).slice(0, 300)}`);
+    if (!res.headersSent) {
+      res.setHeader("retry-after", "2");
+      send(res, 500, { error: "服务器处理请求时遇到异常，请稍后重试。" });
+    } else {
+      res.destroy();
+    }
+  });
+});
+
+server.on("connection", (socket) => {
+  activeConnectionCount += 1;
+  if (activeConnectionCount > MAX_CONNECTIONS) {
+    activeConnectionCount = Math.max(0, activeConnectionCount - 1);
+    socket.destroy();
+    return;
+  }
+  let released = false;
+  socket.once("close", () => {
+    if (released) return;
+    released = true;
+    activeConnectionCount = Math.max(0, activeConnectionCount - 1);
+  });
 });
 
 server.requestTimeout = 30_000;

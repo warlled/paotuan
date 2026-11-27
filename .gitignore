@@ -2,6 +2,9 @@ work/
 bin/
 .env
 .env.cloud
+.env.*
+*.pem
+*.key
 *.log
 *.png
 *.ico

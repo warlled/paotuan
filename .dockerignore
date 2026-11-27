@@ -5,3 +5,8 @@ node_modules
 *.ico
 *.log
 .git
+.env
+.env.*
+私密信息.txt
+*.pem
+*.key

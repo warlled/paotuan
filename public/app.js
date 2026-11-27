@@ -4447,7 +4447,7 @@ function updateScenarioPreview() {
     `<div class="sp-genre">v${escHtml(version)} · ${escHtml(genre)}${tags ? " · " + escHtml(tags) : ""}</div>` +
     `<div class="sp-blurb">${escHtml(blurb)}</div>` +
     `<div class="sp-meta">人物 ${npcs} · 实体 ${entities} · 状态 ${statuses} · 线索 ${clues}</div>` +
-    `<div class="sp-meta">开始 ${startAt ? compactClock(startAt) : "未设置"} · 动态事件 · 玩家行动驱动时间 · 结局 ${endings}</div>` +
+    `<div class="sp-meta">开始 ${startAt ? escHtml(compactClock(startAt)) : "未设置"} · 动态事件 · 玩家行动驱动时间 · 结局 ${endings}</div>` +
     `<div class="sp-meta">词条 ${lexicon} · 预设行动 ${actions} · 随机项 ${randoms} · 参考链接 ${scenarioLinks.length}</div>`;
   renderScenarioVisualPreview();
 }
