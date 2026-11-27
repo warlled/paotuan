@@ -21,6 +21,7 @@ const VOTES_FILE = path.join(engine.WORK, "votes.json");
 const UPLOAD_DIR = path.join(engine.WORK, "uploads");
 const USERS_DIR = path.join(engine.WORK, "users");
 const COMMUNITY_FILE = path.join(engine.WORK, "community.json");
+const COMMUNITY_GROUPS_FILE = path.join(engine.WORK, "community-groups.json");
 const I18N_CACHE_FILE = path.join(engine.WORK, "i18n-cache.json");
 const RESEARCH_CACHE_FILE = path.join(engine.WORK, "research-cache.json");
 const SCENARIO_SOCIAL_FILE = path.join(engine.WORK, "scenario-social.json");
@@ -259,8 +260,25 @@ function saveUpload(base64, declaredMime, maxBytes, options = {}) {
 
 let community = readJsonFile(COMMUNITY_FILE, []);
 if (!Array.isArray(community)) community = [];
+let communityGroups = readJsonFile(COMMUNITY_GROUPS_FILE, []);
+if (!Array.isArray(communityGroups)) communityGroups = [];
 const COMMUNITY_CATEGORIES = ["历史","奇幻","科幻","现实","言情","脑洞","玄幻","仙侠","怪谈","悬疑"];
 const COMMUNITY_ORIGINS = ["原创", "同人"];
+
+function communityGroupView(group, sid) {
+  const profile = group.ownerSid ? loadProfileFor(group.ownerSid) : null;
+  return {
+    id: group.id,
+    name: group.name,
+    description: group.description || "",
+    ownerPid: group.ownerPid || profile?.pid || "",
+    ownerName: group.ownerName || profile?.name || "匿名旅人",
+    mine: Boolean(group.ownerSid && group.ownerSid === sid),
+    postCount: community.filter((post) => post.communityId === group.id).length,
+    builtin: false,
+    createdAt: group.createdAt || "",
+  };
+}
 
 function ensureCommunityComments(post) {
   post.comments = Array.isArray(post.comments) ? post.comments : [];
@@ -654,6 +672,9 @@ function initRoomStatus(character) {
 
 function communityView(post, sid) {
   ensureCommunityComments(post);
+  const group = post.communityId
+    ? communityGroups.find((item) => item.id === post.communityId)
+    : null;
   return {
     id: post.id,
     type: post.type || "post",
@@ -668,6 +689,8 @@ function communityView(post, sid) {
     genre: post.scenario?.genre || "",
     blurb: post.scenario?.blurb || "",
     scenarioId: post.scenario?.id || "",
+    communityId: group?.id || "",
+    communityName: group?.name || "",
     comments: post.comments.slice(-50).map((comment) => communityCommentView(comment, sid)),
     commentCount: post.comments.reduce((sum, comment) => sum + 1 + (comment.replies || []).length, 0),
     media: post.media || null,
@@ -1295,6 +1318,7 @@ function dataStats() {
     down: votes.down || 0,
     users: count(USERS_DIR, ".json"),
     community: community.length,
+    communityGroups: communityGroups.length,
     rooms: Object.keys(rooms).length,
     sessions: count(SESS_DIR, ".json"),
     uploads: count(UPLOAD_DIR, ""),
@@ -1422,6 +1446,7 @@ function buildBackup(opts = {}) {
     counts: {
       feedback: feedback.length,
       community: community.length,
+      communityGroups: communityGroups.length,
       scenarioSocial: Object.keys(scenarioSocial).length,
       rooms: Object.keys(rooms).length,
       scenarios: scenarios.length,
@@ -1433,6 +1458,7 @@ function buildBackup(opts = {}) {
     feedback,
     votes,
     community,
+    communityGroups,
     scenarioSocial,
     rooms,
     users: readJsonDirFiles(USERS_DIR),
@@ -1454,6 +1480,7 @@ function restoreBackup(b) {
     feedback: 0,
     votes: 0,
     community: 0,
+    communityGroups: 0,
     scenarioSocial: 0,
     rooms: 0,
     users: 0,
@@ -1495,6 +1522,11 @@ function restoreBackup(b) {
     community = b.community.slice(0, 200);
     writeJsonFile(COMMUNITY_FILE, community);
     out.community = community.length;
+  }
+  if (Array.isArray(b.communityGroups)) {
+    communityGroups = b.communityGroups.slice(0, 500);
+    writeJsonFile(COMMUNITY_GROUPS_FILE, communityGroups);
+    out.communityGroups = communityGroups.length;
   }
   if (b.scenarioSocial && typeof b.scenarioSocial === "object" && !Array.isArray(b.scenarioSocial)) {
     scenarioSocial = b.scenarioSocial;
@@ -1697,7 +1729,7 @@ function adminPage() {
     '<div class="note" style="margin-top:12px">除“立即关闭并锁定”“持续开放”、你保存的定时开放和定时关闭外，系统不会主动改变入口状态。</div>',
     '<div class="note" style="margin-top:16px;border-top:1px solid #262b3a;padding-top:14px">',
     "<b>数据总览</b><br>在线 <b id=\"d-online\">-</b> · 游玩中 <b id=\"d-playing\">-</b> 局 / <b id=\"d-players\">-</b> 人<br>留言 <b id=\"d-fb\">-</b> · 好评 <b id=\"d-up\">-</b> · 差评 <b id=\"d-down\">-</b> · 用户 <b id=\"d-users\">-</b><br>",
-    "作品 <b id=\"d-cm\">-</b> · 房间 <b id=\"d-rooms\">-</b> · 存档 <b id=\"d-sessions\">-</b> · 上传 <b id=\"d-uploads\">-</b> · 翻译缓存 <b id=\"d-tr\">-</b><br>",
+    "作品 <b id=\"d-cm\">-</b> · 玩家社区 <b id=\"d-cg\">-</b> · 房间 <b id=\"d-rooms\">-</b> · 存档 <b id=\"d-sessions\">-</b> · 上传 <b id=\"d-uploads\">-</b> · 翻译缓存 <b id=\"d-tr\">-</b><br>",
     '<span id="d-persist"></span>',
     '<div class="row" style="margin-top:10px">',
     '<button id="btn-backup">下载完整备份</button>',
@@ -1812,6 +1844,7 @@ function adminPage() {
     '  document.getElementById("d-down").textContent = s.down;',
     '  document.getElementById("d-users").textContent = s.users;',
     '  document.getElementById("d-cm").textContent = s.community;',
+    '  document.getElementById("d-cg").textContent = s.communityGroups;',
     '  document.getElementById("d-rooms").textContent = s.rooms;',
     '  document.getElementById("d-sessions").textContent = s.sessions;',
     '  document.getElementById("d-uploads").textContent = s.uploads;',
@@ -1825,6 +1858,7 @@ function adminPage() {
     '  const parts = [];',
     '  if (x.feedback) parts.push("留言 " + x.feedback);',
     '  if (x.community) parts.push("作品 " + x.community);',
+    '  if (x.communityGroups) parts.push("玩家社区 " + x.communityGroups);',
     '  if (x.rooms) parts.push("房间 " + x.rooms);',
     '  if (x.users) parts.push("用户 " + x.users);',
     '  if (x.sessions) parts.push("存档 " + x.sessions);',
@@ -2734,11 +2768,52 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, fs.readFileSync(path.join(PUBLIC, "space.html"), "utf8"), "text/html; charset=utf-8");
   }
 
+  if (p === "/api/community/groups") {
+    if (req.method === "GET") {
+      return send(res, 200, {
+        groups: communityGroups.map((group) => communityGroupView(group, entry.sid)),
+      });
+    }
+    if (req.method !== "POST") return send(res, 405, { error: "只允许 GET 或 POST" });
+    const body = await readBody(req);
+    const name = String(body.name || "").trim().slice(0, 30);
+    const description = String(body.description || "").trim().slice(0, 300);
+    if (name.length < 2) return send(res, 400, { error: "社区名称至少需要 2 个字。" });
+    const duplicate = [...COMMUNITY_CATEGORIES, ...communityGroups.map((group) => group.name)]
+      .some((value) => String(value || "").trim().toLowerCase() === name.toLowerCase());
+    if (duplicate) return send(res, 409, { error: "这个社区名称已经存在。" });
+    const last = communityLast.get("group-" + entry.sid) || 0;
+    if (Date.now() - last < 20000) return send(res, 429, { error: "创建社区太快了，稍等一会儿。" });
+    if (communityGroups.length >= 500) return send(res, 400, { error: "社区数量已经达到存储上限。" });
+    let profile = loadProfileFor(entry.sid);
+    if (!profile.pid) profile = saveProfileFor(entry.sid, {});
+    const group = {
+      id: `community-${crypto.randomBytes(6).toString("hex")}`,
+      name,
+      description,
+      ownerSid: entry.sid,
+      ownerPid: profile.pid || "",
+      ownerName: profile.name || "匿名旅人",
+      createdAt: new Date().toISOString(),
+    };
+    communityLast.set("group-" + entry.sid, Date.now());
+    communityGroups.push(group);
+    writeJsonFile(COMMUNITY_GROUPS_FILE, communityGroups);
+    return send(res, 200, {
+      ok: true,
+      group: communityGroupView(group, entry.sid),
+      groups: communityGroups.map((item) => communityGroupView(item, entry.sid)),
+    });
+  }
+
   if (p === "/api/community") {
     if (req.method === "GET") {
       const mine = url.searchParams.get("mine") === "1";
       const source = mine ? community.filter((x) => x.sid === entry.sid) : community;
-      return send(res, 200, { posts: source.slice(-100).reverse().map((x) => communityView(x, entry.sid)) });
+      return send(res, 200, {
+        posts: source.slice(-200).reverse().map((x) => communityView(x, entry.sid)),
+        groups: communityGroups.map((group) => communityGroupView(group, entry.sid)),
+      });
     }
     const body = await readBody(req);
     const title = String(body.title || "").trim().slice(0, 60);
@@ -2755,6 +2830,8 @@ const server = http.createServer(async (req, res) => {
       media = { url: mu, type: String(body.media.type || "") };
     }
     const profile = loadProfileFor(entry.sid);
+    const communityId = String(body.communityId || "");
+    const group = communityGroups.find((item) => item.id === communityId);
     const post = {
       id: crypto.randomUUID(),
       sid: entry.sid,
@@ -2765,10 +2842,10 @@ const server = http.createServer(async (req, res) => {
       media,
       category: COMMUNITY_CATEGORIES.includes(body.category) ? body.category : "现实",
       origin: COMMUNITY_ORIGINS.includes(body.origin) ? body.origin : "原创",
+      communityId: group ? group.id : "",
       tags: (Array.isArray(body.tags) ? body.tags : String(body.tags || "").split(/[,，、]/))
         .map((t) => String(t).trim().slice(0, 16))
-        .filter(Boolean)
-        .slice(0, 5),
+        .filter(Boolean),
       comments: [],
       at: new Date().toISOString(),
       likes: [],

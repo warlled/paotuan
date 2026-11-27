@@ -116,12 +116,15 @@ function closeMainOverlays() {
   closeScenarioDetail();
 }
 
+function stashEditorDraft() {
+  if ($("custom-box").classList.contains("hidden")) return;
+  setupState.editorDraftAvailable = true;
+  $("custom-box").classList.add("hidden");
+}
+
 function showHomeSection() {
   closeMainOverlays();
-  if (!$("custom-box").classList.contains("hidden")) {
-    setupState.editorDraftAvailable = true;
-    $("custom-box").classList.add("hidden");
-  }
+  stashEditorDraft();
   $("game").classList.remove("on");
   $("setup").classList.remove("hidden");
   $("scenario-main").classList.remove("hidden");
@@ -151,18 +154,21 @@ function showCreationSection() {
 
 function showCommunitySection() {
   closeMainOverlays();
+  stashEditorDraft();
   setBottomNavActive("community");
   $("cm-open").click();
 }
 
 function showNoticeFeedbackSection() {
   closeMainOverlays();
+  stashEditorDraft();
   setBottomNavActive("notice");
-  openFeedback();
+  openFeedback("announcements");
 }
 
 function showProfileSection() {
   closeMainOverlays();
+  stashEditorDraft();
   setBottomNavActive("profile");
   $("me-open").click();
 }
@@ -1899,8 +1905,18 @@ async function loadFeedback() {
   } catch {}
 }
 
-function openFeedback() {
+function setNoticeView(view) {
+  const next = view === "feedback" ? "feedback" : "announcements";
+  $("notice-announcements-view")?.classList.toggle("hidden", next !== "announcements");
+  $("notice-feedback-view")?.classList.toggle("hidden", next !== "feedback");
+  document.querySelectorAll("[data-notice-view]").forEach((button) => {
+    button.classList.toggle("on", button.dataset.noticeView === next);
+  });
+}
+
+function openFeedback(view = "feedback") {
   $("fb-modal").classList.remove("hidden");
+  setNoticeView(view);
   loadFeedback();
   clearInterval(fbTimer);
   fbTimer = setInterval(() => {
@@ -1918,8 +1934,12 @@ function closeFeedback() {
 $("vote-up").addEventListener("click", () => castVote("up"));
 $("vote-down").addEventListener("click", () => castVote("down"));
 $("feedback-open").addEventListener("click", () => {
-  openFeedback();
+  openFeedback("feedback");
   setBottomNavActive("notice");
+});
+$("notice-view-tabs")?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-notice-view]");
+  if (button) setNoticeView(button.dataset.noticeView);
 });
 $("fb-close").addEventListener("click", closeFeedback);
 $("fb-modal").addEventListener("click", (e) => {
@@ -2378,6 +2398,7 @@ $("me-avatar-file").addEventListener("change", async (e) => {
 let cmFile = null;
 let cmFilter = "all";
 let cmPosts = [];
+let cmGroups = [];
 let cmCommentSort = "time";
 
 function renderCommunity(posts) {
@@ -2387,6 +2408,7 @@ function renderCommunity(posts) {
     if (cmFilter === "all") return true;
     if (cmFilter === "mine") return Boolean(p.pid && me && p.pid === me.pid);
     if (cmFilter === "原创" || cmFilter === "同人") return (p.origin || "原创") === cmFilter;
+    if (cmFilter.startsWith("group:")) return p.communityId === cmFilter.slice("group:".length);
     return p.category === cmFilter;
   });
   if (!filtered.length) {
@@ -2431,7 +2453,7 @@ function renderCommunity(posts) {
     const kinds = document.createElement("div");
     kinds.className = "cm-kinds";
     const origin = post.origin || "原创";
-    for (const value of [origin, post.category].filter(Boolean)) {
+    for (const value of [origin, post.communityName, post.category].filter(Boolean)) {
       const tag = document.createElement("span");
       tag.className = "tag" + (value === origin ? " cm-origin" : "");
       tag.textContent = value;
@@ -2697,8 +2719,66 @@ async function loadCommunity() {
     if (!r.ok) return;
     const data = await r.json();
     cmPosts = data.posts || [];
+    cmGroups = data.groups || [];
+    renderCommunityGroups();
     renderCommunity(cmPosts);
   } catch {}
+}
+
+function renderCommunityGroups() {
+  const box = $("cm-custom-groups");
+  const picker = $("cm-group");
+  if (!box) return;
+  box.innerHTML = "";
+  if (!cmGroups.length) {
+    box.appendChild(el("span", "cm-group-empty", "还没有玩家社区"));
+  }
+  for (const group of cmGroups) {
+    const button = el("button", "cm-group-link" + (cmFilter === `group:${group.id}` ? " on" : ""));
+    button.type = "button";
+    button.dataset.filter = `group:${group.id}`;
+    button.title = group.description || group.name;
+    button.appendChild(el("span", "", group.name));
+    button.appendChild(el("small", "", `${group.postCount || 0} 帖`));
+    button.addEventListener("click", () => {
+      setCommunityFilter(`group:${group.id}`, button);
+      if (picker) picker.value = group.id;
+    });
+    box.appendChild(button);
+  }
+  if (picker) {
+    const current = picker.value;
+    picker.innerHTML = '<option value="">不加入自定义社区</option>';
+    for (const group of cmGroups) {
+      const option = el("option", "", `${group.name}（${group.postCount || 0} 帖）`);
+      option.value = group.id;
+      picker.appendChild(option);
+    }
+    const activeGroupId = cmFilter.startsWith("group:") ? cmFilter.slice("group:".length) : "";
+    const desired = current || activeGroupId;
+    picker.value = cmGroups.some((group) => group.id === desired) ? desired : "";
+  }
+}
+
+function setCommunityFilter(filter, activeButton = null) {
+  cmFilter = filter;
+  document.querySelectorAll("#cm-tabs button, #cm-custom-groups button").forEach((button) => {
+    button.classList.toggle("on", activeButton ? button === activeButton : button.dataset.filter === filter);
+  });
+  const info = $("cm-group-info");
+  if (info) {
+    info.innerHTML = "";
+    const group = filter.startsWith("group:")
+      ? cmGroups.find((item) => item.id === filter.slice("group:".length))
+      : null;
+    info.classList.toggle("hidden", !group);
+    if (group) {
+      info.appendChild(el("b", "", group.name));
+      info.appendChild(el("span", "", group.description || "这个社区还没有填写简介。"));
+      info.appendChild(el("small", "", `${group.postCount || 0} 个帖子 · 创建者 ${group.ownerName || "匿名旅人"}`));
+    }
+  }
+  renderCommunity(cmPosts);
 }
 
 $("cm-open").addEventListener("click", () => {
@@ -2709,10 +2789,47 @@ $("cm-open").addEventListener("click", () => {
 
 document.querySelectorAll("#cm-tabs button").forEach((b) => {
   b.addEventListener("click", () => {
-    cmFilter = b.dataset.filter;
-    document.querySelectorAll("#cm-tabs button").forEach((x) => x.classList.toggle("on", x === b));
-    renderCommunity(cmPosts);
+    setCommunityFilter(b.dataset.filter, b);
+    if ($("cm-group")) $("cm-group").value = "";
   });
+});
+
+$("cm-create-group")?.addEventListener("click", () => {
+  $("cm-group-form")?.classList.remove("hidden");
+  $("cm-group-name")?.focus();
+});
+
+$("cm-group-cancel")?.addEventListener("click", () => {
+  $("cm-group-form")?.classList.add("hidden");
+  $("cm-group-status").textContent = "";
+});
+
+$("cm-group-submit")?.addEventListener("click", async () => {
+  const name = $("cm-group-name").value.trim();
+  const description = $("cm-group-desc").value.trim();
+  if (!name) {
+    $("cm-group-status").textContent = "先填写社区名称。";
+    return;
+  }
+  $("cm-group-status").textContent = "创建中…";
+  const r = await fetch("/api/community/groups", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name, description }),
+  });
+  const data = await r.json();
+  if (!r.ok) {
+    $("cm-group-status").textContent = data.error || "创建失败";
+    return;
+  }
+  cmGroups = data.groups || [];
+  renderCommunityGroups();
+  cmFilter = `group:${data.group.id}`;
+  $("cm-group").value = data.group.id;
+  setCommunityFilter(cmFilter);
+  $("cm-group-name").value = "";
+  $("cm-group-desc").value = "";
+  $("cm-group-status").textContent = "社区已创建，可以开始发帖。";
 });
 
 $("cm-comment-sort").addEventListener("click", (event) => {
@@ -2789,6 +2906,7 @@ $("cm-post").addEventListener("click", async () => {
       tags: $("cm-tags").value,
       category: $("cm-category").value,
       origin: $("cm-origin").value,
+      communityId: $("cm-group").value,
     }),
   });
   const data = await r.json();
@@ -4316,9 +4434,6 @@ try {
 } catch {
   applyScenarioEditorScale(false);
 }
-
-$("btn-cancel-scenario").addEventListener("click", closeScenarioEditor);
-$("btn-cancel-scenario-bottom").addEventListener("click", closeScenarioEditor);
 
 $("btn-edit-scenario").addEventListener("click", async () => {
   if (!setupState.editingId) return;

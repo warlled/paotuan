@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>玩家自由创作游玩社区网站平台</title>
-<link rel="stylesheet" href="/style.css?v=20261127-navpages1">
+<link rel="stylesheet" href="/style.css?v=20261127-forum1">
 <link rel="stylesheet" href="/bottom-nav.css?v=20261127-navpages1">
 </head>
 <body>
@@ -53,7 +53,12 @@
       <button id="fb-scale" class="panel-scale" type="button" aria-pressed="false">缩放</button>
       <button id="fb-close" title="关闭">✕</button>
     </div>
-    <section class="official-notices" aria-labelledby="official-notices-title">
+    <div class="notice-view-tabs" id="notice-view-tabs">
+      <button type="button" class="on" data-notice-view="announcements">官方公告</button>
+      <button type="button" data-notice-view="feedback">投诉与反馈</button>
+    </div>
+    <div id="notice-announcements-view" class="notice-view">
+    <section class="official-notices" id="official-notices" aria-labelledby="official-notices-title">
       <div class="official-notices-head">
         <h3 id="official-notices-title">官方公告</h3>
         <span>由网站管理组发布</span>
@@ -103,6 +108,8 @@
         <p>遇到功能故障、账号与数据问题、侵权内容或违规剧本，请在本页下方提交。请勿在反馈中填写密码、API Key 或其他私密凭据。</p>
       </details>
     </section>
+    </div>
+    <div id="notice-feedback-view" class="notice-view notice-feedback-view hidden">
     <div class="fb-section-title">投诉与反馈</div>
     <div class="social-sort" id="fb-sort" aria-label="留言排序">
       <span>排序</span>
@@ -123,6 +130,7 @@
       <button id="fb-next" type="button">下一页 ›</button>
     </div>
     <div id="fb-list" class="fb-list"></div>
+    </div>
   </div>
 </div>
 
@@ -257,57 +265,81 @@
       <button id="cm-scale" class="panel-scale" type="button" aria-pressed="false">缩放</button>
       <button data-close="cm-modal" title="关闭">✕</button>
     </div>
-    <div class="cm-tabs cm-tabs-scroll" id="cm-tabs">
-      <button data-filter="all" class="on">全部</button>
-      <button data-filter="原创">原创</button>
-      <button data-filter="同人">同人</button>
-      <button data-filter="历史">历史</button>
-      <button data-filter="奇幻">奇幻</button>
-      <button data-filter="科幻">科幻</button>
-      <button data-filter="现实">现实</button>
-      <button data-filter="言情">言情</button>
-      <button data-filter="脑洞">脑洞</button>
-      <button data-filter="玄幻">玄幻</button>
-      <button data-filter="仙侠">仙侠</button>
-      <button data-filter="怪谈">怪谈</button>
-      <button data-filter="悬疑">悬疑</button>
-      <button data-filter="mine">我的</button>
-    </div>
-    <div class="cm-search">
-      <input id="cm-search" maxlength="40" placeholder="搜索剧本标题、类型或玩家昵称…">
-      <button id="cm-search-btn">搜索</button>
-    </div>
-    <div id="cm-search-results" class="cm-search-results"></div>
-    <div class="cm-form">
-      <input id="cm-title" maxlength="60" placeholder="作品标题">
-      <textarea id="cm-text" maxlength="1000" placeholder="写下你的设定、剧本片段、角色故事，或分享一张跑团截图……"></textarea>
-      <div class="cm-form-meta">
-        <select id="cm-origin" title="作品性质">
-          <option value="原创" selected>原创</option>
-          <option value="同人">同人</option>
-        </select>
-        <select id="cm-category">
-          <option>历史</option><option>奇幻</option><option>科幻</option><option selected>现实</option>
-          <option>言情</option><option>脑洞</option><option>玄幻</option><option>仙侠</option>
-          <option>怪谈</option><option>悬疑</option>
-        </select>
-        <input id="cm-tags" maxlength="60" placeholder="标签，逗号分隔（如：民国, 悬疑）">
-        <span class="hint" id="cm-counter">0 / 1000</span>
+    <div class="cm-layout">
+      <aside class="cm-sidebar" aria-label="社区分区">
+        <div class="cm-sidebar-title">社区分区</div>
+        <nav class="cm-tabs cm-tabs-vertical" id="cm-tabs">
+          <button data-filter="all" class="on">全部</button>
+          <button data-filter="原创">原创</button>
+          <button data-filter="同人">同人</button>
+          <button data-filter="历史">历史</button>
+          <button data-filter="奇幻">奇幻</button>
+          <button data-filter="科幻">科幻</button>
+          <button data-filter="现实">现实</button>
+          <button data-filter="言情">言情</button>
+          <button data-filter="脑洞">脑洞</button>
+          <button data-filter="玄幻">玄幻</button>
+          <button data-filter="仙侠">仙侠</button>
+          <button data-filter="怪谈">怪谈</button>
+          <button data-filter="悬疑">悬疑</button>
+          <button data-filter="mine">我的帖子</button>
+        </nav>
+        <div class="cm-sidebar-subtitle">玩家社区</div>
+        <div id="cm-custom-groups" class="cm-custom-groups"></div>
+        <button id="cm-create-group" class="cm-create-group" type="button">＋ 创建社区</button>
+      </aside>
+      <div class="cm-main">
+        <div id="cm-group-form" class="cm-group-form hidden">
+          <div class="cm-group-form-head"><b>创建一个新社区</b><span>像贴吧一样建立自己的交流分区</span></div>
+          <input id="cm-group-name" maxlength="30" placeholder="社区名称">
+          <textarea id="cm-group-desc" maxlength="300" placeholder="社区简介：这里讨论什么？"></textarea>
+          <div class="row2">
+            <button id="cm-group-submit" class="primary2" type="button">创建社区</button>
+            <button id="cm-group-cancel" class="ghost" type="button">取消</button>
+            <span id="cm-group-status" class="hint"></span>
+          </div>
+        </div>
+        <div id="cm-group-info" class="cm-group-info hidden"></div>
+        <div class="cm-search">
+          <input id="cm-search" maxlength="40" placeholder="搜索剧本标题、类型或玩家昵称…">
+          <button id="cm-search-btn">搜索</button>
+        </div>
+        <div id="cm-search-results" class="cm-search-results"></div>
+        <div class="cm-form">
+          <input id="cm-title" maxlength="60" placeholder="帖子标题">
+          <textarea id="cm-text" maxlength="1000" placeholder="写下你的想法、设定、故事、攻略或分享一张截图……"></textarea>
+          <div class="cm-form-meta">
+            <select id="cm-origin" title="作品性质">
+              <option value="原创" selected>原创</option>
+              <option value="同人">同人</option>
+            </select>
+            <select id="cm-category">
+              <option>历史</option><option>奇幻</option><option>科幻</option><option selected>现实</option>
+              <option>言情</option><option>脑洞</option><option>玄幻</option><option>仙侠</option>
+              <option>怪谈</option><option>悬疑</option>
+            </select>
+            <select id="cm-group" title="发布到自定义社区">
+              <option value="">不加入自定义社区</option>
+            </select>
+            <input id="cm-tags" placeholder="标签，逗号分隔，数量不限">
+            <span class="hint" id="cm-counter">0 / 1000</span>
+          </div>
+          <div id="cm-preview" class="cm-preview"></div>
+          <div class="row2">
+            <label class="file-btn">添加图片/视频<input id="cm-media" type="file" accept="image/png,image/jpeg,image/gif,image/webp,video/mp4,video/webm" hidden></label>
+            <span id="cm-media-name" class="hint"></span>
+            <button id="cm-post" class="primary2">发帖</button>
+            <span id="cm-status" class="hint"></span>
+          </div>
+        </div>
+        <div class="social-sort cm-comment-sort" id="cm-comment-sort" aria-label="评论排序">
+          <span>评论排序</span>
+          <button type="button" data-comment-sort="time" class="on">最新</button>
+          <button type="button" data-comment-sort="hot">最热</button>
+        </div>
+        <div id="cm-list" class="cm-list"></div>
       </div>
-      <div id="cm-preview" class="cm-preview"></div>
-      <div class="row2">
-        <label class="file-btn">添加图片/视频<input id="cm-media" type="file" accept="image/png,image/jpeg,image/gif,image/webp,video/mp4,video/webm" hidden></label>
-        <span id="cm-media-name" class="hint"></span>
-        <button id="cm-post" class="primary2">发布</button>
-        <span id="cm-status" class="hint"></span>
-      </div>
     </div>
-    <div class="social-sort cm-comment-sort" id="cm-comment-sort" aria-label="评论排序">
-      <span>评论排序</span>
-      <button type="button" data-comment-sort="time" class="on">最新</button>
-      <button type="button" data-comment-sort="hot">最热</button>
-    </div>
-    <div id="cm-list" class="cm-list"></div>
   </div>
 </div>
 
@@ -399,7 +431,6 @@
             <div class="editor-health"><span>完成度</span><b id="scenario-edit-progress">0%</b></div>
             <button type="button" class="ghost editor-compact-btn" id="btn-editor-scale">缩放</button>
             <button type="button" class="ghost editor-compact-btn" id="btn-editor-expand">展开全部</button>
-            <button type="button" class="ghost editor-compact-btn" id="btn-cancel-scenario">退出编辑</button>
           </div>
         </header>
 
@@ -708,7 +739,6 @@
         <footer class="editor-footer">
           <div class="editor-footer-copy"><b>保存前会检查标题和故事背景。</b><span>保存后可直接在剧本库中开始游玩，已发布版本不会被自动覆盖。</span></div>
           <div class="editor-inline-actions">
-            <button type="button" class="ghost" id="btn-cancel-scenario-bottom">收起</button>
             <button type="button" class="primary" id="btn-save-scenario">保存剧本</button>
           </div>
         </footer>
@@ -1069,8 +1099,8 @@
 </div>
 
 <script src="/bottom-nav.js?v=20261127-navpages1"></script>
-<script src="/i18n.js?v=20261127-navpages1"></script>
-<script src="/app.js?v=20261127-navpages1"></script>
+<script src="/i18n.js?v=20261127-forum1"></script>
+<script src="/app.js?v=20261127-forum1"></script>
 <script src="/vendor/pptxgen.bundle.js?v=3.12.0" async></script>
 </body>
 </html>
