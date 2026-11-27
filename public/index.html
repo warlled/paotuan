@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>玩家自由创作游玩社区网站平台</title>
-<link rel="stylesheet" href="/style.css?v=20261127-forum1">
+<link rel="stylesheet" href="/style.css?v=20261127-forumscale1">
 <link rel="stylesheet" href="/bottom-nav.css?v=20261127-navpages1">
 </head>
 <body>
@@ -267,11 +267,22 @@
     </div>
     <div class="cm-layout">
       <aside class="cm-sidebar" aria-label="社区分区">
-        <div class="cm-sidebar-title">社区分区</div>
+        <div class="cm-sidebar-head">
+          <span class="cm-sidebar-title">社区分区</span>
+          <div class="cm-sidebar-scale" aria-label="社区分区缩放">
+            <button id="cm-sidebar-smaller" type="button" title="缩小社区分区">−</button>
+            <button id="cm-sidebar-larger" type="button" title="放大社区分区">＋</button>
+          </div>
+        </div>
+        <div class="cm-sidebar-scale-label" id="cm-sidebar-scale-label">标准</div>
         <nav class="cm-tabs cm-tabs-vertical" id="cm-tabs">
+          <span class="cm-nav-group">浏览</span>
           <button data-filter="all" class="on">全部</button>
+          <button data-filter="mine">我的帖子</button>
+          <span class="cm-nav-group">性质</span>
           <button data-filter="原创">原创</button>
           <button data-filter="同人">同人</button>
+          <span class="cm-nav-group">题材</span>
           <button data-filter="历史">历史</button>
           <button data-filter="奇幻">奇幻</button>
           <button data-filter="科幻">科幻</button>
@@ -282,7 +293,6 @@
           <button data-filter="仙侠">仙侠</button>
           <button data-filter="怪谈">怪谈</button>
           <button data-filter="悬疑">悬疑</button>
-          <button data-filter="mine">我的帖子</button>
         </nav>
         <div class="cm-sidebar-subtitle">玩家社区</div>
         <div id="cm-custom-groups" class="cm-custom-groups"></div>
@@ -1099,8 +1109,8 @@
 </div>
 
 <script src="/bottom-nav.js?v=20261127-navpages1"></script>
-<script src="/i18n.js?v=20261127-forum1"></script>
-<script src="/app.js?v=20261127-forum1"></script>
+<script src="/i18n.js?v=20261127-forumscale1"></script>
+<script src="/app.js?v=20261127-forumscale1"></script>
 <script src="/vendor/pptxgen.bundle.js?v=3.12.0" async></script>
 </body>
 </html>

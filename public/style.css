@@ -553,20 +553,34 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent2); }
 .cm-scenario-actions { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-top: 8px; }
 .cm-scenario-actions .cm-import { display: inline-flex; align-items: center; margin-top: 0; text-decoration: none; }
 .cm-layout {
+  --cm-sidebar-width: 196px;
   flex: 1 1 auto;
   min-height: 0;
   display: grid;
-  grid-template-columns: 196px minmax(0, 1fr);
+  grid-template-columns: var(--cm-sidebar-width) minmax(0, 1fr);
   gap: 16px;
 }
+#cm-modal[data-sidebar-scale="small"] .cm-layout { --cm-sidebar-width: 152px; }
+#cm-modal[data-sidebar-scale="wide"] .cm-layout { --cm-sidebar-width: 244px; }
 .cm-sidebar {
   min-height: 0;
   overflow-y: auto;
   border-right: 1px solid var(--line);
   padding-right: 12px;
   scrollbar-width: thin;
+  overscroll-behavior: contain;
 }
 .cm-main { min-height: 0; overflow-y: auto; padding-right: 4px; scrollbar-width: thin; }
+.cm-sidebar-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0 5px;
+  background: var(--panel);
+}
 .cm-sidebar-title,
 .cm-sidebar-subtitle {
   color: var(--muted);
@@ -574,7 +588,20 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent2); }
   letter-spacing: .12em;
   margin: 2px 0 7px;
 }
+.cm-sidebar-title { flex: 1; min-width: 0; }
+.cm-sidebar-head .cm-sidebar-title { margin: 0; }
 .cm-sidebar-subtitle { margin-top: 14px; }
+.cm-sidebar-scale { display: flex; gap: 2px; flex: 0 0 auto; }
+.cm-sidebar-scale button {
+  width: 24px; height: 24px; padding: 0; border: 1px solid var(--line);
+  border-radius: 6px; background: var(--panel2); color: var(--text);
+  font-size: 14px; line-height: 1;
+}
+.cm-sidebar-scale button:disabled { opacity: .32; }
+.cm-sidebar-scale-label {
+  color: var(--muted); font-size: 9.5px; text-align: right;
+  margin: -3px 0 7px;
+}
 .cm-tabs { display: flex; gap: 6px; margin: 0 0 10px; flex-wrap: wrap; }
 .cm-tabs-vertical { display: grid; grid-template-columns: 1fr; gap: 5px; margin: 0; }
 .cm-tabs button {
@@ -585,6 +612,17 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent2); }
 .cm-tabs-vertical button {
   width: 100%; text-align: left; border-radius: 8px; padding: 7px 9px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  position: relative;
+}
+.cm-tabs-vertical button.on::before {
+  content: ""; position: absolute; left: 0; top: 6px; bottom: 6px;
+  width: 2px; border-radius: 2px; background: #1a1408;
+}
+.cm-nav-group {
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: .12em;
+  padding: 6px 4px 1px;
 }
 .cm-custom-groups { display: grid; gap: 5px; }
 .cm-group-link {
@@ -2336,14 +2374,24 @@ body:has(.owner-closed-banner) #game { padding-top: 28px; }
 .editor-cover-preview { overflow: hidden; }
 
 @media (max-width: 760px) {
-  .cm-layout { grid-template-columns: 92px minmax(0, 1fr); gap: 8px; }
+  .cm-layout { --cm-sidebar-width: 92px; grid-template-columns: var(--cm-sidebar-width) minmax(0, 1fr); gap: 8px; }
+  #cm-modal[data-sidebar-scale="small"] .cm-layout { --cm-sidebar-width: 68px; }
+  #cm-modal[data-sidebar-scale="wide"] .cm-layout { --cm-sidebar-width: 124px; }
+  #cm-modal[data-sidebar-scale="small"] .cm-sidebar-title,
+  #cm-modal[data-sidebar-scale="small"] .cm-sidebar-scale-label { display: none; }
+  #cm-modal[data-sidebar-scale="small"] .cm-sidebar-head { justify-content: center; }
   .cm-sidebar { padding-right: 7px; }
+  .cm-sidebar-head { display: grid; grid-template-columns: 1fr; justify-items: center; gap: 3px; }
   .cm-sidebar-title, .cm-sidebar-subtitle { font-size: 9px; letter-spacing: .06em; }
-  .cm-tabs-vertical { gap: 4px; }
+  .cm-sidebar-scale button { width: 32px; height: 30px; }
+  #cm-modal[data-sidebar-scale="small"] .cm-sidebar-scale button { width: 26px; height: 28px; }
+  .cm-sidebar-scale-label { width: 100%; text-align: center; margin: 0 0 5px; }
+  .cm-tabs-vertical { gap: 3px; }
   .cm-tabs-vertical button {
-    padding: 7px 5px; font-size: 10.5px; text-align: center;
-    white-space: normal; line-height: 1.25;
+    min-height: 34px; padding: 6px 4px; font-size: 10.5px; text-align: center;
+    white-space: normal; line-height: 1.2; border-radius: 7px;
   }
+  .cm-nav-group { font-size: 8px; padding: 5px 1px 1px; text-align: center; }
   .cm-group-link { grid-template-columns: 1fr; padding: 7px 4px; text-align: center; font-size: 10.5px; }
   .cm-group-link small { display: none; }
   .cm-create-group { padding: 7px 4px; font-size: 10.5px; }
