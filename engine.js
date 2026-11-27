@@ -9,7 +9,12 @@ const os = require("node:os");
 const crypto = require("node:crypto");
 const { spawn } = require("node:child_process");
 const https = require("node:https");
-const { linksToPromptBlock, MAX_LINKS } = require("./linkfetch");
+const {
+  linksToPromptBlock,
+  MAX_LINKS,
+  assertPublicDestination,
+  guardedLookup,
+} = require("./linkfetch");
 
 const ROOT = __dirname;
 const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : "";
@@ -259,7 +264,8 @@ function scenarioVisibleTo(data, isOwnDir, viewer) {
   if (vis === "public") return true;
   if (vis === "private") return false;
   const shared = (Array.isArray(data.sharedWith) ? data.sharedWith : []).map((x) => String(x).toLowerCase());
-  const who = [viewer.sid, viewer.pid, viewer.name].filter(Boolean).map((x) => String(x).toLowerCase());
+  // 昵称可被任意修改，不能作为访问控制凭据；联系人仅按随机玩家 ID 匹配。
+  const who = [viewer.pid].filter(Boolean).map((x) => String(x).toLowerCase());
   return shared.some((token) => token && who.includes(token));
 }
 
@@ -430,6 +436,11 @@ const CLI = {
 };
 
 const clip = (value, limit) => String(value ?? "").trim().slice(0, limit);
+const UNSAFE_DYNAMIC_KEYS = new Set(["__proto__", "prototype", "constructor"]);
+function safeDynamicKey(value, limit = 32) {
+  const key = clip(value, limit);
+  return key && !UNSAFE_DYNAMIC_KEYS.has(key) ? key : "";
+}
 
 /** 外部链接抓取结果的统一整理：最多 5 条，每条正文最多 5000 字。 */
 function sanitizeLinks(list) {
@@ -543,7 +554,7 @@ function saveCustomScenario(input, existingId, targetDir) {
     visibility: input.visibility === "private" || input.visibility === "contacts" ? input.visibility : "public",
     sharedWith:
       input.visibility === "contacts"
-        ? cleanList(input.sharedWith, 40, 30)
+        ? cleanList(input.sharedWith, 40, 30).filter((value) => /^[a-f0-9]{8,32}$/i.test(value))
         : [],
     playStyle: input.playStyle === "open-world" ? "open-world" : "content",
     continuity: cleanList(input.continuity, 1200, 8),
@@ -1100,22 +1111,33 @@ function friendlyModelError(err, cfg) {
   return err;
 }
 
-function askCompatible(prompt, cfg, systemPrompt) {
+async function askCompatible(prompt, cfg, systemPrompt) {
+  let base;
+  try {
+    base = new URL(String(cfg.baseUrl || ""));
+  } catch {
+    throw new Error("Base URL 无效");
+  }
+  if (!/^https?:$/.test(base.protocol)) {
+    throw new Error("Base URL 必须是 http 或 https");
+  }
+  if (base.username || base.password) throw new Error("模型地址不能包含账号或密码");
+  const allowPrivate = cfg.allowPrivate === true;
+  if (
+    !allowPrivate &&
+    (process.env.NODE_ENV === "production" || process.env.RENDER === "true") &&
+    base.protocol !== "https:"
+  ) {
+    throw new Error("云端使用玩家自带模型时必须使用 HTTPS，避免 API Key 以明文传输。");
+  }
+  if (!allowPrivate) await assertPublicDestination(base);
+
   return new Promise((resolve, reject) => {
-    let base;
-    try {
-      base = new URL(String(cfg.baseUrl || ""));
-    } catch {
-      reject(new Error("Base URL 无效"));
-      return;
-    }
-    if (!/^https?:$/.test(base.protocol)) {
-      reject(new Error("Base URL 必须是 http 或 https"));
-      return;
-    }
     const anthropic = /anthropic\.com/i.test(String(cfg.baseUrl)) || cfg.provider === "anthropic";
-    const baseUrl = String(cfg.baseUrl).replace(/\/+$/, "");
-    const endpoint = anthropic ? baseUrl + "/messages" : baseUrl + "/chat/completions";
+    const endpoint = new URL(base.href);
+    endpoint.search = "";
+    endpoint.hash = "";
+    endpoint.pathname = `${endpoint.pathname.replace(/\/+$/, "")}/${anthropic ? "messages" : "chat/completions"}`;
     const payload = anthropic
       ? JSON.stringify({
           model: String(cfg.model || ""),
@@ -1139,6 +1161,7 @@ function askCompatible(prompt, cfg, systemPrompt) {
       {
         method: "POST",
         timeout: 150000,
+        lookup: allowPrivate ? undefined : guardedLookup,
         headers: anthropic
           ? {
               "content-type": "application/json",
@@ -1154,8 +1177,21 @@ function askCompatible(prompt, cfg, systemPrompt) {
       },
       (res) => {
         let raw = "";
-        res.on("data", (c) => (raw += c.toString("utf8")));
+        let bytes = 0;
+        let stopped = false;
+        res.on("data", (c) => {
+          if (stopped) return;
+          bytes += c.length;
+          if (bytes > 2 * 1024 * 1024) {
+            stopped = true;
+            res.destroy();
+            reject(new Error("模型接口返回内容过大，已停止读取。"));
+            return;
+          }
+          raw += c.toString("utf8");
+        });
         res.on("end", () => {
+          if (stopped) return;
           if (res.statusCode !== 200) {
             let detail = raw.slice(0, 200);
             try {
@@ -2089,7 +2125,8 @@ function applyState(session, scenario, state, options = {}) {
     }
   }
   for (const [k, v] of Object.entries(state.flags || {})) {
-    session.flags[k] = v;
+    const key = safeDynamicKey(k, 40);
+    if (key) session.flags[key] = v;
   }
 
   // 人物关系：可只改态度，也可用 delta 微调数值
@@ -2097,7 +2134,7 @@ function applyState(session, scenario, state, options = {}) {
   if (rels && typeof rels === "object" && !Array.isArray(rels)) {
     if (!session.relations) session.relations = {};
     for (const [rawName, value] of Object.entries(rels)) {
-      const name = String(rawName).trim().slice(0, 30);
+      const name = safeDynamicKey(rawName, 30);
       if (!name) continue;
       const prev = session.relations[name] || { value: 0, attitude: "初识", note: "", updatedTurn: 0 };
       const next = { ...prev };
@@ -2189,7 +2226,8 @@ function applyState(session, scenario, state, options = {}) {
   if (state.attrs_add && typeof state.attrs_add === "object") {
     session.growth.attrs = session.growth.attrs || {};
     for (const [k, v] of Object.entries(state.attrs_add)) {
-      if (Number.isFinite(Number(v))) session.growth.attrs[k] = (session.growth.attrs[k] || 0) + Number(v);
+      const key = safeDynamicKey(k, 30);
+      if (key && Number.isFinite(Number(v))) session.growth.attrs[key] = (session.growth.attrs[key] || 0) + Number(v);
     }
   }
 

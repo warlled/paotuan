@@ -181,7 +181,7 @@
     <div class="card">
       <h2>加入房间</h2>
       <label>房间码</label>
-      <input id="j-code" maxlength="8" placeholder="例如：K7M2Q" style="text-transform:uppercase;letter-spacing:3px">
+      <input id="j-code" maxlength="8" placeholder="例如：K7M2Q9XA" style="text-transform:uppercase;letter-spacing:3px">
       <label>角色名</label>
       <input id="j-name" maxlength="24" placeholder="例如：阿棠">
       <label>身份 / 职业</label>
@@ -381,9 +381,16 @@ async function loadScenarios() {
   const list = (r.body && r.body.scenarios) || [];
   roomScenarios = list;
   roomPublicBase = (r.body && r.body.publicBase) || "";
-  $("c-scenario").innerHTML = list.map((s) => `<option value="${s.id}">${s.title}（${s.genre}）</option>`).join("");
+  const picker = $("c-scenario");
+  picker.innerHTML = "";
+  for (const s of list) {
+    const option = document.createElement("option");
+    option.value = String(s.id || "");
+    option.textContent = `${s.title || "未命名剧本"}${s.genre ? `（${s.genre}）` : ""}`;
+    picker.appendChild(option);
+  }
   if (!list.length) {
-    $("c-scenario").innerHTML = '<option value="">（剧本加载失败，请从首页进入）</option>';
+    picker.innerHTML = '<option value="">（剧本加载失败，请从首页进入）</option>';
     $("c-err").textContent = "剧本列表没加载出来，点右上角“回到单机”重新进入。";
   }
   updateRoomModeControls();

@@ -126,15 +126,28 @@ function sourceAuthority(url) {
 }
 
 async function fetchResearchPage(url) {
-  const response = await fetch(url, {
-    headers: {
-      "user-agent": "PaotuanResearch/1.0 (+https://paotuan.onrender.com)",
-      accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.5",
-      "accept-language": "zh-CN,zh;q=0.9,en;q=0.8",
-    },
-    signal: AbortSignal.timeout(15000),
-  });
-  if (!response.ok) throw new Error(`来源返回 HTTP ${response.status}`);
+  let current = url;
+  let response = null;
+  for (let redirects = 0; redirects <= 3; redirects += 1) {
+    if (!allowedUrl(current)) throw new Error("来源域名不在可信列表内");
+    response = await fetch(current, {
+      redirect: "manual",
+      headers: {
+        "user-agent": "PaotuanResearch/1.0 (+https://paotuan.onrender.com)",
+        accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.5",
+        "accept-language": "zh-CN,zh;q=0.9,en;q=0.8",
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location");
+      if (!location) throw new Error("来源返回无效跳转");
+      current = new URL(location, current).href;
+      continue;
+    }
+    break;
+  }
+  if (!response?.ok) throw new Error(`来源返回 HTTP ${response?.status || "unknown"}`);
   const contentType = String(response.headers.get("content-type") || "");
   const declaredLength = Number(response.headers.get("content-length") || 0);
   if (declaredLength > 600000) throw new Error("来源页面过大");
@@ -156,7 +169,7 @@ async function fetchResearchPage(url) {
   const raw = Buffer.concat(chunks).toString("utf8");
   const title = (raw.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || url;
   return {
-    url,
+    url: current,
     title: htmlToText(title).slice(0, 100),
     text: /html|xml/i.test(contentType) ? htmlToText(raw) : raw.trim(),
   };

@@ -3,6 +3,7 @@
  * 支持多人分享：本机是主人存档，外部访客凭邀请码进入，各自独立存档与回合锁。
  */
 const http = require("node:http");
+const net = require("node:net");
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
@@ -29,6 +30,13 @@ fs.mkdirSync(SESS_DIR, { recursive: true });
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 fs.mkdirSync(USERS_DIR, { recursive: true });
 
+const UNSAFE_DYNAMIC_KEYS = new Set(["__proto__", "prototype", "constructor"]);
+
+function safeDynamicKey(value, limit = 32) {
+  const key = String(value || "").trim().slice(0, limit);
+  return key && !UNSAFE_DYNAMIC_KEYS.has(key) ? key : "";
+}
+
 function toggleSidLike(record, sid) {
   if (!record || typeof record !== "object") return false;
   record.likes = Array.isArray(record.likes) ? record.likes : [];
@@ -53,11 +61,21 @@ const MIME_EXT = {
 };
 const UPLOAD_MAX = 8 * 1024 * 1024;
 const AVATAR_MAX = 2 * 1024 * 1024;
+const UPLOAD_TOTAL_LIMIT = Math.max(
+  UPLOAD_MAX,
+  Number(process.env.UPLOAD_TOTAL_LIMIT) || 256 * 1024 * 1024
+);
+const UPLOAD_USER_LIMIT = Math.max(
+  AVATAR_MAX,
+  Number(process.env.UPLOAD_USER_LIMIT) || 32 * 1024 * 1024
+);
 const EXT_MIME = Object.fromEntries(Object.entries(MIME_EXT).map(([mime, ext]) => [ext, mime]));
 /** 完整备份里上传文件的总量上限：超出就整体跳过并提示，避免把实例内存打满。 */
 const BACKUP_UPLOAD_LIMIT = Math.max(0, Number(process.env.BACKUP_UPLOAD_LIMIT) || 32 * 1024 * 1024);
 /** 恢复备份时允许的请求体上限。 */
 const RESTORE_BODY_LIMIT = Math.max(8 * 1024 * 1024, Number(process.env.RESTORE_BODY_LIMIT) || 128 * 1024 * 1024);
+const JSON_BODY_LIMIT = Math.max(1024 * 1024, Number(process.env.JSON_BODY_LIMIT) || 12 * 1024 * 1024);
+const FORM_BODY_LIMIT = 16 * 1024;
 const BACKUP_NAME_RULE = /^[\w\u4e00-\u9fa5-]{1,60}\.json$/;
 const BACKUP_SID_RULE = /^[A-Za-z0-9_-]{1,64}$/;
 const UPLOAD_NAME_RULE = /^[a-f0-9]{16}\.(png|jpg|gif|webp|mp4|webm)$/i;
@@ -259,6 +277,30 @@ function loadModelFor(sid) {
   }
 }
 
+function usableModelFor(entry, sid = entry.sid) {
+  const cfg = loadModelFor(sid);
+  if (!cfg) return null;
+  const localProcess = process.env.NODE_ENV !== "production" && process.env.RENDER !== "true";
+  return { ...cfg, allowPrivate: Boolean(entry.owner && localProcess) };
+}
+
+async function validateModelDestination(entry, rawUrl) {
+  const value = String(rawUrl || "").trim();
+  if (!value) return;
+  let target;
+  try {
+    target = new URL(value);
+  } catch {
+    throw new Error("模型 Base URL 不是有效网址。");
+  }
+  if (!/^https?:$/.test(target.protocol)) throw new Error("模型 Base URL 必须是 http 或 https。");
+  if (target.username || target.password) throw new Error("模型 Base URL 不能包含账号或密码。");
+  const localProcess = process.env.NODE_ENV !== "production" && process.env.RENDER !== "true";
+  if (entry.owner && localProcess) return;
+  if (target.protocol !== "https:") throw new Error("云端模型地址必须使用 HTTPS。");
+  await linkfetch.assertPublicDestination(target);
+}
+
 function publicModel(cfg) {
   if (!cfg) return { configured: false, enabled: false };
   const key = cfg.apiKey || "";
@@ -315,16 +357,53 @@ function saveUpload(base64, declaredMime, maxBytes, options = {}) {
   const buffer = Buffer.from(raw, "base64");
   if (!buffer.length) throw new Error("文件内容为空");
   if (buffer.length > maxBytes) throw new Error(`文件太大，最多 ${Math.round(maxBytes / 1048576)}MB`);
+  const totalUsage = uploadDirectoryBytes();
+  if (totalUsage + buffer.length > UPLOAD_TOTAL_LIMIT) {
+    throw new Error("网站上传空间已达到安全上限，请稍后再试或联系站长清理文件。");
+  }
+  if (Number(options.ownerUsageBytes || 0) + buffer.length > UPLOAD_USER_LIMIT) {
+    throw new Error(`每位玩家的上传文件合计不能超过 ${Math.round(UPLOAD_USER_LIMIT / 1048576)}MB。`);
+  }
   const sniffed = sniffMime(buffer);
-  const mime = MIME_EXT[declaredMime] ? declaredMime : sniffed;
-  if (!mime || !MIME_EXT[mime]) throw new Error("只支持图片（png/jpg/gif/webp）或视频（mp4/webm）");
+  if (!sniffed || !MIME_EXT[sniffed]) throw new Error("只支持图片（png/jpg/gif/webp）或视频（mp4/webm）");
+  const mime = sniffed;
+  if (options.avatarOnly && !/^image\//.test(mime)) throw new Error("头像只能上传图片。");
   if (options.staticOnly && (!STATIC_IMAGE_MIMES.has(mime) || isAnimatedImage(buffer))) {
     throw new Error("剧本背景只支持静态 PNG / JPG / WEBP 图片（封面可以用 GIF 动图）");
   }
-  if (sniffed && sniffed !== mime) throw new Error("文件内容与类型不符");
+  if (MIME_EXT[declaredMime] && declaredMime !== mime) throw new Error("文件内容与类型不符");
   const name = crypto.randomBytes(8).toString("hex") + MIME_EXT[mime];
   fs.writeFileSync(path.join(UPLOAD_DIR, name), buffer);
   return { url: `/uploads/${name}`, type: mime, size: buffer.length };
+}
+
+function uploadDirectoryBytes() {
+  try {
+    return fs.readdirSync(UPLOAD_DIR).reduce((sum, name) => {
+      try {
+        const item = fs.statSync(path.join(UPLOAD_DIR, name));
+        return sum + (item.isFile() ? item.size : 0);
+      } catch {
+        return sum;
+      }
+    }, 0);
+  } catch {
+    return 0;
+  }
+}
+
+function uploadBytesForEntry(entry) {
+  const urls = new Set();
+  collectUploadUrls(loadProfileFor(entry.sid), urls);
+  collectUploadUrls(listOwnScenarios(entry), urls);
+  collectUploadUrls(community.filter((post) => post.sid === entry.sid), urls);
+  let total = 0;
+  for (const name of urls) {
+    try {
+      total += fs.statSync(path.join(UPLOAD_DIR, name)).size;
+    } catch {}
+  }
+  return total;
 }
 
 let community = readJsonFile(COMMUNITY_FILE, []);
@@ -372,13 +451,16 @@ function communityReplyView(reply, sid) {
     name: reply.who,
     avatar: reply.avatar,
   });
+  const targetIdentity = reply.replyToSid
+    ? displayIdentityForSid(reply.replyToSid, sid, {})
+    : { name: reply.replyToName || "" };
   return {
     id: reply.id,
     author: identity.name,
     avatar: identity.avatar,
     text: reply.text || "",
     at: reply.at || "",
-    replyToName: reply.replyToName || "",
+    replyToName: targetIdentity.name || "",
     likes: (reply.likes || []).length,
     liked: (reply.likes || []).includes(sid),
     mine: Boolean(reply.sid && reply.sid === sid),
@@ -454,13 +536,16 @@ function feedbackReplyView(reply, sid) {
     name: reply.name,
     avatar: reply.avatar,
   });
+  const targetIdentity = reply.replyToSid
+    ? displayIdentityForSid(reply.replyToSid, sid, {})
+    : { name: reply.replyToName || "" };
   return {
     id: reply.id,
     name: identity.name,
     avatar: identity.avatar,
     text: reply.text || "",
     at: reply.at || "",
-    replyToName: reply.replyToName || "",
+    replyToName: targetIdentity.name || "",
     likes: (reply.likes || []).length,
     liked: (reply.likes || []).includes(sid),
     mine: Boolean(reply.sid && reply.sid === sid),
@@ -501,10 +586,10 @@ function saveRooms() {
 function makeRoomCode() {
   for (let i = 0; i < 50; i += 1) {
     let code = "";
-    for (let j = 0; j < 5; j += 1) code += ROOM_CHARS[crypto.randomInt(0, ROOM_CHARS.length)];
+    for (let j = 0; j < 8; j += 1) code += ROOM_CHARS[crypto.randomInt(0, ROOM_CHARS.length)];
     if (!rooms[code]) return code;
   }
-  return String(Date.now()).slice(-5);
+  return crypto.randomBytes(6).toString("hex").toUpperCase();
 }
 
 function newRoomState(scenario = {}) {
@@ -593,7 +678,9 @@ function applyRoomState(room, st, options = {}) {
   }
   while (state.events.length > 120) state.events.shift();
   const players = st.players && typeof st.players === "object" ? st.players : {};
+  const validPlayerIds = new Set(room.players.map((player) => player.pid).filter(Boolean));
   for (const [pid, upd] of Object.entries(players)) {
+    if (!validPlayerIds.has(pid)) continue;
     if (!upd || typeof upd !== "object") continue;
     const ps = state.status[pid] || (state.status[pid] = { hp: 10, hpMax: 10, san: 10, sanMax: 10, money: 20 });
     for (const key of ["hp", "san", "money"]) {
@@ -615,7 +702,8 @@ function applyRoomState(room, st, options = {}) {
     if (upd.attrs_add && typeof upd.attrs_add === "object") {
       g.attrs = g.attrs || {};
       for (const [k, v] of Object.entries(upd.attrs_add)) {
-        if (Number.isFinite(Number(v))) g.attrs[k] = (g.attrs[k] || 0) + Number(v);
+        const key = safeDynamicKey(k, 30);
+        if (key && Number.isFinite(Number(v))) g.attrs[key] = (g.attrs[key] || 0) + Number(v);
       }
     }
   }
@@ -629,7 +717,8 @@ function applyRoomState(room, st, options = {}) {
   }
   if (st.relations && typeof st.relations === "object") {
     for (const [k, v] of Object.entries(st.relations)) {
-      state.relations[k] = typeof v === "string" ? v : v?.attitude || String(v);
+      const key = safeDynamicKey(k, 30);
+      if (key) state.relations[key] = typeof v === "string" ? v : v?.attitude || String(v);
     }
   }
   for (const p of st.plot || []) {
@@ -1063,6 +1152,9 @@ const numOr = (value, fallback) => (Number.isFinite(Number(value)) ? Number(valu
 const guestTurnLimit = numOr(engine.config.guestTurnLimit, 60);
 const guestDailyCalls = numOr(engine.config.guestDailyCalls, 150);
 const maxConcurrentModels = numOr(engine.config.maxConcurrentModels, 2);
+const TRUST_PROXY_HEADERS = /^(?:1|true|yes|on)$/i.test(
+  String(process.env.TRUST_PROXY_HEADERS || process.env.RENDER || "")
+);
 
 /** 管理密码：优先 ADMIN_PASSWORD，否则从 DeepSeek 密钥派生，避免公开仓库泄露。 */
 const ADMIN_PASSWORD = (() => {
@@ -1099,6 +1191,14 @@ function validAdminToken(value) {
   }
 }
 
+function safeEqualText(left, right) {
+  const expected = String(right || "");
+  if (!expected) return false;
+  const a = crypto.createHash("sha256").update(String(left || "")).digest();
+  const b = crypto.createHash("sha256").update(expected).digest();
+  return crypto.timingSafeEqual(a, b);
+}
+
 function isAdminReq(req) {
   return validAdminToken(parseCookies(req.headers.cookie).pt_admin);
 }
@@ -1132,6 +1232,16 @@ function recordLoginFail(ip) {
 function secureCookie(name, value, maxAge) {
   const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
   return `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${secure}`;
+}
+
+function clientCookie(name, value, maxAge) {
+  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  return `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure}`;
+}
+
+function shareCookie(value, maxAge) {
+  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  return `rk=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${secure}`;
 }
 
 function loadShareState() {
@@ -1265,25 +1375,65 @@ function setCookie(res, value) {
   res._cookies.push(value);
 }
 
-function readBody(req) {
+function readBody(req, limit = JSON_BODY_LIMIT) {
   return new Promise((resolve) => {
-    let raw = "";
-    req.on("data", (c) => (raw += c));
-    req.on("end", () => {
+    const chunks = [];
+    let size = 0;
+    let settled = false;
+    let tooLarge = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      if (tooLarge) {
+        resolve({});
+        return;
+      }
       try {
-        resolve(JSON.parse(raw || "{}"));
+        resolve(JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}"));
       } catch {
         resolve({});
       }
+    };
+    req.on("data", (chunk) => {
+      if (settled || tooLarge) return;
+      size += chunk.length;
+      if (size > limit) {
+        tooLarge = true;
+        chunks.length = 0;
+        return;
+      }
+      chunks.push(chunk);
     });
+    req.on("end", finish);
+    req.on("aborted", finish);
+    req.on("error", finish);
   });
 }
 
-function readRaw(req) {
+function readRaw(req, limit = FORM_BODY_LIMIT) {
   return new Promise((resolve) => {
-    let raw = "";
-    req.on("data", (c) => (raw += c));
-    req.on("end", () => resolve(raw));
+    const chunks = [];
+    let size = 0;
+    let settled = false;
+    let tooLarge = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      resolve(tooLarge ? "" : Buffer.concat(chunks).toString("utf8"));
+    };
+    req.on("data", (chunk) => {
+      if (settled || tooLarge) return;
+      size += chunk.length;
+      if (size > limit) {
+        tooLarge = true;
+        chunks.length = 0;
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", finish);
+    req.on("aborted", finish);
+    req.on("error", finish);
   });
 }
 
@@ -1334,9 +1484,180 @@ function parseCookies(header) {
     .forEach((part) => {
       const i = part.indexOf("=");
       if (i < 0) return;
-      out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+      const name = part.slice(0, i).trim();
+      const raw = part.slice(i + 1).trim();
+      if (!name) return;
+      try {
+        out[name] = decodeURIComponent(raw);
+      } catch {
+        out[name] = raw;
+      }
     });
   return out;
+}
+
+let trustedInlineScriptHashes = null;
+
+function inlineScriptHashes() {
+  if (trustedInlineScriptHashes) return trustedInlineScriptHashes;
+  const htmlSources = [
+    fs.readFileSync(path.join(PUBLIC, "index.html"), "utf8"),
+    fs.readFileSync(path.join(PUBLIC, "room.html"), "utf8"),
+    fs.readFileSync(path.join(PUBLIC, "space.html"), "utf8"),
+    adminPage(),
+  ];
+  const hashes = new Set();
+  for (const html of htmlSources) {
+    const pattern = /<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi;
+    for (const match of html.matchAll(pattern)) {
+      if (!match[1]) continue;
+      hashes.add(`'sha256-${crypto.createHash("sha256").update(match[1], "utf8").digest("base64")}'`);
+    }
+  }
+  trustedInlineScriptHashes = [...hashes];
+  return trustedInlineScriptHashes;
+}
+
+function applySecurityHeaders(req, res) {
+  const production = process.env.NODE_ENV === "production";
+  res.setHeader("x-content-type-options", "nosniff");
+  res.setHeader("x-frame-options", "DENY");
+  res.setHeader("referrer-policy", "no-referrer");
+  res.setHeader("x-permitted-cross-domain-policies", "none");
+  res.setHeader("x-dns-prefetch-control", "off");
+  res.setHeader("cross-origin-opener-policy", "same-origin");
+  res.setHeader("cross-origin-resource-policy", "same-origin");
+  res.setHeader(
+    "permissions-policy",
+    "camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=()"
+  );
+  res.setHeader(
+    "content-security-policy",
+    [
+      "default-src 'self'",
+      "base-uri 'none'",
+      "object-src 'none'",
+      "frame-ancestors 'none'",
+      "form-action 'self'",
+      "connect-src 'self'",
+      "manifest-src 'self'",
+      "img-src 'self' data: blob:",
+      "media-src 'self' data: blob:",
+      "font-src 'self'",
+      "style-src 'self' 'unsafe-inline'",
+      `script-src 'self' ${inlineScriptHashes().join(" ")}`,
+      "script-src-attr 'none'",
+    ].join("; ")
+  );
+  if (production) {
+    res.setHeader("strict-transport-security", "max-age=31536000; includeSubDomains");
+  }
+}
+
+function requestOriginAllowed(req) {
+  if (!["POST", "PUT", "PATCH", "DELETE"].includes(String(req.method || "").toUpperCase())) return true;
+  const fetchSite = String(req.headers["sec-fetch-site"] || "").toLowerCase();
+  if (fetchSite === "cross-site") return false;
+  const origin = String(req.headers.origin || "").trim();
+  if (!origin) return true;
+  if (origin === "null") return false;
+  try {
+    const parsed = new URL(origin);
+    return (
+      /^https?:$/.test(parsed.protocol) &&
+      parsed.host.toLowerCase() === String(req.headers.host || "").toLowerCase()
+    );
+  } catch {
+    return false;
+  }
+}
+
+const requestRateBuckets = new Map();
+
+function normalizeIp(raw) {
+  let value = String(raw || "").trim().replace(/^\[|\]$/g, "");
+  if (!value || value.length > 64) return "";
+  const mapped = value.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i);
+  if (mapped) value = mapped[1];
+  return net.isIP(value) ? value.toLowerCase() : "";
+}
+
+function requestClientIp(req) {
+  if (TRUST_PROXY_HEADERS) {
+    // Render 会在代理链右侧追加真实客户端地址；取最右侧有效地址可防止
+    // 客户端伪造左侧前缀来绕过网络限流。
+    const chain = String(req.headers["x-forwarded-for"] || "")
+      .split(",")
+      .map((part) => normalizeIp(part))
+      .filter(Boolean);
+    if (chain.length) return chain[chain.length - 1];
+  }
+  return normalizeIp(req.socket?.remoteAddress) || "unknown";
+}
+
+function hitRateBucket(key, limit, windowMs) {
+  const now = Date.now();
+  let bucket = requestRateBuckets.get(key);
+  if (!bucket || now >= bucket.reset) {
+    bucket = { count: 0, reset: now + windowMs };
+    requestRateBuckets.set(key, bucket);
+  }
+  bucket.count += 1;
+  if (bucket.count <= limit) return null;
+  return { retry: Math.max(1, Math.ceil((bucket.reset - now) / 1000)) };
+}
+
+function requestRateLimit(req, pathname, sid, ip) {
+  const limitedRead = pathname === "/api/privacy/export" || pathname === "/api/admin/backup";
+  const mutating = ["POST", "PUT", "PATCH", "DELETE"].includes(String(req.method || "").toUpperCase());
+  if (!mutating && !limitedRead) return null;
+  let limit = 240;
+  let ipLimit = 900;
+  let windowMs = 60 * 1000;
+  let bucketName = "write";
+  if (pathname === "/api/links/fetch") {
+    limit = 12;
+    ipLimit = 30;
+    bucketName = "links";
+  } else if (pathname === "/api/upload") {
+    limit = 30;
+    ipLimit = 60;
+    bucketName = "upload";
+  } else if (pathname === "/api/privacy/delete") {
+    limit = 3;
+    ipLimit = 10;
+    windowMs = 60 * 60 * 1000;
+    bucketName = "privacy-delete";
+  } else if (pathname === "/api/privacy/export") {
+    limit = 20;
+    ipLimit = 40;
+    windowMs = 60 * 60 * 1000;
+    bucketName = "privacy-export";
+  } else if (pathname === "/api/admin/backup") {
+    limit = 20;
+    ipLimit = 40;
+    windowMs = 60 * 60 * 1000;
+    bucketName = "admin-backup";
+  } else if (pathname === "/api/rooms/create") {
+    limit = 30;
+    ipLimit = 60;
+    windowMs = 60 * 60 * 1000;
+    bucketName = "room-create";
+  } else if (["/api/new", "/api/action", "/api/rooms/advance"].includes(pathname)) {
+    limit = 160;
+    ipLimit = 400;
+    windowMs = 60 * 60 * 1000;
+    bucketName = "model-turns";
+  } else if (pathname === "/api/research/sync") {
+    limit = 30;
+    ipLimit = 60;
+    windowMs = 60 * 1000;
+    bucketName = "research";
+  }
+  return (
+    hitRateBucket(`sid:${sid}|${bucketName}`, limit, windowMs) ||
+    hitRateBucket(`ip:${ip}|${bucketName}`, ipLimit, windowMs)
+  );
 }
 
 /** 直接访问 127.0.0.1 / localhost 的是本机主人；经隧道进来的 Host 是公网域名。 */
@@ -2094,26 +2415,30 @@ function adminPage() {
 }
 
 function ctxFor(req, res) {
+  const ip = requestClientIp(req);
   if (isLocal(req)) {
-    return { entry: getEntry("owner", true), local: true };
+    return { entry: getEntry("owner", true), local: true, ip };
   }
   const url = new URL(req.url, "http://x");
   const cookies = parseCookies(req.headers.cookie);
   if (isOwnerReq(req)) {
-    return { entry: getEntry("owner", true), local: false, ownerCookie: true };
+    return { entry: getEntry("owner", true), local: false, ownerCookie: true, ip };
   }
   const adminPath = url.pathname === "/admin" || url.pathname.startsWith("/admin/") || url.pathname.startsWith("/api/admin/");
   if (shareKey && !adminPath) {
     const provided = url.searchParams.get("k") || cookies.rk || "";
-    if (provided !== shareKey) return { denied: true };
-    if (cookies.rk !== shareKey) setCookie(res, `rk=${encodeURIComponent(shareKey)}; Path=/; Max-Age=2592000; SameSite=Lax`);
+    if (!safeEqualText(provided, shareKey)) return { denied: true, ip };
+    if (!safeEqualText(cookies.rk || "", shareKey)) setCookie(res, shareCookie(shareKey, 2592000));
   }
   let sid = cookies.tg_sid;
   if (!/^[a-f0-9]{16,40}$/.test(String(sid || ""))) {
+    const limited = hitRateBucket(`ip-new-sid:${ip}`, 180, 10 * 60 * 1000);
+    if (limited) return { rateLimited: limited, ip };
     sid = crypto.randomBytes(12).toString("hex");
-    setCookie(res, `tg_sid=${sid}; Path=/; Max-Age=2592000; SameSite=Lax`);
+    setCookie(res, clientCookie("tg_sid", sid, 2592000));
+    return { entry: getEntry(sid, false), local: false, freshCookie: true, ip };
   }
-  return { entry: getEntry(sid, false), local: false, freshCookie: true };
+  return { entry: getEntry(sid, false), local: false, freshCookie: false, ip };
 }
 
 /* ---------- 访客配额 ---------- */
@@ -2189,6 +2514,12 @@ function scenarioMeta(entry, id) {
   return engine.listScenarios(guestDir(entry), viewerFor(entry)).find((s) => s.id === id) || null;
 }
 
+function visibleScenario(entry, id) {
+  const scenarioId = String(id || "");
+  if (!scenarioId || !scenarioMeta(entry, scenarioId)) return null;
+  return engine.loadScenario(scenarioId, guestDir(entry));
+}
+
 function publicSession(entry) {
   const session = entry.session;
   if (!session) return null;
@@ -2214,8 +2545,39 @@ function publicSession(entry) {
 /* ---------- 请求处理 ---------- */
 
 const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, "http://127.0.0.1");
+  applySecurityHeaders(req, res);
+  let url;
+  try {
+    url = new URL(req.url, "http://127.0.0.1");
+  } catch {
+    return send(res, 400, "bad request", "text/plain; charset=utf-8");
+  }
   const p = url.pathname;
+
+  if (!requestOriginAllowed(req)) {
+    return send(res, 403, { error: "跨站请求已被拒绝。" });
+  }
+
+  if (!isLocal(req)) {
+    const networkLimited = hitRateBucket(`ip-all:${requestClientIp(req)}`, 1800, 60 * 1000);
+    if (networkLimited) {
+      res.setHeader("retry-after", String(networkLimited.retry));
+      return send(res, 429, { error: `请求过于频繁，请在 ${networkLimited.retry} 秒后重试。` });
+    }
+  }
+
+  const contentLength = Number(req.headers["content-length"] || 0);
+  const hasBody = contentLength > 0 || Boolean(req.headers["transfer-encoding"]);
+  const bodyLimit = p === "/api/admin/restore" ? RESTORE_BODY_LIMIT : p === "/admin/login" ? FORM_BODY_LIMIT : JSON_BODY_LIMIT;
+  if (["POST", "PUT", "PATCH", "DELETE"].includes(req.method) && contentLength > bodyLimit) {
+    return send(res, 413, { error: "请求内容超过允许的大小。" });
+  }
+  if (["POST", "PUT", "PATCH", "DELETE"].includes(req.method) && p.startsWith("/api/") && hasBody) {
+    const contentType = String(req.headers["content-type"] || "").toLowerCase();
+    if (!contentType.includes("application/json")) {
+      return send(res, 415, { error: "API 写操作只接受 JSON 请求。" });
+    }
+  }
 
   if (p !== "/app.js" && p !== "/style.css") {
     res.setHeader("cache-control", "no-store");
@@ -2223,23 +2585,27 @@ const server = http.createServer(async (req, res) => {
 
   const ctx = ctxFor(req, res);
   if (ctx.denied) return send(res, 403, denyPage(), "text/html; charset=utf-8");
+  if (ctx.rateLimited) {
+    res.setHeader("retry-after", String(ctx.rateLimited.retry));
+    return send(res, 429, { error: "短时间内创建了过多匿名身份，请稍后再试。" });
+  }
   const entry = ctx.entry;
+  const limited = requestRateLimit(req, p, entry.sid, ctx.ip);
+  if (limited) {
+    res.setHeader("retry-after", String(limited.retry));
+    return send(res, 429, { error: `请求过于频繁，请在 ${limited.retry} 秒后重试。` });
+  }
 
   const adminOk = entry.owner || isAdminReq(req);
 
   res.setHeader("cache-control", "no-store");
-  res.setHeader("referrer-policy", "no-referrer");
-  res.setHeader("x-frame-options", "DENY");
 
   if (p === "/admin/login" && req.method === "POST") {
-    const ip = req.socket.remoteAddress || "unknown";
+    const ip = requestClientIp(req);
     if (loginBlocked(ip)) return send(res, 429, loginPage("", true), "text/html; charset=utf-8");
     const raw = await readRaw(req);
     const password = new URLSearchParams(raw).get("password") || "";
-    const ok =
-      ADMIN_PASSWORD.length > 0 &&
-      password.length === ADMIN_PASSWORD.length &&
-      crypto.timingSafeEqual(Buffer.from(password), Buffer.from(ADMIN_PASSWORD));
+    const ok = safeEqualText(password, ADMIN_PASSWORD);
     if (!ok) {
       recordLoginFail(ip);
       res.writeHead(302, { location: "/admin?e=1" });
@@ -2373,7 +2739,7 @@ const server = http.createServer(async (req, res) => {
     try {
       scenarioId = decodeURIComponent(encodedId);
     } catch {}
-    if (!scenarioId || scenarioId.includes("/") || !engine.loadScenario(scenarioId, guestDir(entry))) {
+    if (!scenarioId || scenarioId.includes("/") || !scenarioMeta(entry, scenarioId)) {
       return send(res, 404, "not found", "text/plain; charset=utf-8");
     }
     return send(res, 200, fs.readFileSync(path.join(PUBLIC, "index.html"), "utf8"), "text/html; charset=utf-8");
@@ -2547,7 +2913,7 @@ const server = http.createServer(async (req, res) => {
 
   if (p === "/api/scenario/social" && req.method === "GET") {
     const id = String(url.searchParams.get("id") || "");
-    const scenario = engine.loadScenario(id, guestDir(entry));
+    const scenario = visibleScenario(entry, id);
     if (!scenario) return send(res, 404, { error: "找不到这个剧本" });
     return send(res, 200, { social: scenarioSocialView(id, entry.sid) });
   }
@@ -2555,7 +2921,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "POST" && (p === "/api/scenario/like" || p === "/api/scenario/favorite")) {
     const body = await readBody(req);
     const id = String(body.id || "");
-    const scenario = engine.loadScenario(id, guestDir(entry));
+    const scenario = visibleScenario(entry, id);
     if (!scenario) return send(res, 404, { error: "找不到这个剧本" });
     const item = ensureScenarioSocial(id);
     if (p.endsWith("/like")) toggleSidLike(item, entry.sid);
@@ -2572,7 +2938,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "POST" && p === "/api/scenario/forward") {
     const body = await readBody(req);
     const id = String(body.id || "");
-    const scenario = engine.loadScenario(id, guestDir(entry));
+    const scenario = visibleScenario(entry, id);
     if (!scenario) return send(res, 404, { error: "找不到这个剧本" });
     const item = ensureScenarioSocial(id);
     item.shares += 1;
@@ -2587,7 +2953,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "POST" && p === "/api/scenario/comment") {
     const body = await readBody(req);
     const id = String(body.id || "");
-    const scenario = engine.loadScenario(id, guestDir(entry));
+    const scenario = visibleScenario(entry, id);
     if (!scenario) return send(res, 404, { error: "找不到这个剧本" });
     const text = String(body.text || "").trim().slice(0, 500);
     if (!text) return send(res, 400, { error: "写点内容再评论" });
@@ -2610,6 +2976,7 @@ const server = http.createServer(async (req, res) => {
         text,
         at: new Date().toISOString(),
         replyToName: target ? target.who || "匿名旅人" : "",
+        replyToSid: target?.sid || "",
         likes: [],
       });
       while (parent.replies.length > 50) parent.replies.shift();
@@ -2673,8 +3040,14 @@ const server = http.createServer(async (req, res) => {
 
   if (p === "/api/scenario") {
     if (req.method === "GET") {
+      const id = url.searchParams.get("id") || "";
+      if (!entry.owner && !ownScenario(entry, id)) {
+        return send(res, 403, { error: "只能读取和编辑你自己创建的剧本原稿。" });
+      }
+      const scenario = visibleScenario(entry, id);
+      if (!scenario) return send(res, 404, { error: "找不到这个剧本" });
       try {
-        return send(res, 200, { scenario: engine.readScenarioRaw(url.searchParams.get("id") || "", guestDir(entry)) });
+        return send(res, 200, { scenario });
       } catch (err) {
         return send(res, 404, { error: String(err.message || err) });
       }
@@ -2871,6 +3244,7 @@ const server = http.createServer(async (req, res) => {
       text,
       at: new Date().toISOString(),
       replyToName: target ? target.name || "匿名旅人" : "",
+      replyToSid: target?.sid || "",
       likes: [],
     });
     while (message.replies.length > 80) message.replies.shift();
@@ -3004,7 +3378,7 @@ const server = http.createServer(async (req, res) => {
       } catch {}
     }
     const nextSid = crypto.randomBytes(12).toString("hex");
-    setCookie(res, `tg_sid=${nextSid}; Path=/; Max-Age=2592000; SameSite=Lax`);
+    setCookie(res, clientCookie("tg_sid", nextSid, 2592000));
     return send(res, 200, {
       ok: true,
       removed: {
@@ -3035,7 +3409,11 @@ const server = http.createServer(async (req, res) => {
     const body = await readBody(req);
     try {
       const staticOnly = body.kind === "scenario-visual";
-      const out = saveUpload(body.data, String(body.mime || ""), body.avatar ? AVATAR_MAX : UPLOAD_MAX, { staticOnly });
+      const out = saveUpload(body.data, String(body.mime || ""), body.avatar ? AVATAR_MAX : UPLOAD_MAX, {
+        staticOnly,
+        avatarOnly: Boolean(body.avatar),
+        ownerUsageBytes: uploadBytesForEntry(entry),
+      });
       return send(res, 200, out);
     } catch (err) {
       return send(res, 400, { error: String(err.message || err) });
@@ -3190,6 +3568,7 @@ const server = http.createServer(async (req, res) => {
         text,
         at: new Date().toISOString(),
         replyToName: target ? target.who || "匿名旅人" : "",
+        replyToSid: target?.sid || "",
         likes: [],
       });
       while (parent.replies.length > 50) parent.replies.shift();
@@ -3385,7 +3764,7 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === "POST" && p === "/api/rooms/create") {
     const body = await readBody(req);
-    const sc = engine.loadScenario(String(body.scenarioId || ""), guestDir(entry));
+    const sc = visibleScenario(entry, String(body.scenarioId || ""));
     if (!sc) return send(res, 400, { error: "剧本不存在" });
     let prof = loadProfileFor(entry.sid);
     if (!prof.pid) prof = saveProfileFor(entry.sid, {});
@@ -3517,7 +3896,7 @@ const server = http.createServer(async (req, res) => {
     room.busy = true;
     try {
       room.research = await ensureScenarioResearch(room.scenario);
-      const result = await engine.askModel(roomPrompt(room), { reasoningEffort: "low" }, loadModelFor(room.hostSid));
+      const result = await engine.askModel(roomPrompt(room), { reasoningEffort: "low" }, usableModelFor(entry, room.hostSid));
       const parsed = engine.parseModelTurn(result.text);
       let narration = parsed.narrative || String(result.text || "").slice(0, 4000);
       if (
@@ -3579,7 +3958,7 @@ const server = http.createServer(async (req, res) => {
     if (!s || typeof s !== "object" || !s.character || !s.scenarioId || !Array.isArray(s.log)) {
       return send(res, 400, { error: "这不是有效的跑团存档文件。" });
     }
-    const scenario = engine.loadScenario(String(s.scenarioId), guestDir(entry));
+    const scenario = visibleScenario(entry, String(s.scenarioId));
     if (!scenario) return send(res, 400, { error: "存档对应的剧本已经不存在。" });
     entry.session = s;
     entry.busy = false;
@@ -3603,6 +3982,7 @@ const server = http.createServer(async (req, res) => {
     }
     const body = await readBody(req);
     try {
+      await validateModelDestination(entry, body.baseUrl || loadModelFor(entry.sid)?.baseUrl || "");
       return send(res, 200, publicModel(saveModelFor(entry.sid, body)));
     } catch (err) {
       return send(res, 400, { error: String(err.message || err) });
@@ -3621,6 +4001,11 @@ const server = http.createServer(async (req, res) => {
     };
     if (!cfg.baseUrl || !cfg.model || !cfg.apiKey) {
       return send(res, 400, { error: "Base URL、模型名和 Key 都要填齐。" });
+    }
+    try {
+      await validateModelDestination(entry, cfg.baseUrl);
+    } catch (err) {
+      return send(res, 400, { error: String(err.message || err) });
     }
     return send(res, 200, {
       ok: true,
@@ -3646,6 +4031,9 @@ const server = http.createServer(async (req, res) => {
       return send(res, 429, { error: "今天大家的试玩额度已经用完了，明天再来吧。" });
     }
     const body = await readBody(req);
+    if (!scenarioMeta(entry, String(body.scenarioId || ""))) {
+      return send(res, 404, { error: "找不到这个剧本，或作者没有向你公开它。" });
+    }
     const playerProtocol = engine.normalizePlayerProtocol(body.protocol);
     let fresh;
     try {
@@ -3661,7 +4049,8 @@ const server = http.createServer(async (req, res) => {
     } catch (err) {
       return send(res, 400, { error: String(err.message || err) });
     }
-    const scenario = engine.loadScenario(fresh.scenarioId, guestDir(entry));
+    const scenario = visibleScenario(entry, fresh.scenarioId);
+    if (!scenario) return send(res, 404, { error: "剧本已经不可用。" });
     fresh.promptProfile = loadPromptProfileFor(entry.sid);
     entry.busy = true;
     fresh.scenarioResearch = await ensureScenarioResearch(scenario);
@@ -3669,7 +4058,7 @@ const server = http.createServer(async (req, res) => {
     await acquireSlot();
     if (!entry.owner) addGuestCalls(1);
     try {
-      const opening = await engine.runOpening(entry.session, scenario, loadModelFor(entry.sid));
+      const opening = await engine.runOpening(entry.session, scenario, usableModelFor(entry));
       const firstGm = entry.session.log.find((e) => e.type === "gm");
       if (firstGm) entry.session.opening = firstGm.text;
       saveEntry(entry);
@@ -3708,14 +4097,14 @@ const server = http.createServer(async (req, res) => {
     }
     if (body.language != null) entry.session.language = engine.normalizeLanguage(body.language);
     entry.session.promptProfile = loadPromptProfileFor(entry.sid);
-    const scenario = engine.loadScenario(entry.session.scenarioId, guestDir(entry));
-    if (!scenario) return send(res, 500, { error: "剧本文件读不到了。" });
+    const scenario = visibleScenario(entry, entry.session.scenarioId);
+    if (!scenario) return send(res, 403, { error: "剧本文件不存在，或作者已经取消了对你的公开。" });
     entry.busy = true;
     entry.session.scenarioResearch = await ensureScenarioResearch(scenario);
     await acquireSlot();
     if (!entry.owner) addGuestCalls(1);
     try {
-      const out = await engine.runTurn(entry.session, scenario, text, loadModelFor(entry.sid));
+      const out = await engine.runTurn(entry.session, scenario, text, usableModelFor(entry));
       if (!entry.owner && out.segments.some((s) => s.type === "dice")) addGuestCalls(1);
       saveEntry(entry);
       return send(res, 200, { session: publicSession(entry), segments: out.segments });
@@ -3731,8 +4120,8 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "POST" && p === "/api/research/sync") {
     if (!entry.session) return send(res, 400, { error: "还没有开始游戏。" });
     if (entry.busy) return send(res, 429, { error: "当前回合正在处理中，稍后再同步资料。" });
-    const scenario = engine.loadScenario(entry.session.scenarioId, guestDir(entry));
-    if (!scenario) return send(res, 404, { error: "剧本文件不存在。" });
+    const scenario = visibleScenario(entry, entry.session.scenarioId);
+    if (!scenario) return send(res, 404, { error: "剧本文件不存在，或作者已经取消了对你的公开。" });
     entry.busy = true;
     try {
       const result = await ensureScenarioResearch(scenario, true);
@@ -3763,6 +4152,16 @@ const server = http.createServer(async (req, res) => {
   return send(res, 404, "not found", "text/plain; charset=utf-8");
 });
 
+server.requestTimeout = 30_000;
+server.headersTimeout = 15_000;
+server.keepAliveTimeout = 5_000;
+server.maxRequestsPerSocket = 100;
+server.maxHeadersCount = 100;
+server.on("clientError", (error, socket) => {
+  if (!socket.writable) return;
+  socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
+});
+
 /* 定期清理内存里闲置的访客（存档文件保留，下次带同一 cookie 回来还能接着玩） */
 setInterval(() => {
   const now = Date.now();
@@ -3778,6 +4177,22 @@ setInterval(() => {
     victims.forEach((v) => store.delete(v.sid));
   }
 }, 10 * 60 * 1000).unref();
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, bucket] of requestRateBuckets) {
+    if (!bucket || now >= bucket.reset) requestRateBuckets.delete(key);
+  }
+  if (requestRateBuckets.size > 10_000) {
+    const oldest = [...requestRateBuckets.entries()]
+      .sort((a, b) => Number(a[1]?.reset || 0) - Number(b[1]?.reset || 0))
+      .slice(0, requestRateBuckets.size - 8000);
+    oldest.forEach(([key]) => requestRateBuckets.delete(key));
+  }
+  for (const [ip, record] of loginFails) {
+    if (!record || now >= record.reset) loginFails.delete(ip);
+  }
+}, 5 * 60 * 1000).unref();
 
 /* 定时入口只在到达用户设置的时间点时改变一次，其余时间不会调整营业状态。 */
 applyDueShareSchedules();

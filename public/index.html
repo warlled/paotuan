@@ -65,6 +65,10 @@
       </div>
       <article class="official-notice">
         <time>2026-11-27</time>
+        <div><b>网站入口与个人信息安全加固</b><p>网站已加强后台和玩家身份的访问隔离、跨站写入拦截、脚本执行白名单、匿名身份创建限流、来源网络限流与上传空间保护。外部链接和玩家自带模型地址也会检查内网、云元数据及 DNS 重绑定风险，并限制为公开网页入口。个人空间的搜索发现、身份展示和在线统计开关继续有效。</p></div>
+      </article>
+      <article class="official-notice">
+        <time>2026-11-27</time>
         <div><b>用户与创作者隐私保护中心上线</b><p>现在可以在“个人 → 隐私保护中心”阅读匿名身份、公开内容、AI 数据处理与数据权利说明，并管理搜索发现、个人空间、活动身份、在线统计和新剧本默认可见范围。你也可以导出或删除当前匿名身份下的个人数据。</p></div>
       </article>
       <article class="official-notice">
@@ -89,7 +93,7 @@
       </article>
       <article class="official-notice">
         <time>2026-11-26</time>
-        <div><b>剧本搜索与可见范围</b><p>“选剧本”新增搜索框，可以按剧本名、作者、关键词、标签和详细介绍搜索。新建或编辑剧本时还能设置可见范围：<b>公开</b>（所有人可见）、<b>指定联系人可见</b>（填玩家昵称或 ID）、<b>仅自己可见</b>。非公开剧本不会出现在别人的列表里，直接拿到链接也打不开。</p></div>
+        <div><b>剧本搜索与可见范围</b><p>“选剧本”新增搜索框，可以按剧本名、作者、关键词、标签和详细介绍搜索。新建或编辑剧本时还能设置可见范围：<b>公开</b>（所有人可见）、<b>指定联系人可见</b>（填对方的随机玩家 ID）、<b>仅自己可见</b>。非公开剧本不会出现在别人的列表里，直接拿到链接也打不开。</p></div>
       </article>
       <article class="official-notice">
         <time>2026-11-26</time>
@@ -234,7 +238,7 @@
         <p><b>收集的数据：</b>昵称、简介、头像、私人笔记、主题与语言设置；剧本、角色预设、社区帖子、留言、评论、房间与游玩存档；为运行和安全目的产生的在线状态与基础访问信息。</p>
         <p><b>公开内容：</b>设置为公开的剧本、社区帖子、留言、评论、昵称和头像可能被其他玩家看到、复制或转发。请勿发布身份证号、住址、电话、账号密码、API Key 或其他敏感信息。设置为“仅自己”的剧本不会出现在他人剧本列表中。</p>
         <p><b>创作者权利：</b>创作者保留其原创作品署名权，可随时修改署名、可见范围或删除自己的剧本。平台仅按你的可见性设置存储、展示和提供给符合范围的玩家游玩，不会把作品冒充为平台原创。</p>
-        <p><b>联系人可见：</b>联系人范围依据你填写的玩家昵称或玩家 ID 匹配，不构成强身份认证，不适合承载高风险秘密。</p>
+        <p><b>联系人可见：</b>联系人范围只依据对方不可自行伪造的随机玩家 ID 匹配。昵称可被任意修改，因此不再作为访问控制凭据。联系人可见仍不等同于高强度加密，请勿用它承载账号密码、真实住址或其他高风险秘密。</p>
         <p><b>AI 处理：</b>只有开局、回合推演和联机推进需要把当前剧情、角色、设定和行动发送到所选 AI 服务。使用网站默认模型时数据发送到网站配置的模型服务商；使用自定义 API 时发送到你填写的服务商。本站不把这些内容用于出售或广告画像，也不会把密钥展示给其他玩家。</p>
         <p><b>保存与删除：</b>你可以在下方导出个人资料、剧本、预设、存档、帖子和留言，也可以删除当前浏览器身份下的个人数据。删除会移除服务器中的对应活动数据；已被他人复制、转发的内容无法追回，手动备份文件也可能保留历史副本。</p>
         <p><b>你的选择：</b>你可以关闭搜索发现、个人空间、活动身份展示和在线人数计入，也可以设置新剧本默认仅自己、联系人可见或公开。关闭活动身份不会删除已有公开内容，但之后显示的昵称和头像会匿名化。</p>
@@ -594,7 +598,7 @@
                     <label class="editor-field"><span>标签</span><input id="s-tags" placeholder="悬疑, 民国, 单人（逗号分隔）"></label>
                     <label class="editor-field editor-span-2"><span>运行框架</span><select id="s-play-style"><option value="open-world">自由开放世界（玩家自行设定目标）</option><option value="content">内容型剧本（保留明确题材结构）</option></select></label>
                     <label class="editor-field"><span>可见范围</span><select id="s-visibility"><option value="public">公开：所有人都能看到</option><option value="contacts">指定联系人可见</option><option value="private">仅自己可见</option></select></label>
-                    <label class="editor-field hidden" id="s-shared-wrap"><span>允许查看的玩家（昵称或玩家ID，逗号分隔）</span><input id="s-shared" maxlength="800" placeholder="例如：小明, 4f2a9c1b7d3e5a60"></label>
+                    <label class="editor-field hidden" id="s-shared-wrap"><span>允许查看的玩家（随机玩家 ID，逗号分隔）</span><input id="s-shared" maxlength="800" placeholder="例如：4f2a9c1b, 7d3e5a60"></label>
                   </div>
                 </div>
                 <div class="editor-block">
