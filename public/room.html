@@ -299,6 +299,11 @@ function applyRoomVisual(visual) {
 }
 let room = null;
 let code = "";
+let pollBusy = false;
+let pollTimer = null;
+let lastRoomRevision = "";
+let roomRequestBusy = false;
+let roomPendingTimer = null;
 let tab = "events";
 let roomScenarios = [];
 let roomPublicBase = "";
@@ -438,21 +443,83 @@ function enter(c) {
   code = c;
   $("lobby").style.display = "none";
   $("roomView").style.display = "block";
+  if (pollTimer) clearInterval(pollTimer);
+  lastRoomRevision = "";
   poll();
-  setInterval(poll, 2500);
+  pollTimer = setInterval(poll, 2500);
 }
 
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = null;
+    return;
+  }
+  if (code) {
+    poll();
+    if (!pollTimer) pollTimer = setInterval(poll, 2500);
+  }
+});
+
 async function poll() {
-  if (!code) return;
-  const r = await api("/api/rooms/state?code=" + encodeURIComponent(code));
-  if (!r.ok) { $("r-err").textContent = r.body?.error || "房间不存在"; return; }
-  room = r.body.room;
-  render();
+  if (!code || pollBusy || document.hidden) return;
+  pollBusy = true;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  try {
+    const stateUrl = "/api/rooms/state?code=" + encodeURIComponent(code) +
+      (lastRoomRevision ? "&v=" + encodeURIComponent(lastRoomRevision) : "");
+    const r = await api(stateUrl, { signal: controller.signal });
+    if (!r.ok) { $("r-err").textContent = r.body?.error || "房间不存在"; return; }
+    if (r.body?.unchanged) {
+      lastRoomRevision = r.body.revision || lastRoomRevision;
+      return;
+    }
+    const nextRoom = r.body.room;
+    const revision = nextRoom.revision || `${nextRoom.updatedAt || 0}|${nextRoom.turn || 0}|${nextRoom.status}|${nextRoom.log?.length || 0}|${nextRoom.busy ? 1 : 0}`;
+    if (revision === lastRoomRevision) return;
+    lastRoomRevision = revision;
+    room = nextRoom;
+    render();
+  } catch {
+    // 网络短暂抖动时保留当前界面，下一轮轮询会继续。
+  } finally {
+    clearTimeout(timeout);
+    pollBusy = false;
+  }
 }
 
 function bar(v, max, cls) {
   const pct = Math.max(0, Math.min(100, (v / Math.max(1, max)) * 100));
   return `<div class="bar ${cls}"><i style="width:${pct}%"></i></div>`;
+}
+
+function setRoomPending(on, message) {
+  roomRequestBusy = on;
+  clearInterval(roomPendingTimer);
+  roomPendingTimer = null;
+  if (!on) {
+    $("btn-action").disabled = !room || room.status !== "playing";
+    $("btn-advance").disabled = false;
+    if (room) {
+      $("r-status").textContent =
+        room.status === "lobby"
+          ? "等待房主开始…"
+          : room.myActionSubmitted
+            ? "你已提交行动，等待其他玩家或房主推进。"
+            : "写下你这一轮的行动。";
+    }
+    return;
+  }
+  const startedAt = Date.now();
+  const update = () => {
+    const seconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+    $("r-status").textContent = `${message}${seconds ? ` · 已等待 ${seconds} 秒` : ""}`;
+  };
+  update();
+  roomPendingTimer = setInterval(update, 1000);
+  $("btn-action").disabled = true;
+  $("btn-advance").disabled = true;
 }
 
 function render() {
@@ -469,8 +536,10 @@ function render() {
   $("btn-advance").textContent = r.mode === "free" ? "推进世界" : "推进剧情";
   $("btn-start").style.display = r.isHost && r.status === "lobby" ? "inline-block" : "none";
   $("btn-advance").style.display = r.isHost && r.status === "playing" ? "inline-block" : "none";
-  $("btn-action").disabled = r.status !== "playing";
-  $("r-status").textContent = r.status === "lobby" ? "等待房主开始…" : (r.myActionSubmitted ? "你已提交行动，等待其他玩家或房主推进。" : "写下你这一轮的行动。");
+  $("btn-action").disabled = roomRequestBusy || r.status !== "playing";
+  if (!roomRequestBusy) {
+    $("r-status").textContent = r.status === "lobby" ? "等待房主开始…" : (r.busy ? "房主正在处理本轮推演，请稍候。" : (r.myActionSubmitted ? "你已提交行动，等待其他玩家或房主推进。" : "写下你这一轮的行动。"));
+  }
 
   $("r-players").innerHTML = "";
   for (const p of r.players) {
@@ -603,19 +672,38 @@ async function start() {
   room = r.body.room; render();
 }
 async function action() {
+  if (roomRequestBusy) return;
   const text = $("r-action").value.trim();
   if (!text) return;
-  const r = await post("/api/rooms/action", { code, text });
-  if (!r.ok) { $("r-err").textContent = r.body?.error || "提交失败"; return; }
-  $("r-action").value = "";
-  room = r.body.room; render();
+  setRoomPending(true, "正在提交行动");
+  try {
+    const r = await post("/api/rooms/action", { code, text });
+    if (!r.ok) { $("r-err").textContent = r.body?.error || "提交失败"; return; }
+    $("r-action").value = "";
+    room = r.body.room;
+    lastRoomRevision = "";
+    render();
+  } catch (error) {
+    $("r-err").textContent = "提交失败，请检查网络后重试：" + (error?.message || error);
+  } finally {
+    setRoomPending(false);
+  }
 }
 async function advance() {
-  $("r-err").textContent = "正在推演…";
-  const r = await post("/api/rooms/advance", { code, language: window.PT_I18N?.getLanguage() || "zh-Hans" });
-  if (!r.ok) { $("r-err").textContent = r.body?.error || "推进失败"; return; }
+  if (roomRequestBusy) return;
+  setRoomPending(true, "正在进行多人推演");
   $("r-err").textContent = "";
-  room = r.body.room; render();
+  try {
+    const r = await post("/api/rooms/advance", { code, language: window.PT_I18N?.getLanguage() || "zh-Hans" });
+    if (!r.ok) { $("r-err").textContent = r.body?.error || "推进失败"; return; }
+    room = r.body.room;
+    lastRoomRevision = "";
+    render();
+  } catch (error) {
+    $("r-err").textContent = "推演连接中断，请稍后重试：" + (error?.message || error);
+  } finally {
+    setRoomPending(false);
+  }
 }
 async function leave() {
   await post("/api/rooms/leave", { code });

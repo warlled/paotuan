@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>玩家自由创作游玩社区网站平台</title>
-<link rel="stylesheet" href="/style.css?v=20261127-privacy1">
+<link rel="stylesheet" href="/style.css?v=20261128-perf2">
 <link rel="stylesheet" href="/bottom-nav.css?v=20261127-navpages1">
 </head>
 <body>
@@ -63,6 +63,10 @@
         <h3 id="official-notices-title">官方公告</h3>
         <span>由网站管理组发布</span>
       </div>
+      <article class="official-notice">
+        <time>2026-11-28</time>
+        <div><b>交互与推演性能优化</b><p>账号和在线状态改为内存缓存，剧本目录不再在每次开局和回合推进时重复扫描；回合接口改为只回传本轮新增内容，并启用异步文本压缩。在线心跳会根据人数自动降频，页面隐藏时暂停；联机轮询在内容没变化时只返回极小的状态标记。推演等待时会显示当前阶段和已等待时间，可信资料同步也改为后台刷新，不再阻塞第一段正文生成。</p></div>
+      </article>
       <article class="official-notice">
         <time>2026-11-27</time>
         <div><b>账号数据加密与抗攻击加固</b><p>个人资料、私人笔记、玩家自定义提示词和自带模型配置现在使用 AES-256-GCM 加密后写入数据目录，并采用原子写入与更严格的文件权限。网站同时增加全局连接上限、在途请求上限、全站请求频率限制、模型并发硬上限和每日默认模型安全调用上限，防止异常流量拖垮实例或透支模型额度。</p></div>
@@ -1167,7 +1171,7 @@
 
 <script src="/bottom-nav.js?v=20261127-navpages1"></script>
 <script src="/i18n.js?v=20261127-privacy1"></script>
-<script src="/app.js?v=20261127-privacy1"></script>
+<script src="/app.js?v=20261128-perf2"></script>
 <script src="/vendor/pptxgen.bundle.js?v=3.12.0" async></script>
 </body>
 </html>

@@ -4,6 +4,7 @@
  */
 const http = require("node:http");
 const net = require("node:net");
+const zlib = require("node:zlib");
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
@@ -83,6 +84,7 @@ const MAX_MODEL_WAITERS = Math.max(4, Number(process.env.MAX_MODEL_WAITERS) || 4
 const BACKUP_NAME_RULE = /^[\w\u4e00-\u9fa5-]{1,60}\.json$/;
 const BACKUP_SID_RULE = /^[A-Za-z0-9_-]{1,64}$/;
 const UPLOAD_NAME_RULE = /^[a-f0-9]{16}\.(png|jpg|gif|webp|mp4|webm)$/i;
+const PROFILE_FILE_RULE = /^(?:owner|[a-f0-9]{16,40})\.json$/i;
 const communityLast = new Map();
 const i18nBusy = new Set();
 const SITE_THEMES = ["pink", "cream", "ink-green", "warm-brown", "night-blue", "violet-night", "pure-black"];
@@ -92,6 +94,14 @@ const STATIC_IMAGE_MIMES = new Set(["image/png", "image/jpeg", "image/webp"]);
 
 function userFile(sid) {
   return path.join(USERS_DIR, `${sid.replace(/[^a-z0-9]/gi, "")}.json`);
+}
+
+const profileCache = new Map();
+const PROFILE_CACHE_TTL = 30_000;
+
+function invalidateProfileCache(sid) {
+  if (sid) profileCache.delete(String(sid));
+  else profileCache.clear();
 }
 
 const ACCOUNT_AAD = Buffer.from("paotuan-account-v1", "utf8");
@@ -188,8 +198,12 @@ function writeAccountJsonFile(file, data) {
 }
 
 function loadProfileFor(sid) {
+  const cacheKey = String(sid || "");
+  const cached = profileCache.get(cacheKey);
+  if (cached && Date.now() < cached.expires) return cached.value;
   const p = readAccountJsonFile(userFile(sid), null);
-  return {
+  const profile = Object.freeze({
+    sid: String(sid || ""),
     pid: p?.pid || "",
     name: p?.name || "",
     bio: p?.bio || "",
@@ -207,7 +221,13 @@ function loadProfileFor(sid) {
     privacyAcceptedAt: Number(p?.privacyAcceptedAt) || 0,
     privacyVersion: String(p?.privacyVersion || ""),
     updatedAt: p?.updatedAt || 0,
-  };
+  });
+  profileCache.set(cacheKey, { value: profile, expires: Date.now() + PROFILE_CACHE_TTL });
+  if (profileCache.size > 2000) {
+    const oldest = profileCache.keys().next().value;
+    if (oldest !== undefined) profileCache.delete(oldest);
+  }
+  return profile;
 }
 
 function saveProfileFor(sid, patch) {
@@ -241,6 +261,7 @@ function saveProfileFor(sid, patch) {
     updatedAt: Date.now(),
   };
   writeAccountJsonFile(userFile(sid), next);
+  invalidateProfileCache(sid);
   return next;
 }
 
@@ -712,6 +733,17 @@ function newRoomState(scenario = {}) {
   };
 }
 
+function roomRevision(room) {
+  return [
+    room.updatedAt || room.createdAt || 0,
+    room.turn || 0,
+    room.status || "",
+    room.log?.length || 0,
+    room.busy ? 1 : 0,
+    Object.keys(room.actions || {}).length,
+  ].join("|");
+}
+
 function publicRoom(room, sid) {
   const scenario = room.scenario || {};
   engine.normalizeSessionTime(room.state, scenario);
@@ -746,6 +778,8 @@ function publicRoom(room, sid) {
     isHost: room.hostSid === sid,
     hostPid: hostIdentity.pid,
     turn: room.turn,
+    updatedAt: room.updatedAt || room.createdAt || 0,
+    revision: roomRevision(room),
     log: room.log.slice(-80),
     state: {
       ...room.state,
@@ -1040,14 +1074,8 @@ function allProfiles() {
   if (!fs.existsSync(USERS_DIR)) return [];
   return fs
     .readdirSync(USERS_DIR)
-    .filter((f) => f.endsWith(".json"))
-    .map((f) => {
-      try {
-        return readAccountJsonFile(path.join(USERS_DIR, f), null);
-      } catch {
-        return null;
-      }
-    })
+    .filter((f) => PROFILE_FILE_RULE.test(f))
+    .map((f) => loadProfileFor(path.basename(f, ".json")))
     .filter((p) => p && p.pid && p.sid);
 }
 
@@ -1168,7 +1196,7 @@ function privacyExportData(entry) {
 
 /* ---------- 在线人数 / 好评差评 / 留言板 ---------- */
 
-const PRESENCE_TTL = 8000;
+const PRESENCE_TTL = 25000;
 const presence = new Map();
 const lastPostAt = new Map();
 
@@ -1287,13 +1315,27 @@ async function ensureScenarioResearch(scenario, force = false) {
   return task;
 }
 
+function scenarioResearchForTurn(scenario) {
+  const key = researchKey(scenario);
+  const cached = researchCache[key];
+  const stale = !cached || !cached.sources?.length || Number(cached.expiresAt) <= Date.now();
+  if (stale && !researchPending.has(key)) {
+    ensureScenarioResearch(scenario).catch(() => {});
+  }
+  return cached?.sources?.length ? cached : null;
+}
+
+let onlineCountCache = { at: 0, value: 0 };
+
 function onlineCount() {
   const now = Date.now();
+  if (now - onlineCountCache.at < 750) return onlineCountCache.value;
   let n = 0;
   for (const [sid, seen] of presence) {
     if (now - seen <= PRESENCE_TTL && loadProfileFor(sid).showOnline !== false) n += 1;
     else presence.delete(sid);
   }
+  onlineCountCache = { at: now, value: n };
   return n;
 }
 
@@ -1580,15 +1622,33 @@ async function withModelSlot(task) {
 /* ---------- 工具 ---------- */
 
 function send(res, code, body, type = "application/json; charset=utf-8") {
-  const payload = typeof body === "string" ? body : JSON.stringify(body);
-  const headers = { "content-type": type, "content-length": Buffer.byteLength(payload) };
-  if (/text\/html|javascript|text\/css/i.test(type)) {
+  const payload = Buffer.from(typeof body === "string" ? body : JSON.stringify(body), "utf8");
+  const headers = { "content-type": type, "vary": "Accept-Encoding" };
+  const acceptEncoding = String(res.req?.headers?.["accept-encoding"] || "");
+  const compressible = /json|text|javascript|xml|html/i.test(type) && payload.length >= 2048;
+  if (/text\/html|javascript|text\/css/i.test(type) && !res.getHeader("cache-control")) {
     headers["cache-control"] = "no-store, no-cache, must-revalidate, max-age=0";
     headers.pragma = "no-cache";
   }
-  if (res._cookies?.length) headers["set-cookie"] = res._cookies;
-  res.writeHead(code, headers);
-  res.end(payload);
+  const finish = (data) => {
+    if (res.destroyed || res.writableEnded) return;
+    try {
+      headers["content-length"] = data.length;
+      if (res._cookies?.length) headers["set-cookie"] = res._cookies;
+      res.writeHead(code, headers);
+      res.end(data);
+    } catch {
+      res.destroy();
+    }
+  };
+  if (compressible && /\bgzip\b/i.test(acceptEncoding)) {
+    zlib.gzip(payload, { level: 5 }, (error, compressed) => {
+      if (!error) headers["content-encoding"] = "gzip";
+      finish(error ? payload : compressed);
+    });
+    return;
+  }
+  finish(payload);
 }
 
 function setCookie(res, value) {
@@ -2282,6 +2342,7 @@ function restoreBackup(b) {
     if (fs.existsSync(file)) out.users += 1;
     else out.skipped += 1;
   }
+  invalidateProfileCache();
   for (const s of Array.isArray(b.sessions) ? b.sessions : []) {
     const name = String(s?.name || "");
     if (!jsonName.test(name) || !s?.data || typeof s.data !== "object") {
@@ -2758,8 +2819,25 @@ function parseTranslationReply(text, count) {
 
 /* ---------- 会话展示 ---------- */
 
+const scenarioMetaCache = new Map();
+
+function clearScenarioMetaCache() {
+  engine.clearScenarioCache();
+  scenarioMetaCache.clear();
+}
+
 function scenarioMeta(entry, id) {
-  return engine.listScenarios(guestDir(entry), viewerFor(entry)).find((s) => s.id === id) || null;
+  const scenarioId = String(id || "");
+  const key = `${entry.owner ? "owner" : entry.sid}|${scenarioId}`;
+  const cached = scenarioMetaCache.get(key);
+  if (cached && Date.now() < cached.expires) return cached.value;
+  const value = engine.listScenarios(guestDir(entry), viewerFor(entry)).find((s) => s.id === scenarioId) || null;
+  scenarioMetaCache.set(key, { value, expires: Date.now() + 4000 });
+  if (scenarioMetaCache.size > 5000) {
+    const oldest = scenarioMetaCache.keys().next().value;
+    if (oldest !== undefined) scenarioMetaCache.delete(oldest);
+  }
+  return value;
 }
 
 function visibleScenario(entry, id) {
@@ -2768,13 +2846,20 @@ function visibleScenario(entry, id) {
   return engine.loadScenario(scenarioId, guestDir(entry));
 }
 
-function publicSession(entry) {
+function publicSession(entry, options = {}) {
   const session = entry.session;
   if (!session) return null;
   const scenario = engine.loadScenario(session.scenarioId, guestDir(entry)) || {};
   engine.normalizeSessionTime(session, scenario);
+  const sessionView =
+    Number.isInteger(options.logLimit) && options.logLimit >= 0
+      ? {
+          ...session,
+          log: options.logLimit === 0 ? [] : (session.log || []).slice(-options.logLimit),
+        }
+      : session;
   return {
-    ...session,
+    ...sessionView,
     scenario: scenarioMeta(entry, session.scenarioId),
     clock: engine.clockText(session.time),
     limits: {
@@ -3003,6 +3088,7 @@ async function handleRequest(req, res) {
     const b = body.backup || body;
     if (!b || typeof b !== "object" || Array.isArray(b)) return send(res, 400, { error: "备份文件格式不对" });
     const restored = restoreBackup(b);
+    clearScenarioMetaCache();
     return send(res, 200, { ok: true, restored, stats: dataStats() });
   }
 
@@ -3031,7 +3117,10 @@ async function handleRequest(req, res) {
     const type = p.endsWith(".css") ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8";
     const name = p.slice(1);
     if (!fs.existsSync(path.join(PUBLIC, name))) return send(res, 404, "not found", "text/plain; charset=utf-8");
-    res.setHeader("cache-control", "no-cache");
+    res.setHeader(
+      "cache-control",
+      url.searchParams.has("v") ? "public, max-age=31536000, immutable" : "no-cache"
+    );
     return send(res, 200, fs.readFileSync(path.join(PUBLIC, name), "utf8"), type);
   }
 
@@ -3346,6 +3435,7 @@ async function handleRequest(req, res) {
         }
       }
       const out = engine.saveCustomScenario(body.data || {}, id, dir);
+      clearScenarioMetaCache();
       return send(res, 200, {
         ok: true,
         id: out.id,
@@ -3364,6 +3454,7 @@ async function handleRequest(req, res) {
         return send(res, 403, { error: "只能删除你自己创建的剧本。" });
       }
       engine.deleteCustomScenario(id, dir);
+      clearScenarioMetaCache();
       return send(res, 200, {
         ok: true,
         scenarios: scenarioListFor(entry),
@@ -3627,11 +3718,13 @@ async function handleRequest(req, res) {
         engine.deletePreset(preset.name, presetDirFor(entry));
       } catch {}
     }
+    clearScenarioMetaCache();
     for (const file of [userFile(sid), promptProfileFile(sid), modelFile(sid), sessFile(sid)]) {
       try {
         if (file && fs.existsSync(file)) fs.unlinkSync(file);
       } catch {}
     }
+    invalidateProfileCache(sid);
     entry.session = null;
     store.delete(sid);
     writeJsonFile(COMMUNITY_FILE, community);
@@ -3962,6 +4055,7 @@ async function handleRequest(req, res) {
     const id = `imp-${crypto.randomBytes(3).toString("hex")}-${Date.now().toString(36)}`;
     const data = { ...post.scenario, id, custom: true, importedFrom: post.pid || "" };
     fs.writeFileSync(path.join(dir, `${id}.json`), JSON.stringify(data, null, 2));
+    clearScenarioMetaCache();
     return send(res, 200, { ok: true, id, title: data.title });
   }
 
@@ -4115,6 +4209,10 @@ async function handleRequest(req, res) {
   if (p === "/api/rooms/state") {
     const room = rooms[String(url.searchParams.get("code") || "").trim().toUpperCase()];
     if (!room) return send(res, 404, { error: "房间不存在" });
+    const revision = roomRevision(room);
+    if (url.searchParams.get("v") === revision) {
+      return send(res, 200, { unchanged: true, revision });
+    }
     return send(res, 200, { room: publicRoom(room, entry.sid) });
   }
 
@@ -4179,7 +4277,7 @@ async function handleRequest(req, res) {
     }
     room.busy = true;
     try {
-      room.research = await ensureScenarioResearch(room.scenario);
+      room.research = scenarioResearchForTurn(room.scenario);
       const result = await withModelSlot(async () => {
         if (!entry.owner && !roomUsesByok) addGuestCalls(1);
         return engine.askModel(roomPrompt(room), { reasoningEffort: "low" }, usableModelFor(entry, room.hostSid));
@@ -4341,7 +4439,7 @@ async function handleRequest(req, res) {
     if (!scenario) return send(res, 404, { error: "剧本已经不可用。" });
     fresh.promptProfile = loadPromptProfileFor(entry.sid);
     entry.busy = true;
-    fresh.scenarioResearch = await ensureScenarioResearch(scenario);
+    fresh.scenarioResearch = scenarioResearchForTurn(scenario);
     entry.session = fresh;
     try {
       const opening = await withModelSlot(async () => {
@@ -4392,7 +4490,7 @@ async function handleRequest(req, res) {
     const scenario = visibleScenario(entry, entry.session.scenarioId);
     if (!scenario) return send(res, 403, { error: "剧本文件不存在，或作者已经取消了对你的公开。" });
     entry.busy = true;
-    entry.session.scenarioResearch = await ensureScenarioResearch(scenario);
+    entry.session.scenarioResearch = scenarioResearchForTurn(scenario);
     try {
       const out = await withModelSlot(async () => {
         if (!entry.owner && !usesByok) addGuestCalls(1);
@@ -4400,7 +4498,12 @@ async function handleRequest(req, res) {
       });
       if (!entry.owner && !usesByok && out.segments.some((s) => s.type === "dice")) addGuestCalls(1);
       saveEntry(entry);
-      return send(res, 200, { session: publicSession(entry), segments: out.segments });
+      const actionAt = entry.session.turnTimes?.[String(entry.session.turns)] || engine.clockText(entry.session.time);
+      return send(res, 200, {
+        session: publicSession(entry, { logLimit: 0 }),
+        segments: out.segments,
+        appendedLog: [{ type: "player", text, at: actionAt }, ...out.segments],
+      });
     } catch (err) {
       saveEntry(entry);
       return send(res, err.code === "MODEL_QUEUE_FULL" ? 503 : 500, { error: `这一回合出了问题：${err.message}` });
@@ -4437,7 +4540,8 @@ async function handleRequest(req, res) {
     return send(res, 200, {
       result,
       segments: [{ type: "dice", text: line, grade: result.grade }],
-      session: publicSession(entry),
+      session: publicSession(entry, { logLimit: 0 }),
+      appendedLog: [{ type: "dice", text: line, grade: result.grade, at: engine.clockText(entry.session.time) }],
     });
   }
 
@@ -4510,6 +4614,9 @@ setInterval(() => {
   }
   for (const [ip, record] of loginFails) {
     if (!record || now >= record.reset) loginFails.delete(ip);
+  }
+  for (const [sid, cached] of profileCache) {
+    if (!cached || now >= cached.expires) profileCache.delete(sid);
   }
 }, 5 * 60 * 1000).unref();
 

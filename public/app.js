@@ -16,6 +16,44 @@ const META_CACHE_KEY = "pt-meta-cache-v1";
 const SCENARIO_VISIBILITIES_FOR_UI = ["public", "contacts", "private"];
 let scenarioLinks = [];
 let settingLinks = [];
+
+/**
+ * 网络抖动 / 站点重启时的请求包装：
+ * - 给请求一个明确上限，避免无限转圈；
+ * - 写请求默认不自动重试，防止 AI 已经推演后因响应丢失而重复扣费；
+ * - 只有明确指定 retries 的幂等请求才会重试。
+ */
+async function fetchJsonWithRetry(url, options = {}, { retries = 0, timeout = 175000 } = {}) {
+  let lastError = null;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout);
+    try {
+      const res = await fetch(url, { ...options, signal: controller.signal });
+      const text = await res.text();
+      let data = null;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = { error: `服务器返回了异常内容（HTTP ${res.status}）`, status: res.status };
+      }
+      data.__status = res.status;
+      return data;
+    } catch (error) {
+      lastError = error;
+      if (error && error.name === "AbortError") break;
+      if (attempt < retries) await new Promise((r) => setTimeout(r, 900 * (attempt + 1)));
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  const timedOut = lastError && lastError.name === "AbortError";
+  const friendly = timedOut
+    ? new Error("服务器一直没有响应（很可能正在重启，或网络到站点不通）。稍等十几秒后刷新页面再试一次。")
+    : new Error("连不上服务器（网络中断，或站点正在重启）。已自动重试仍未成功，请稍后再点一次。");
+  friendly.cause = lastError;
+  throw friendly;
+}
 const sharedScenarioId = (() => {
   const queryId = new URLSearchParams(location.search).get("scenario") || "";
   if (queryId) return queryId;
@@ -767,19 +805,22 @@ async function startGame() {
   $("start").disabled = true;
   $("start").textContent = "正在开幕…";
   try {
-    const res = await fetch("/api/new", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        character,
-        scenarioId: setupState.scenarioId,
-        difficulty: setupState.difficulty,
-        mode: $("mode-select")?.value || "free",
-        language: currentUiLanguage(),
-        protocol: protocolState.enabled ? protocolRules() : [],
-      }),
-    });
-    const data = await res.json();
+    const data = await fetchJsonWithRetry(
+      "/api/new",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          character,
+          scenarioId: setupState.scenarioId,
+          difficulty: setupState.difficulty,
+          mode: $("mode-select")?.value || "free",
+          language: currentUiLanguage(),
+          protocol: protocolState.enabled ? protocolRules() : [],
+        }),
+      },
+      { retries: 0, timeout: 175000 }
+    );
     if (data.error) {
       $("err").textContent = data.error;
       return;
@@ -803,7 +844,8 @@ async function startGame() {
     renderTurnView(-1, true);
     showOpening();
   } catch (e) {
-    $("err").textContent = "启动失败：" + e.message;
+    const message = String((e && e.message) || e || "");
+    $("err").textContent = /连不上服务器|没有响应/.test(message) ? message : "启动失败：" + message;
   } finally {
     $("start").disabled = false;
     $("start").textContent = "开始游戏";
@@ -874,6 +916,7 @@ $("jump-latest").addEventListener("click", () => {
 let historyReadonly = false;
 let currentTurnView = 0;
 let turnGroupsCache = [];
+let turnGroupsCacheKey = "";
 
 function buildTurnGroups(source) {
   const groups = [];
@@ -926,12 +969,22 @@ function turnGroupClock(group, groups) {
 function renderTurnView(index, keepBottom = false) {
   if (!session) {
     turnGroupsCache = [];
+    turnGroupsCacheKey = "";
     $("turn-indicator").textContent = "尚无回合";
     $("turn-prev").disabled = true;
     $("turn-next").disabled = true;
     return;
   }
-  turnGroupsCache = buildTurnGroups(session);
+  const nextTurnGroupsKey = [
+    session.turns || 0,
+    session.log?.length || 0,
+    session.openingAt || "",
+    session.createdAt || "",
+  ].join("|");
+  if (nextTurnGroupsKey !== turnGroupsCacheKey) {
+    turnGroupsCache = buildTurnGroups(session);
+    turnGroupsCacheKey = nextTurnGroupsKey;
+  }
   if (!turnGroupsCache.length) {
     const opening = {
       turn: 0,
@@ -1176,23 +1229,49 @@ function showEnding(name) {
   scrollLog();
 }
 
+let busyStartedAt = 0;
+let busyTicker = null;
+
 function setBusy(on, note) {
   busy = on;
+  clearInterval(busyTicker);
+  busyTicker = null;
   $("send").disabled = on || Boolean(session?.ended) || historyReadonly;
   $("input").disabled = on || Boolean(session?.ended);
   document.querySelectorAll("#log .suggestion-action").forEach((button) => {
     button.disabled = on || Boolean(session?.ended) || historyReadonly;
   });
-  if (note) {
-    if (on) {
-      const row = el("div", "seg gm busy", note);
-      row.id = "thinking";
-      $("log").appendChild(row);
-      scrollLog();
-    } else {
-      $("thinking")?.remove();
-    }
+  if (!on) {
+    $("thinking")?.remove();
+    return;
   }
+  if (!note) return;
+  const row = el("div", "seg gm busy");
+  row.id = "thinking";
+  row.setAttribute("aria-live", "polite");
+  const dot = el("span", "busy-dot");
+  const text = el("span", "busy-text", note === "……" ? "正在推演这一回合" : note);
+  const timer = el("span", "busy-timer", "刚刚开始");
+  timer.setAttribute("aria-hidden", "true");
+  row.append(dot, text, timer);
+  $("log").appendChild(row);
+  busyStartedAt = Date.now();
+  const updateBusyProgress = () => {
+    const seconds = Math.max(0, Math.floor((Date.now() - busyStartedAt) / 1000));
+    const stage =
+      seconds < 4
+        ? "正在理解你的行动与当前局面"
+        : seconds < 12
+          ? "正在推演人物反应、事件与后果"
+          : seconds < 30
+            ? "正在核对属性、关系和时间线"
+            : "内容较长，仍在生成，请保持页面开启";
+    if (text.textContent !== stage) text.textContent = stage;
+    timer.textContent = seconds < 1 ? "刚刚开始" : `已等待 ${seconds} 秒`;
+  };
+  updateBusyProgress();
+  busyTicker = setInterval(updateBusyProgress, 1000);
+  scrollLog();
 }
 
 let pendingProtocolAction = "";
@@ -1273,17 +1352,20 @@ async function submitAction(text) {
   $("input").style.height = "";
   setBusy(true, "……");
   try {
-    let res = await fetch("/api/action", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        text,
-        language: currentUiLanguage(),
-        protocol: protocolState.enabled ? protocolRules() : [],
-      }),
-    });
-    let data = await res.json();
-    if (!res.ok && data.needNewGame) {
+    let data = await fetchJsonWithRetry(
+      "/api/action",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          text,
+          language: currentUiLanguage(),
+          protocol: protocolState.enabled ? protocolRules() : [],
+        }),
+      },
+      { retries: 0, timeout: 240000 }
+    );
+    if (data.__status >= 400 && data.needNewGame) {
       let backup = null;
       try {
         backup = JSON.parse(localStorage.getItem("pt-autosave") || "null");
@@ -1298,16 +1380,19 @@ async function submitAction(text) {
           const restored = await ir.json();
           session = restored.session;
           appendSegment({ type: "sys", text: "服务器重启过，已从本机自动备份恢复进度，正在重试这一步。" });
-          res = await fetch("/api/action", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              text,
-              language: currentUiLanguage(),
-              protocol: protocolState.enabled ? protocolRules() : [],
-            }),
-          });
-          data = await res.json();
+          data = await fetchJsonWithRetry(
+            "/api/action",
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                text,
+                language: currentUiLanguage(),
+                protocol: protocolState.enabled ? protocolRules() : [],
+              }),
+            },
+            { retries: 0, timeout: 240000 }
+          );
         }
       }
     }
@@ -1316,16 +1401,23 @@ async function submitAction(text) {
       appendSegment({ type: "sys", text: data.error });
       return;
     }
-    session = data.session;
+    const previousLog = Array.isArray(session?.log) ? session.log : [];
+    const appendedLog = Array.isArray(data.appendedLog) ? data.appendedLog : (data.segments || []);
+    session = { ...data.session, log: previousLog.concat(appendedLog) };
     try {
       localStorage.setItem("pt-autosave", JSON.stringify({ savedAt: Date.now(), session: { ...session, log: (session.log || []).slice(-200) } }));
     } catch {}
-    (data.segments || []).forEach(appendSegment);
     renderSession();
     renderTurnView(-1, true);
   } catch (e) {
     setBusy(false);
-    appendSegment({ type: "sys", text: "请求失败：" + e.message });
+    const message = String((e && e.message) || e || "");
+    appendSegment({ type: "sys", text: /连不上服务器|没有响应/.test(message) ? message : "请求失败：" + message });
+    // 这一回合没成功：把玩家刚才的行动放回输入框，避免白写
+    if (!$("input").value.trim()) {
+      $("input").value = text;
+      $("input").style.height = "";
+    }
   }
 }
 
@@ -1363,8 +1455,11 @@ $("roll-btn").addEventListener("click", async () => {
   });
   const data = await res.json();
   if (data.error) return appendSegment({ type: "sys", text: data.error });
-  session = data.session;
-  (data.segments || []).forEach(appendSegment);
+  const previousLog = Array.isArray(session?.log) ? session.log : [];
+  const appendedLog = Array.isArray(data.appendedLog) ? data.appendedLog : (data.segments || []);
+  session = { ...data.session, log: previousLog.concat(appendedLog) };
+  renderSession();
+  renderTurnView(-1, true);
 });
 
 $("btn-new").addEventListener("click", async () => {
@@ -1663,9 +1758,13 @@ $("op-start").addEventListener("click", () => {
 /* ---------- 顶部 HUD：在线人数 / 好评差评 / 留言板 ---------- */
 
 let fbTimer = null;
+let currentOnlineEstimate = 1;
 
 function updateHud(data) {
-  if (data.online != null) $("online-count").textContent = String(Math.max(1, data.online));
+  if (data.online != null) {
+    currentOnlineEstimate = Math.max(1, Number(data.online) || 1);
+    $("online-count").textContent = String(currentOnlineEstimate);
+  }
   if (data.up != null) $("vote-up-count").textContent = String(data.up);
   if (data.down != null) $("vote-down-count").textContent = String(data.down);
   if (data.mine !== undefined) {
@@ -1674,12 +1773,42 @@ function updateHud(data) {
   }
 }
 
+let heartbeatBusy = false;
+
 async function beat() {
+  if (heartbeatBusy || document.hidden) return;
+  heartbeatBusy = true;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
   try {
-    const r = await fetch("/api/presence", { method: "POST" });
+    const r = await fetch("/api/presence", { method: "POST", signal: controller.signal });
     if (r.ok) updateHud(await r.json());
-  } catch {}
+  } catch {
+  } finally {
+    clearTimeout(timer);
+    heartbeatBusy = false;
+  }
 }
+
+let heartbeatTimer = 0;
+
+function queueHeartbeat(immediate = false) {
+  clearTimeout(heartbeatTimer);
+  const wait = currentOnlineEstimate >= 60 ? 4000 : currentOnlineEstimate >= 25 ? 2500 : 1000;
+  heartbeatTimer = setTimeout(async () => {
+    await beat();
+    if (!document.hidden) queueHeartbeat();
+  }, immediate ? 80 : wait);
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    clearTimeout(heartbeatTimer);
+    heartbeatTimer = 0;
+    return;
+  }
+  queueHeartbeat(true);
+});
 
 async function castVote(value) {
   try {
@@ -1695,6 +1824,7 @@ async function castVote(value) {
 let fbPage = 1;
 let fbPages = 1;
 let fbSort = "time";
+let feedbackRenderKey = "";
 
 function fmtTime(value) {
   try {
@@ -1893,6 +2023,18 @@ async function loadFeedback() {
     $("fb-prev").disabled = fbPage <= 1;
     $("fb-next").disabled = fbPage >= fbPages;
 
+    const nextRenderKey = JSON.stringify([
+      fbPage,
+      fbPages,
+      fbSort,
+      data.total || 0,
+      data.up || 0,
+      data.down || 0,
+      data.messages || [],
+    ]);
+    if (nextRenderKey === feedbackRenderKey) return;
+    feedbackRenderKey = nextRenderKey;
+
     const list = $("fb-list");
     list.innerHTML = "";
     if (!data.messages || !data.messages.length) {
@@ -1921,7 +2063,12 @@ function openFeedback(view = "feedback") {
   loadFeedback();
   clearInterval(fbTimer);
   fbTimer = setInterval(() => {
-    if (!$("fb-modal").classList.contains("hidden") && !$("fb-list").contains(document.activeElement)) loadFeedback();
+    if (
+      !document.hidden &&
+      !$("fb-modal").classList.contains("hidden") &&
+      !$("notice-feedback-view").classList.contains("hidden") &&
+      !$("fb-list").contains(document.activeElement)
+    ) loadFeedback();
   }, 6000);
 }
 
@@ -2023,8 +2170,7 @@ document.querySelectorAll("[data-site-theme]").forEach((btn) => {
   });
 });
 
-setInterval(beat, 1000);
-beat();
+queueHeartbeat(true);
 loadFeedback();
 
 /* ---------- 我的资料 ---------- */

@@ -191,7 +191,20 @@ const NARRATIVE_LENGTH = {
 
 /* ---------- 设定 ---------- */
 
+let settingsFileCache = null;
+
 function getSettings() {
+  let stat = null;
+  try {
+    stat = fs.statSync(SETTINGS_FILE);
+    if (
+      settingsFileCache &&
+      settingsFileCache.mtimeMs === stat.mtimeMs &&
+      settingsFileCache.size === stat.size
+    ) {
+      return settingsFileCache.value;
+    }
+  } catch {}
   let saved = {};
   try {
     saved = JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf8"));
@@ -202,12 +215,14 @@ function getSettings() {
   merged.autoAdvanceMinutes = Math.max(0, Math.min(240, Number(merged.autoAdvanceMinutes) || 0));
   merged.extraInstructions = String(merged.extraInstructions || "").slice(0, 1200);
   merged.links = sanitizeLinks(merged.links);
+  if (stat) settingsFileCache = { mtimeMs: stat.mtimeMs, size: stat.size, value: merged };
   return merged;
 }
 
 function saveSettings(patch) {
   const next = { ...getSettings(), ...(patch || {}) };
   fs.writeFileSync(SETTINGS_FILE, JSON.stringify(next, null, 2));
+  settingsFileCache = null;
   return getSettings();
 }
 
@@ -215,16 +230,25 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /* ---------- 剧本 ---------- */
 
+const scenarioDirCache = new Map();
+const scenarioFileCache = new Map();
+const scenarioIndexCache = new Map();
+let guestScenarioRootCache = { at: 0, value: [] };
+
 function publicGuestScenarioDirs() {
   const root = path.join(WORK, "guest-scenarios");
+  if (Date.now() - guestScenarioRootCache.at < 2000) return guestScenarioRootCache.value;
   try {
-    return fs
+    const value = fs
       .readdirSync(root, { withFileTypes: true })
       .filter((item) => item.isDirectory())
       .map((item) => path.join(root, item.name))
       .sort();
+    guestScenarioRootCache = { at: Date.now(), value };
+    return value;
   } catch {
-    return [];
+    guestScenarioRootCache = { at: Date.now(), value: [] };
+    return guestScenarioRootCache.value;
   }
 }
 
@@ -249,11 +273,75 @@ function scenarioDirs(extraDir) {
 }
 
 function readScenarioDir(dir) {
+  const cached = scenarioDirCache.get(dir);
+  if (cached && Date.now() - cached.at < 2000) return cached.value;
   try {
-    return fs.readdirSync(dir).filter((f) => f.endsWith(".json"));
+    const value = fs.readdirSync(dir).filter((f) => f.endsWith(".json"));
+    scenarioDirCache.set(dir, { at: Date.now(), value });
+    return value;
   } catch {
+    scenarioDirCache.set(dir, { at: Date.now(), value: [] });
     return [];
   }
+}
+
+function readScenarioFile(file) {
+  let stat;
+  try {
+    stat = fs.statSync(file);
+  } catch {
+    scenarioFileCache.delete(file);
+    return null;
+  }
+  const cached = scenarioFileCache.get(file);
+  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached.data;
+  try {
+    const data = JSON.parse(fs.readFileSync(file, "utf8"));
+    scenarioFileCache.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, data });
+    if (scenarioFileCache.size > 2000) {
+      const oldest = scenarioFileCache.keys().next().value;
+      if (oldest !== undefined) scenarioFileCache.delete(oldest);
+    }
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+function clearScenarioCache() {
+  scenarioDirCache.clear();
+  scenarioFileCache.clear();
+  scenarioIndexCache.clear();
+  guestScenarioRootCache = { at: 0, value: [] };
+}
+
+function scenarioRecords(extraDir) {
+  const cacheKey = path.resolve(extraDir || "");
+  const cached = scenarioIndexCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < 3000) return cached.value;
+  const ownDir = extraDir ? path.resolve(extraDir) : "";
+  const records = [];
+  const seen = new Set();
+  for (const dir of scenarioDirs(extraDir)) {
+    const publicGuest =
+      path.resolve(dir) !== path.resolve(SCENARIO_DIR) &&
+      path.resolve(dir) !== path.resolve(USER_SCENARIO_DIR);
+    const isOwnDir = ownDir && path.resolve(dir) === ownDir;
+    for (const filename of readScenarioDir(dir)) {
+      const data = readScenarioFile(path.join(dir, filename));
+      if (!data) continue;
+      const id = data.id || path.basename(filename, ".json");
+      if (seen.has(id)) continue;
+      seen.add(id);
+      records.push({ id, data, filename, isOwnDir, publicGuest });
+    }
+  }
+  scenarioIndexCache.set(cacheKey, { at: Date.now(), value: records });
+  if (scenarioIndexCache.size > 50) {
+    const oldest = scenarioIndexCache.keys().next().value;
+    if (oldest !== undefined) scenarioIndexCache.delete(oldest);
+  }
+  return records;
 }
 
 /** 剧本可见性：公开 / 指定联系人可见 / 仅自己。author 永远能看自己的。 */
@@ -272,18 +360,13 @@ function scenarioVisibleTo(data, isOwnDir, viewer) {
 function listScenarios(extraDir, viewer) {
   const seen = new Set();
   const out = [];
-  const ownDir = extraDir ? path.resolve(extraDir) : "";
-  for (const dir of scenarioDirs(extraDir)) {
-    const publicGuest = path.resolve(dir) !== path.resolve(SCENARIO_DIR) && path.resolve(dir) !== path.resolve(USER_SCENARIO_DIR);
-    const isOwnDir = ownDir && path.resolve(dir) === ownDir;
-    for (const f of readScenarioDir(dir)) {
-      try {
-        const data = JSON.parse(fs.readFileSync(path.join(dir, f), "utf8"));
-        const id = data.id || path.basename(f, ".json");
-        if (seen.has(id)) continue;
-        if (!scenarioVisibleTo(data, isOwnDir, viewer)) continue;
-        seen.add(id);
-        out.push({
+  for (const record of scenarioRecords(extraDir)) {
+    try {
+      const { id, data, filename: f, isOwnDir, publicGuest } = record;
+      if (seen.has(id)) continue;
+      if (!scenarioVisibleTo(data, isOwnDir, viewer)) continue;
+      seen.add(id);
+      out.push({
           id,
           title: data.title || path.basename(f, ".json"),
           genre: data.genre || "",
@@ -322,23 +405,14 @@ function listScenarios(extraDir, viewer) {
               text: clip(action.text, 300),
             }))
             .filter((action) => action.label && action.text),
-        });
-      } catch {}
-    }
+      });
+    } catch {}
   }
   return out;
 }
 
 function loadScenario(id, extraDir) {
-  for (const dir of scenarioDirs(extraDir)) {
-    for (const f of readScenarioDir(dir)) {
-      try {
-        const data = JSON.parse(fs.readFileSync(path.join(dir, f), "utf8"));
-        if ((data.id || path.basename(f, ".json")) === id) return data;
-      } catch {}
-    }
-  }
-  return null;
+  return scenarioRecords(extraDir).find((record) => record.id === id)?.data || null;
 }
 
 const NAME_RULE = /^[\w\u4e00-\u9fa5-]{1,40}$/;
@@ -642,6 +716,10 @@ function saveCustomScenario(input, existingId, targetDir) {
   };
 
   fs.writeFileSync(path.join(dir, `${id}.json`), JSON.stringify(data, null, 2), "utf8");
+  scenarioFileCache.delete(path.join(dir, `${id}.json`));
+  scenarioDirCache.delete(dir);
+  scenarioIndexCache.clear();
+  guestScenarioRootCache = { at: 0, value: [] };
   return { id, data };
 }
 
@@ -659,6 +737,10 @@ function deleteCustomScenario(id, extraDir) {
   const file = path.join(dirs[0], `${id}.json`);
   if (!fs.existsSync(file)) throw new Error("找不到这个剧本");
   fs.unlinkSync(file);
+  scenarioFileCache.delete(file);
+  scenarioDirCache.delete(dirs[0]);
+  scenarioIndexCache.clear();
+  guestScenarioRootCache = { at: 0, value: [] };
   if (fs.existsSync(file)) throw new Error("删除失败，文件可能被占用");
   return true;
 }
@@ -2682,7 +2764,7 @@ module.exports = {
   LANGUAGES, normalizeLanguage, languageInstruction,
   promptProfileBlock, publicGmRules, freeRulesBlock,
   normalizePlayerProtocol,
-  listScenarios, loadScenario, scenarioVisibleTo, sanitizeCoverStyle, sanitizeScenarioVisual, clockText,
+  listScenarios, loadScenario, scenarioVisibleTo, clearScenarioCache, sanitizeCoverStyle, sanitizeScenarioVisual, clockText,
   parseDateTime, formatDateTime, scenarioStartParts, normalizeSessionTime,
   advanceTime, applyState, actionStateGate, parseModelTurn, buildPrompt, buildContinuePrompt,
   violatesContentBoundary,
