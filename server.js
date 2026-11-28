@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 跑团服务：网页界面 + 回合流程 + 存档。
  * 支持多人分享：本机是主人存档，外部访客凭邀请码进入，各自独立存档与回合锁。
  */
@@ -22,6 +22,8 @@ const SITE_ASSET_TYPES = {
   "icon-512.png": "image/png",
   "icon-maskable-512.png": "image/png",
   "apple-touch-icon.png": "image/png",
+  "brand-mark.png": "image/png",
+  "brand-mark.webp": "image/webp",
   "manifest.webmanifest": "application/manifest+json; charset=utf-8",
 };
 const STATE_FILE = path.join(engine.WORK, "server.json");
@@ -8366,3 +8368,5 @@ function start(port, retries) {
 }
 
 start(engine.config.port, 12);
+
+

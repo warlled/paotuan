@@ -13,4 +13,6 @@ node_modules/
 !public/favicon.ico
 !public/icon-*.png
 !public/apple-touch-icon.png
+!public/brand-mark.png
+!public/brand-mark.webp
 

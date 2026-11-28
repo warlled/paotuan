@@ -2643,3 +2643,58 @@ body:has(.owner-closed-banner) #game { padding-top: 28px; }
   .official-notice p, .official-notice-rules p { font-size: 12px; line-height: 1.7; }
   #fb-modal .fb-panel { padding-left: 14px; padding-right: 14px; }
 }
+
+/* ---------- 主页品牌图标：页面右上角，跟随页面滚动 ---------- */
+#setup { position: relative; }
+.brand-mark {
+  position: absolute;
+  top: clamp(56px, 4vw, 74px);
+  right: clamp(14px, 2vw, 38px);
+  width: clamp(112px, 10.5vw, 162px);
+  aspect-ratio: 1;
+  line-height: 0;
+  pointer-events: none;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  animation: brand-float 9s ease-in-out infinite;
+}
+.brand-mark::before {
+  content: "";
+  position: absolute;
+  inset: -14%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgb(150 160 214 / .20), rgb(214 178 196 / .10) 55%, transparent 72%);
+  filter: blur(2px);
+}
+.brand-mark picture {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.brand-mark img {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: saturate(1.25) contrast(1.06) drop-shadow(0 6px 16px rgb(92 96 140 / .22));
+}
+@keyframes brand-float {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-6px) rotate(1.2deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .brand-mark { animation: none; }
+}
+
+@media (max-width: 1320px) {
+  .brand-mark { width: clamp(96px, 9.5vw, 140px); top: 30px; right: 24px; }
+}
+@media (max-width: 1080px) {
+  .brand-mark { width: clamp(84px, 8vw, 108px); top: 18px; right: 16px; opacity: .9; }
+}
+/* 窄屏上品牌由图标题和标签图标承担，避免和左上角状态栏叠在一起 */
+@media (max-width: 900px) {
+  .brand-mark { display: none; }
+}
+
