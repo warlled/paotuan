@@ -3,223 +3,305 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>多人联机 · 玩家自由创作游玩社区网站平台</title>
-<link rel="stylesheet" href="/bottom-nav.css?v=20261127-navpages1">
+<title>多人联机大厅 · 玩家自由创作游玩社区网站平台</title>
+<link rel="stylesheet" href="/bottom-nav.css?v=20261128-room2">
 <style>
-  :root { --bg:#0d0f15; --panel:#151823; --panel2:#1b1f2c; --line:#262b3a; --text:#e7e8ee; --muted:#8b90a0; --accent:#c8a06a; --ok:#6fbf8f; --bad:#d9607a; }
-  * { box-sizing: border-box; }
-  body { margin:0; min-height:100vh; background:var(--bg); color:var(--text); font:15px/1.7 "Microsoft YaHei",system-ui,sans-serif; padding:22px 16px 112px; }
-  .wrap { max-width: 1180px; margin: 0 auto; }
-  .top { display:flex; align-items:center; gap:12px; margin-bottom:16px; }
-  .top h1 { font-size:18px; margin:0; letter-spacing:1px; }
-  .top a { margin-left:auto; color:var(--accent); text-decoration:none; font-size:13px; }
-  .grid2 { display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
-  .room-grid { display:grid; grid-template-columns: 300px 1fr; gap:14px; }
-  @media (max-width: 900px) { .grid2, .room-grid { grid-template-columns: 1fr; } }
-  .card { background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:16px; }
-  h2 { font-size:13px; letter-spacing:2px; color:var(--accent); margin:0 0 10px; }
-  label { display:block; font-size:12px; color:var(--muted); margin:9px 0 4px; }
-  input, select, textarea {
-    width:100%; padding:8px 10px; border-radius:9px; border:1px solid var(--line);
-    background:#10131b; color:var(--text); font:inherit; outline:none;
-  }
+  :root { --bg:#0d0f15; --panel:#151823; --panel2:#1b1f2c; --line:#2a3040; --text:#e7e8ee; --muted:#8b90a0; --accent:#c8a06a; --ok:#6fbf8f; --bad:#d9607a; --info:#79aee8; }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100vh; background:var(--bg); color:var(--text); font:15px/1.7 "Microsoft YaHei",system-ui,sans-serif; padding:20px 16px 112px; }
+  .wrap { max-width:1380px; margin:0 auto; }
+  .top { display:flex; align-items:center; gap:12px; margin-bottom:15px; }
+  .top h1 { font-size:19px; letter-spacing:1px; margin:0; }
+  .top .sub { color:var(--muted); font-size:12px; margin-right:auto; }
+  .top a { color:var(--accent); text-decoration:none; border:1px solid var(--line); border-radius:9px; padding:6px 10px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:15px; }
+  h2 { margin:0 0 10px; color:var(--accent); font-size:13px; letter-spacing:1.5px; }
+  h3 { margin:0 0 8px; color:var(--text); font-size:13px; }
+  label { display:grid; gap:4px; color:var(--muted); font-size:11.5px; }
+  input, select, textarea { width:100%; min-width:0; padding:8px 10px; border-radius:9px; border:1px solid var(--line); background:#10131b; color:var(--text); font:inherit; outline:none; }
   input:focus, select:focus, textarea:focus { border-color:var(--accent); }
   textarea { resize:vertical; }
   button { font:inherit; cursor:pointer; }
-  .primary { background:var(--accent); color:#1a1408; border:0; border-radius:9px; padding:8px 18px; font-weight:600; }
-  .ghost { background:transparent; border:1px solid var(--line); color:var(--text); border-radius:9px; padding:6px 12px; }
-  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:10px; }
-  .hint { color:var(--muted); font-size:12px; }
-  .err { color:var(--bad); font-size:12.5px; min-height:18px; }
-  .attrs { display:grid; grid-template-columns: repeat(3, 1fr); gap:6px; margin-top:6px; }
-  .attrs label { margin:0; font-size:11.5px; display:flex; align-items:center; gap:6px; justify-content:space-between; }
-  .attrs input { width:48px; padding:4px 5px; text-align:center; font-size:12px; }
-  .attr-control { display:inline-flex; align-items:center; gap:3px; }
-  .attr-step {
-    width:28px; height:28px; padding:0; display:grid; place-items:center;
-    border:1px solid var(--line); border-radius:7px; background:var(--panel2); color:var(--text);
-    line-height:1;
-  }
-  .pool { font-size:12px; color:var(--muted); margin-top:6px; }
-  .pool b { color:var(--accent); }
-  .pool.over b { color:var(--bad); }
-  .room-head { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
-  .code { font:600 16px/1 ui-monospace,monospace; letter-spacing:3px; color:var(--accent); border:1px dashed var(--line); border-radius:8px; padding:6px 10px; }
-  .meta { color:var(--muted); font-size:12.5px; }
-  .players { display:grid; gap:8px; }
-  .player { border:1px solid var(--line); border-radius:12px; padding:8px 10px; background:var(--panel2); }
-  .player .n { display:flex; align-items:center; gap:6px; font-size:13.5px; }
-  .player img { width:22px; height:22px; border-radius:50%; object-fit:cover; }
-  .bars { display:grid; gap:4px; margin-top:6px; }
-  .bar { height:6px; border-radius:4px; background:#0f121a; overflow:hidden; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  .primary { background:var(--accent); color:#1a1408; border:0; border-radius:9px; padding:8px 16px; font-weight:700; }
+  .ghost { background:transparent; border:1px solid var(--line); color:var(--text); border-radius:9px; padding:6px 11px; }
+  .danger { background:#3a1822; border:1px solid #713142; color:#f2a9ba; border-radius:9px; padding:6px 11px; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:9px; }
+  .hint, .meta { color:var(--muted); font-size:11.5px; }
+  .err { color:var(--bad); font-size:12px; min-height:18px; }
+  .hidden { display:none !important; }
+  .tabs { display:flex; gap:6px; flex-wrap:wrap; }
+  .tabs button { border:1px solid var(--line); background:transparent; color:var(--muted); border-radius:999px; padding:4px 12px; font-size:12px; }
+  .tabs button.on { border-color:var(--accent); color:#171108; background:var(--accent); font-weight:700; }
+  .lobby-tabs { display:flex; gap:7px; margin-bottom:12px; flex-wrap:wrap; }
+  .lobby-tabs button { border:1px solid var(--line); border-radius:10px; background:var(--panel); color:var(--muted); padding:8px 14px; }
+  .lobby-tabs button.on { color:var(--text); border-color:var(--accent); background:var(--panel2); }
+  .lobby-view { display:none; }
+  .lobby-view.on { display:block; }
+  .lobby-columns { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .form-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; }
+  .form-grid .span2 { grid-column:1/-1; }
+  .check { display:flex; align-items:center; gap:7px; padding:8px 10px; border:1px solid var(--line); border-radius:9px; }
+  .check input { width:auto; }
+  .attrs { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:6px; }
+  .attrs label { text-align:center; }
+  .attrs input { padding:5px 2px; text-align:center; }
+  .pool { margin-top:6px; color:var(--muted); font-size:11.5px; }
+  .pool.over { color:var(--bad); }
+  .room-list { display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:10px; }
+  .room-card { border:1px solid var(--line); border-radius:13px; padding:12px; background:var(--panel2); display:grid; gap:7px; }
+  .room-card-head { display:flex; align-items:center; gap:7px; }
+  .room-card-head b { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .badge { display:inline-flex; align-items:center; border:1px solid var(--line); border-radius:999px; padding:1px 7px; font-size:10.5px; color:var(--muted); white-space:nowrap; }
+  .badge.ok { color:var(--ok); border-color:#2f6a4a; }
+  .badge.warn { color:#e3bd74; border-color:#66512a; }
+  .badge.bad { color:var(--bad); border-color:#6d3441; }
+  .room-card-actions { display:flex; gap:6px; flex-wrap:wrap; }
+  .room-card-actions button { padding:5px 9px; font-size:11.5px; }
+  .empty { padding:20px 10px; text-align:center; color:var(--muted); border:1px dashed var(--line); border-radius:12px; }
+  .reconnect { position:sticky; top:0; z-index:40; margin-bottom:10px; border:1px solid #6b5328; background:#2b2416; color:#efd298; border-radius:10px; padding:7px 11px; font-size:12px; }
+  .room-head { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:11px; }
+  .code { border:1px dashed var(--line); color:var(--accent); border-radius:8px; padding:5px 9px; font:700 15px/1 ui-monospace,monospace; letter-spacing:2px; }
+  .room-head button { min-height:34px; }
+  .layout { display:grid; grid-template-columns:280px minmax(0,1fr) 340px; gap:12px; align-items:start; }
+  .sticky { position:sticky; top:10px; }
+  .players, .story-log, .chat-list, .history-list { display:grid; gap:7px; }
+  .players { max-height:62vh; overflow:auto; }
+  .player { border:1px solid var(--line); border-radius:11px; padding:8px 9px; background:var(--panel2); }
+  .player.offline { opacity:.62; }
+  .player-head { display:flex; align-items:center; gap:6px; min-width:0; }
+  .player-head img { width:22px; height:22px; border-radius:50%; object-fit:cover; }
+  .player-head b { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .player-tools { display:flex; gap:4px; flex-wrap:wrap; margin-top:6px; }
+  .player-tools button { padding:3px 6px; font-size:10.5px; min-height:26px; }
+  .mini { display:flex; gap:4px; flex-wrap:wrap; margin-top:5px; }
+  .mini .tag { border:1px solid var(--line); border-radius:5px; color:var(--muted); padding:0 6px; font-size:10.5px; }
+  .bars { display:grid; gap:4px; margin-top:5px; }
+  .bar { height:5px; border-radius:4px; background:#0f121a; overflow:hidden; }
   .bar i { display:block; height:100%; }
   .bar.hp i { background:linear-gradient(90deg,#8f3f52,#d9607a); }
   .bar.san i { background:linear-gradient(90deg,#3f5a8f,#7a9ee0); }
-  .mini { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
-  .tag { border:1px solid var(--line); border-radius:6px; padding:1px 7px; font-size:11px; color:var(--muted); }
-  .tag.on { color:var(--ok); border-color:#2f6a4a; }
-  .tabs { display:flex; gap:6px; margin:4px 0 8px; flex-wrap:wrap; }
-  .tabs button { background:transparent; border:1px solid var(--line); color:var(--muted); border-radius:999px; padding:3px 12px; font-size:12px; }
-  .tabs button.on { color:#1a1408; background:var(--accent); border-color:var(--accent); font-weight:600; }
-  .tab-body { min-height: 86px; font-size:13px; }
-  .list { display:grid; gap:6px; }
-  .list .item { border-left:2px solid var(--line); padding:2px 0 2px 8px; color:var(--muted); }
-  .list .item b { color:var(--text); font-weight:500; }
-  #log { max-height:40vh; overflow-y:auto; display:grid; gap:8px; padding-right:4px; margin:8px 0; }
-  .seg { border-radius:10px; padding:7px 11px; font-size:13.5px; white-space:pre-wrap; }
+  .spectator-row { border-top:1px dashed var(--line); margin-top:10px; padding-top:8px; }
+  .story-log { max-height:52vh; overflow:auto; padding-right:3px; }
+  .seg { border-radius:10px; padding:8px 11px; white-space:pre-wrap; font-size:13.5px; }
   .seg.gm { background:#12151e; border:1px solid var(--line); }
-  .seg.player { background:#1d2432; border:1px solid #2f4664; }
-  .seg.sys { background:transparent; color:var(--muted); font-size:12px; text-align:center; }
-  .room-suggestions { margin-top:9px; padding:8px 10px; border:1px solid var(--line); border-radius:9px; background:var(--panel2); }
-  .room-suggestions-title { color:var(--accent); font-size:10.5px; letter-spacing:.15em; margin-bottom:4px; }
-  .room-suggestion { display:flex; gap:8px; width:100%; padding:7px 0; border:0; border-top:1px solid var(--line); border-radius:0; background:transparent; color:var(--muted); text-align:left; line-height:1.65; }
-  .room-suggestion:first-of-type { border-top:0; }
-  .room-suggestion:hover { color:var(--text); }
-  .room-suggestion b { color:var(--accent); font-weight:600; }
-  #actionRow { display:flex; gap:8px; align-items:flex-end; }
-  #actionRow textarea { flex:1; min-height:56px; }
-  .room-modal {
-    position:fixed; inset:0; z-index:90; background:rgba(0,0,0,.6);
-    display:flex; align-items:center; justify-content:center; padding:18px;
-  }
-  .room-modal-panel {
-    width:min(640px,100%); max-height:86vh; overflow-y:auto; background:var(--panel);
-    border:1px solid var(--line); border-radius:16px; padding:18px;
-  }
-  .room-modal-head { display:flex; align-items:center; margin-bottom:10px; }
-  .room-modal-head h2 { margin:0; }
-  .room-modal-head button { margin-left:auto; background:transparent; border:0; color:var(--muted); font-size:16px; cursor:pointer; }
-  .ro-story { white-space:pre-wrap; font-size:14px; line-height:1.85; margin:8px 0 14px; }
-  .ro-sec { color:var(--accent); font-size:12px; letter-spacing:1px; margin:12px 0 4px; }
-  @media (max-width: 640px) {
-    body { padding: 14px 10px calc(30px + env(safe-area-inset-bottom)); }
-    .top { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; margin-bottom:14px; }
-    .top h1 { grid-column:1; grid-row:1; font-size:17px; }
-    .top a { grid-column:2; grid-row:1; margin-left:0; min-height:44px; padding:0 12px; display:inline-flex; align-items:center; justify-content:center; border:1px solid var(--line); border-radius:9px; }
-    .top select { grid-column:1 / -1; grid-row:2; width:100% !important; min-width:0 !important; min-height:44px; }
-    .card { padding:13px; border-radius:14px; }
-    input, select, textarea { min-height: 44px; font-size: 16px; }
-    textarea { resize:none; }
-    label { font-size:12.5px; margin-top:12px; }
-    .attrs { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-    .attrs label { min-height: 84px; display:grid; grid-template-rows:auto auto; justify-content:stretch; padding: 8px; border: 1px solid var(--line); border-radius: 10px; font-size:12.5px; }
-    .attr-control { width:100%; display:grid; grid-template-columns:44px minmax(0,1fr) 44px; gap:3px; }
-    .attrs input { width: 100%; min-height: 44px; padding: 2px; font-size: 16px; border:0; background:transparent; }
-    .attr-step { width: 44px; height: 44px; font-size: 18px; }
-    #c-opening { min-height: 120px; }
-    .room-head { gap: 8px; }
-    .room-head button { min-height: 40px; padding: 7px 12px; }
-    #btn-leave { margin-left: 0 !important; }
-    #r-tabs { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
-    #r-tabs::-webkit-scrollbar { display: none; }
-    #r-tabs button { flex: 0 0 auto; min-height: 40px; padding: 7px 14px; }
-    #log { max-height: 34vh; }
-    #actionRow { flex-direction: column; align-items: stretch; }
-    #actionRow textarea { min-height: 72px; }
-    #actionRow .primary { width: 100%; min-height: 44px; }
-    #quickActions { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
-    #quickActions::-webkit-scrollbar { display: none; }
-    #quickActions button { flex: 0 0 auto; min-height: 40px; padding: 7px 13px; }
-    .room-modal { align-items: flex-end; padding: 8px; }
-    .room-modal-panel { max-height: 94vh; border-radius: 16px; padding: 14px; }
-  }
-  @media (pointer: coarse) {
-    .top select, .top a, .primary, .ghost { min-height: 42px; }
-    .tabs button, .room-head button, #quickActions button { min-height: 40px; }
-    .attr-step { width: 40px; height: 40px; }
-    .attrs input { min-height: 38px; }
-  }
-  .hidden { display:none !important; }
+  .seg.player { background:#1a2230; border:1px solid #304a68; }
+  .seg.sys { text-align:center; color:var(--muted); font-size:11.5px; background:transparent; }
+  .suggestions { margin-top:8px; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .suggestions button { display:flex; gap:8px; width:100%; border:0; border-top:1px solid var(--line); padding:7px 9px; background:transparent; color:var(--muted); text-align:left; }
+  .suggestions button:first-child { border-top:0; }
+  .action-row { display:flex; gap:8px; align-items:flex-end; margin-top:9px; }
+  .action-row textarea { flex:1; min-height:74px; }
+  .countdown { font:700 13px/1 ui-monospace,monospace; color:var(--accent); }
+  .countdown.urgent { color:var(--bad); }
+  .side-tabs { margin-bottom:8px; }
+  .side-view { display:none; }
+  .side-view.on { display:block; }
+  .chat-list { max-height:42vh; overflow:auto; align-content:start; }
+  .chat-msg { border:1px solid var(--line); border-radius:9px; padding:6px 8px; background:var(--panel2); font-size:12px; }
+  .chat-msg.system { color:var(--muted); text-align:center; background:transparent; }
+  .chat-msg b { color:var(--accent); }
+  .chat-msg .meta { display:block; margin-top:2px; font-size:10px; }
+  .chat-input { display:flex; gap:6px; margin-top:8px; }
+  .chat-input input { flex:1; }
+  .history-item { border-left:2px solid var(--accent); padding:5px 8px; background:var(--panel2); border-radius:0 8px 8px 0; }
+  .history-item p { margin:4px 0; color:var(--muted); font-size:11.5px; white-space:pre-wrap; }
+  .voice-panel { display:grid; gap:8px; }
+  .voice-state { border:1px solid var(--line); border-radius:9px; padding:8px; color:var(--muted); font-size:11.5px; }
+  .voice-member { display:flex; justify-content:space-between; gap:8px; border-bottom:1px solid var(--line); padding:4px 0; }
+  .voice-member:last-child { border-bottom:0; }
+  .modal { position:fixed; inset:0; z-index:120; display:flex; align-items:center; justify-content:center; padding:16px; background:rgba(0,0,0,.66); }
+  .modal-panel { width:min(760px,100%); max-height:88vh; overflow:auto; background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:16px; }
+  .modal-head { display:flex; align-items:center; margin-bottom:10px; }
+  .modal-head h2 { margin:0; }
+  .modal-head button { margin-left:auto; border:0; background:transparent; color:var(--muted); font-size:17px; }
+  .story-copy { white-space:pre-wrap; line-height:1.85; }
+  .settings-grid { display:grid; grid-template-columns:1fr 1fr; gap:9px; }
+  .settings-grid .span2 { grid-column:1/-1; }
+  @media (max-width:1100px) { .layout { grid-template-columns:250px minmax(0,1fr); } .layout > .side-card { grid-column:1/-1; } .sticky { position:static; } }
+  @media (max-width:820px) { .lobby-columns, .form-grid, .settings-grid { grid-template-columns:1fr; } .span2, .form-grid .span2, .settings-grid .span2 { grid-column:auto; } .layout { grid-template-columns:1fr; } body { padding:13px 10px 105px; } .top { flex-wrap:wrap; } .top .sub { width:100%; } input, select, textarea, .primary, .ghost { min-height:42px; font-size:16px; } .room-head button { flex:1 1 auto; } .action-row { flex-direction:column; align-items:stretch; } .action-row .primary { width:100%; } .attrs { grid-template-columns:repeat(3,minmax(0,1fr)); } .story-log { max-height:45vh; } }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div class="top">
-    <h1>多人联机 · 创作游玩</h1>
-    <select data-language-select style="width:auto;min-width:112px;padding:5px 8px">
+  <header class="top">
+    <h1>多人联机大厅</h1>
+    <span class="sub">公开房间、密码房、私密邀请、旁观、语音与完整房间管理</span>
+    <select data-language-select style="width:auto;min-width:105px">
       <option value="zh-Hans">简体中文</option><option value="zh-Hant">繁體中文</option>
       <option value="en">English</option><option value="ja">日本語</option>
       <option value="ko">한국어</option><option value="de">Deutsch</option>
       <option value="fr">Français</option><option value="ru">Русский</option>
     </select>
-    <a href="/">← 回到单机</a>
-  </div>
+    <a href="/">← 回到主页</a>
+  </header>
 
-  <div id="lobby" class="grid2">
-    <div class="card">
-      <h2>创建房间</h2>
-      <label>剧本</label>
-      <select id="c-scenario"></select>
-      <label>玩法</label>
-      <select id="c-mode">
-        <option value="free" selected>自由叙事（不掷骰，随选择推进）</option>
-        <option value="trpg">跑团模式（判定与代价）</option>
-      </select>
-      <div id="c-difficulty-wrap">
-        <label>难度</label>
-        <select id="c-diff">
-          <option value="easy">轻松</option>
-          <option value="normal" selected>标准</option>
-          <option value="hard">硬核</option>
-        </select>
+  <section id="lobby">
+    <div class="lobby-tabs" id="lobby-tabs">
+      <button type="button" data-lobby-view="list" class="on">公开房间与匹配大厅</button>
+      <button type="button" data-lobby-view="create">创建房间</button>
+      <button type="button" data-lobby-view="join">加入 / 旁观</button>
+    </div>
+
+    <div class="lobby-view on" data-lobby-panel="list">
+      <div class="card">
+        <div class="row" style="margin-top:0">
+          <h2 style="margin-right:auto">公开房间列表</h2>
+          <input id="list-search" placeholder="搜索房间码、剧本、类型" style="max-width:240px">
+          <select id="list-mode" style="max-width:140px"><option value="">全部玩法</option><option value="free">自由叙事</option><option value="trpg">跑团规则</option></select>
+          <select id="list-status" style="max-width:140px"><option value="">全部状态</option><option value="lobby">招募中</option><option value="playing">进行中</option></select>
+          <button class="ghost" id="list-refresh" type="button">刷新</button>
+          <button class="primary" id="match-quick" type="button">快速匹配</button>
+        </div>
+        <div class="hint" style="margin:7px 0 10px">匹配大厅只展示公开房和密码房。私密邀请房不会进入列表，只能通过房主生成的邀请链接进入。</div>
+        <div class="room-list" id="public-room-list"><div class="empty">正在读取房间…</div></div>
+        <div class="err" id="list-error"></div>
       </div>
-      <label>开局设定（可选）</label>
-      <textarea id="c-opening" rows="2" placeholder="所有人怎么聚到一起、开场从哪一刻开始"></textarea>
-
-      <h2 style="margin-top:14px">你的角色</h2>
-      <label>角色名</label>
-      <input id="c-name" maxlength="24" placeholder="例如：沈聿">
-      <label>身份 / 职业</label>
-      <input id="c-role" maxlength="40" placeholder="例如：报社记者">
-      <label>一句话背景</label>
-      <input id="c-bio" maxlength="200" placeholder="例如：见过几桩不了了之的案子">
-      <div class="attrs" id="c-attrs"></div>
-      <div class="pool" id="c-pool"></div>
-      <div class="row"><button class="primary" id="btn-create">创建房间</button><span class="err" id="c-err"></span></div>
     </div>
 
-    <div class="card">
-      <h2>加入房间</h2>
-      <label>房间码</label>
-      <input id="j-code" maxlength="8" placeholder="例如：K7M2Q9XA" style="text-transform:uppercase;letter-spacing:3px">
-      <label>角色名</label>
-      <input id="j-name" maxlength="24" placeholder="例如：阿棠">
-      <label>身份 / 职业</label>
-      <input id="j-role" maxlength="40" placeholder="例如：学徒">
-      <label>一句话背景</label>
-      <input id="j-bio" maxlength="200" placeholder="让别人快速认识你的角色">
-      <div class="attrs" id="j-attrs"></div>
-      <div class="pool" id="j-pool"></div>
-      <div class="row"><button class="primary" id="btn-join">加入房间</button><span class="err" id="j-err"></span></div>
-      <div class="hint" style="margin-top:12px">2–6 人。房主开始后，每人写自己的行动，房主统一推进。角色属性会影响 HP / SAN 与叙事中的能力表现。</div>
+    <div class="lobby-view" data-lobby-panel="create">
+      <div class="lobby-columns">
+        <div class="card">
+          <h2>剧本与房间设置</h2>
+          <div class="form-grid">
+            <label class="span2">剧本<select id="c-scenario"></select></label>
+            <label>玩法<select id="c-mode"><option value="free" selected>自由叙事</option><option value="trpg">跑团规则</option></select></label>
+            <label id="c-difficulty-wrap">难度<select id="c-diff"><option value="easy">轻松</option><option value="normal" selected>标准</option><option value="hard">硬核</option></select></label>
+            <label>房间类型<select id="c-visibility"><option value="public">公开房</option><option value="password">密码房</option><option value="invite">私密邀请房</option></select></label>
+            <label id="c-password-wrap" class="hidden">房间密码<input id="c-password" type="password" maxlength="64" placeholder="4–64 个字符"></label>
+            <label>人数上限<input id="c-max" type="number" min="2" max="8" value="6"></label>
+            <label>每轮倒计时（秒）<input id="c-round" type="number" min="30" max="900" value="120"></label>
+            <label class="check"><input id="c-spectators" type="checkbox" checked> 允许旁观</label>
+            <label class="check"><input id="c-auto" type="checkbox"> 倒计时后自动推进</label>
+            <label class="span2">开局设定<textarea id="c-opening" rows="3" maxlength="500" placeholder="所有角色怎样聚到一起、当前冲突和开场画面"></textarea></label>
+          </div>
+          <div class="hint" id="scenario-detail">选择剧本后显示世界观简介和游玩标签。</div>
+        </div>
+        <div class="card">
+          <h2>你的角色</h2>
+          <div class="form-grid">
+            <label>角色名<input id="c-name" maxlength="24" placeholder="例如：沈聿"></label>
+            <label>身份 / 职业<input id="c-role" maxlength="40" placeholder="例如：报社记者"></label>
+            <label class="span2">背景<input id="c-bio" maxlength="200" placeholder="来历、经历与当前牵挂"></label>
+            <label class="span2">外貌<textarea id="c-appearance" rows="2" maxlength="240" placeholder="衣着、体态、容易记住的特征"></textarea></label>
+            <label class="span2">性格<textarea id="c-personality" rows="2" maxlength="240" placeholder="平时怎样，压力下又会怎样"></textarea></label>
+            <label class="span2">能力<textarea id="c-ability" rows="2" maxlength="240" placeholder="擅长的事、可被剧情承认的能力"></textarea></label>
+            <label class="span2">目标 / 动机<textarea id="c-goal" rows="2" maxlength="240" placeholder="这一局最想得到、保护或查明的事"></textarea></label>
+          </div>
+          <div class="attrs" id="c-attrs" style="margin-top:9px"></div>
+          <div class="pool" id="c-pool"></div>
+          <div class="row"><button class="primary" id="btn-create">创建房间</button><span class="err" id="c-err"></span></div>
+        </div>
+      </div>
     </div>
-  </div>
 
-  <div id="roomView" style="display:none">
+    <div class="lobby-view" data-lobby-panel="join">
+      <div class="lobby-columns">
+        <div class="card">
+          <h2>房间凭证</h2>
+          <div class="form-grid">
+            <label>房间码<input id="j-code" maxlength="16" placeholder="例如：K7M2Q9XA" style="text-transform:uppercase;letter-spacing:2px"></label>
+            <label id="j-password-wrap" class="hidden">房间密码<input id="j-password" type="password" maxlength="64"></label>
+            <label class="span2">私密邀请令牌<input id="j-invite" maxlength="80" placeholder="从邀请链接自动填入；普通房间可留空"></label>
+            <label class="check"><input id="j-spectator" type="checkbox"> 以旁观者身份进入</label>
+          </div>
+          <div class="hint">已开始的公开房间如果允许旁观，也可以在不提交行动的情况下进入。</div>
+        </div>
+        <div class="card">
+          <h2>加入角色</h2>
+          <div class="form-grid">
+            <label>角色名<input id="j-name" maxlength="24" placeholder="例如：阿棠"></label>
+            <label>身份 / 职业<input id="j-role" maxlength="40" placeholder="例如：学徒"></label>
+            <label class="span2">背景<input id="j-bio" maxlength="200" placeholder="让别人快速认识你的角色"></label>
+            <label class="span2">外貌<textarea id="j-appearance" rows="2" maxlength="240"></textarea></label>
+            <label class="span2">性格<textarea id="j-personality" rows="2" maxlength="240"></textarea></label>
+            <label class="span2">能力<textarea id="j-ability" rows="2" maxlength="240"></textarea></label>
+            <label class="span2">目标 / 动机<textarea id="j-goal" rows="2" maxlength="240"></textarea></label>
+          </div>
+          <div class="attrs" id="j-attrs" style="margin-top:9px"></div>
+          <div class="pool" id="j-pool"></div>
+          <div class="row"><button class="primary" id="btn-join">加入房间</button><button class="ghost" id="btn-watch">旁观房间</button><span class="err" id="j-err"></span></div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:13px">
+        <h2>跨实例恢复验证</h2>
+        <div class="row" style="margin-top:0">
+          <input id="recover-file" type="file" accept="application/json,.json">
+          <button class="ghost" id="recover-verify" type="button">验证快照</button>
+          <button class="primary" id="recover-import" type="button" disabled>恢复房间</button>
+          <span class="hint" id="recover-status">只有原房主在同一账号身份下可以恢复。</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="roomView" class="hidden">
+    <div id="reconnect-banner" class="reconnect hidden">连接中断，正在自动重连…</div>
     <div class="room-head">
       <span class="code" id="r-code"></span>
       <span class="meta" id="r-scenario"></span>
-      <span class="meta" id="r-mode"></span>
+      <span class="badge" id="r-visibility"></span>
+      <span class="badge" id="r-status"></span>
       <span class="meta" id="r-turn"></span>
-      <span class="meta" id="r-research"></span>
+      <span class="countdown" id="r-countdown"></span>
       <button class="ghost" id="btn-copy">复制邀请</button>
       <button class="ghost" id="btn-opening-room">开场</button>
-      <button class="ghost" id="btn-export">导出日志</button>
+      <button class="ghost" id="btn-history">历史存档</button>
+      <button class="ghost" id="btn-snapshot">导出恢复快照</button>
+      <button class="ghost" id="btn-room-settings">房间设置</button>
       <button class="ghost" id="btn-leave" style="margin-left:auto">离开房间</button>
     </div>
-    <div class="room-grid">
-      <div>
-        <div class="card">
-          <h2>玩家席位</h2>
-          <div class="players" id="r-players"></div>
-          <div class="row">
-            <button class="primary" id="btn-start">开始游戏</button>
-            <button class="ghost" id="btn-advance">推进剧情</button>
-          </div>
-          <div class="err" id="r-err"></div>
+
+    <div class="layout">
+      <aside class="card sticky">
+        <h2>玩家与旁观席</h2>
+        <div class="players" id="r-players"></div>
+        <div class="spectator-row" id="r-spectators"></div>
+        <div class="row">
+          <button class="primary" id="btn-ready">准备</button>
+          <button class="primary" id="btn-start" style="display:none">开始游戏</button>
         </div>
-        <div class="card" style="margin-top:14px">
-          <h2>世界状态</h2>
+        <div class="err" id="r-err"></div>
+      </aside>
+
+      <main class="card">
+        <div class="row" style="margin-top:0">
+          <h2 id="r-log-title" style="margin-right:auto">剧情正文</h2>
+          <span class="meta" id="r-online"></span>
+          <button class="ghost" id="btn-advance" type="button">推进剧情</button>
+        </div>
+        <div class="story-log" id="log"></div>
+        <div class="row" id="quickActions">
+          <button class="ghost" data-q="我先观察四周，确认环境和出口。">观察四周</button>
+          <button class="ghost" data-q="我找在场的人搭话，试探他知道什么。">找人搭话</button>
+          <button class="ghost" data-q="我检查身边的线索和物品。">检查线索</button>
+          <button class="ghost" data-q="我原地等待，留意接下来会发生什么。">原地等待</button>
+        </div>
+        <div id="spectator-notice" class="hint hidden">你正在旁观，不能提交行动或准备。</div>
+        <div class="action-row" id="actionRow">
+          <textarea id="r-action" maxlength="500" placeholder="写下这一轮你的角色要做什么…"></textarea>
+          <button class="primary" id="btn-action">提交行动</button>
+          <button class="ghost" id="btn-voice-type" type="button" title="使用浏览器语音识别写入行动">语音输入</button>
+        </div>
+        <div class="hint" id="r-status"></div>
+      </main>
+
+      <aside class="card side-card">
+        <div class="tabs side-tabs" id="side-tabs">
+          <button type="button" data-side="chat" class="on">房间聊天</button>
+          <button type="button" data-side="state">世界状态</button>
+          <button type="button" data-side="voice">房间语音</button>
+          <button type="button" data-side="rounds">回合摘要</button>
+        </div>
+        <section class="side-view on" data-side-panel="chat">
+          <div class="chat-list" id="chat-list"></div>
+          <div class="chat-input">
+            <input id="chat-input" maxlength="500" placeholder="聊天内容不会写入剧情日志">
+            <button class="primary" id="btn-chat-send" type="button">发送</button>
+          </div>
+          <div class="hint" id="chat-status"></div>
+        </section>
+        <section class="side-view" data-side-panel="state">
           <div class="meta">时间：<span id="r-clock"></span></div>
           <div class="meta">位置：<span id="r-location"></span></div>
           <div class="tabs" id="r-tabs">
@@ -228,545 +310,1119 @@
             <button data-tab="codex">图鉴</button>
             <button data-tab="relations">关系</button>
           </div>
-          <div class="tab-body" id="r-tab-body"></div>
-        </div>
-        <div class="card" style="margin-top:14px">
-          <h2>下一步</h2>
-          <div class="list" id="r-objectives"></div>
-          <div class="meta" style="margin-top:8px">任务</div>
-          <div class="list" id="r-quests"></div>
-          <div class="meta" style="margin-top:8px">已认识</div>
+          <div id="r-tab-body"></div>
+          <h3 style="margin-top:12px">下一步</h3>
+          <div class="players" id="r-objectives"></div>
+          <h3 style="margin-top:12px">任务</h3>
+          <div class="players" id="r-quests"></div>
+          <h3 style="margin-top:12px">已认识</h3>
           <div class="mini" id="r-npcs"></div>
-        </div>
-      </div>
-      <div class="card">
-        <h2 id="r-log-title">剧情记录</h2>
-        <div id="log"></div>
-        <div class="row" id="quickActions" style="margin-top:6px">
-          <button class="ghost" data-q="我先观察四周，确认环境和出口。">观察四周</button>
-          <button class="ghost" data-q="我找在场的人搭话，试探他知道什么。">找人搭话</button>
-          <button class="ghost" data-q="我检查身边的线索和物品。">检查线索</button>
-          <button class="ghost" data-q="我原地等待，留意接下来会发生什么。">原地等待</button>
-        </div>
-        <div id="actionRow">
-          <textarea id="r-action" placeholder="写下这一轮你的角色要做什么…"></textarea>
-          <button class="primary" id="btn-action">提交行动</button>
-        </div>
-        <div class="hint" id="r-status"></div>
-      </div>
+        </section>
+        <section class="side-view" data-side-panel="voice">
+          <div class="voice-panel">
+            <div class="voice-state" id="voice-state">尚未加入房间语音。首次加入会请求麦克风权限。</div>
+            <div class="row" style="margin-top:0">
+              <button class="primary" id="btn-voice-join" type="button">加入语音</button>
+              <button class="ghost" id="btn-voice-mic" type="button" disabled>关闭麦克风</button>
+              <button class="ghost" id="btn-voice-leave" type="button" disabled>离开语音</button>
+            </div>
+            <div id="voice-members"></div>
+            <div class="hint">语音采用浏览器 WebRTC 点对点连接，需要 HTTPS、麦克风权限和可用的 STUN 网络。语音不会写入房间存档。</div>
+          </div>
+        </section>
+        <section class="side-view" data-side-panel="rounds">
+          <div class="history-list" id="round-list"></div>
+        </section>
+      </aside>
     </div>
+  </section>
+</div>
+
+<div id="remote-audio" class="hidden"></div>
+
+<div id="openingModal" class="modal hidden">
+  <div class="modal-panel">
+    <div class="modal-head"><h2 id="opening-title">开场</h2><button data-close="openingModal">✕</button></div>
+    <div id="opening-body"></div>
+    <div class="row"><button class="primary" data-close="openingModal">进入剧情</button></div>
   </div>
 </div>
 
-<div id="roomOpening" class="room-modal hidden">
-  <div class="room-modal-panel">
-    <div class="room-modal-head">
-      <h2 id="ro-title">开场</h2>
-      <button id="ro-close">✕</button>
-    </div>
-    <div id="ro-body"></div>
-    <div class="row">
-      <button class="primary" id="ro-start">进入剧情</button>
-      <span class="meta">关闭后随时可以点顶部「开场」再看</span>
-    </div>
+<div id="historyModal" class="modal hidden">
+  <div class="modal-panel">
+    <div class="modal-head"><h2>房间历史存档</h2><button data-close="historyModal">✕</button></div>
+    <div class="history-list" id="history-body"></div>
+    <div class="row"><button class="ghost" id="history-prev">上一页</button><span class="meta" id="history-page"></span><button class="ghost" id="history-next">下一页</button></div>
   </div>
 </div>
-<script src="/bottom-nav.js?v=20261127-navpages1"></script>
-<script src="/i18n.js?v=20261127-privacy1"></script>
+
+<div id="settingsModal" class="modal hidden">
+  <div class="modal-panel">
+    <div class="modal-head"><h2>房主设置</h2><button data-close="settingsModal">✕</button></div>
+    <div class="settings-grid">
+      <label>房间类型<select id="set-visibility"><option value="public">公开房</option><option value="password">密码房</option><option value="invite">私密邀请房</option></select></label>
+      <label>新密码<input id="set-password" type="password" maxlength="64" placeholder="仅在设置为密码房时填写"></label>
+      <label>人数上限<input id="set-max" type="number" min="2" max="8"></label>
+      <label>每轮倒计时（秒）<input id="set-round" type="number" min="30" max="900"></label>
+      <label class="check"><input id="set-spectators" type="checkbox"> 允许旁观</label>
+      <label class="check"><input id="set-auto" type="checkbox"> 自动推进</label>
+    </div>
+    <div class="row"><button class="primary" id="settings-save">保存设置</button><button class="danger" id="btn-close-room">解散房间</button><span id="settings-status" class="hint"></span></div>
+  </div>
+</div>
+
+<script src="/bottom-nav.js?v=20261128-room2"></script>
+<script src="/i18n.js?v=20261128-room2"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const ATTR_DEFS = [["str","力量"],["dex","敏捷"],["con","体质"],["int","智力"],["per","感知"],["cha","魅力"]];
-const ROOM_VISUAL_THEMES = {
-  "ink-green": { accent:"#77b594", bg:"#07130f", panel:"#10231b" },
-  "warm-brown": { accent:"#d3a46f", bg:"#17110d", panel:"#241a15" },
-  "night-blue": { accent:"#79aee8", bg:"#07111f", panel:"#0f1d30" },
-  "violet-night": { accent:"#b18cff", bg:"#110b1a", panel:"#1d1229" },
-  "pure-black": { accent:"#d6c08a", bg:"#000000", panel:"#080808" },
-};
-function applyRoomVisual(visual) {
-  const v = visual && typeof visual === "object" ? visual : {};
-  const theme = ROOM_VISUAL_THEMES[v.theme] || ROOM_VISUAL_THEMES["night-blue"];
-  const overlay = Math.max(0, Math.min(90, Number(v.overlay) || 42)) / 100;
-  const image = /^\/uploads\/[a-f0-9]{16}\.(png|jpg|webp)$/i.test(String(v.image || "")) ? `url("${v.image}")` : "";
-  const root = document.documentElement.style;
-  root.setProperty("--accent", /^#[0-9a-f]{6}$/i.test(String(v.accent || "")) ? v.accent : theme.accent);
-  root.setProperty("--bg", theme.bg);
-  root.setProperty("--panel", theme.panel);
-  document.body.style.backgroundImage = `linear-gradient(rgb(5 8 12 / ${overlay}), rgb(5 8 12 / .76)), ${image ? image + ", " : ""}linear-gradient(145deg, ${theme.bg}, ${theme.panel})`;
-  document.body.style.backgroundSize = "cover";
-  document.body.style.backgroundPosition = "center";
-  document.body.style.backgroundAttachment = "fixed";
-}
+const params = new URLSearchParams(location.search);
+const inviteKey = params.get("k") || "";
 let room = null;
 let code = "";
+let inviteToken = params.get("invite") || "";
 let pollBusy = false;
 let pollTimer = null;
 let lastRoomRevision = "";
 let roomRequestBusy = false;
-let roomPendingTimer = null;
-let tab = "events";
+let pendingTimer = null;
+let reconnectFailures = 0;
 let roomScenarios = [];
 let roomPublicBase = "";
-const params = new URLSearchParams(location.search);
-const inviteKey = params.get("k") || (document.cookie.match(/(?:^|;\s*)rk=([^;]+)/) || [])[1] || "";
+let activeTab = "events";
+let activeSide = "chat";
+let historyPage = 0;
+let autoAdvanceTriggeredTurn = -1;
+let autoAdvanceRetryAt = 0;
+let voiceJoined = false;
+let localVoiceStream = null;
+let micOn = true;
+let voicePollTimer = null;
+let voiceHeartbeatTimer = null;
+const voicePeers = new Map();
+const pendingRecovery = { snapshot: null, verified: false };
 
-function compactClock(value) {
-  const text = String(value || "").trim();
-  const chinese = text.match(/^(\d{4})年(\d{1,2})月(\d{1,2})日\s+(\d{1,2}):(\d{2})$/);
-  if (chinese) return `${chinese[1]}.${chinese[2].padStart(2,"0")}.${chinese[3].padStart(2,"0")} · ${chinese[4].padStart(2,"0")}:${chinese[5]}`;
-  const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
-  if (iso) return `${iso[1]}.${iso[2]}.${iso[3]} · ${iso[4]}:${iso[5]}`;
-  return text;
+function esc(value) {
+  return String(value == null ? "" : value).replace(/[&<>"]/g, (char) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[char]));
 }
-
 function withKey(path) {
   if (!inviteKey) return path;
   return path + (path.includes("?") ? "&" : "?") + "k=" + encodeURIComponent(inviteKey);
 }
-async function api(path, opts = {}) {
-  const r = await fetch(withKey(path), opts);
+async function api(path, options = {}) {
+  const response = await fetch(withKey(path), { cache:"no-store", ...options });
   let body = null;
-  try { body = await r.json(); } catch {}
-  return { status: r.status, ok: r.ok, body };
+  try { body = await response.json(); } catch {}
+  return { status:response.status, ok:response.ok, body };
 }
-const post = (p, o) => api(p, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(o) });
+const post = (path, payload) => api(path, { method:"POST", headers:{ "content-type":"application/json" }, body:JSON.stringify(payload) });
 
 function buildAttrs(containerId, poolId) {
   const box = $(containerId);
+  if (!box) return;
   box.innerHTML = "";
   for (const [key, label] of ATTR_DEFS) {
-    const lab = document.createElement("label");
-    const name = document.createElement("span");
-    name.textContent = label;
-    const control = document.createElement("span");
-    control.className = "attr-control";
-    const minus = document.createElement("button");
-    minus.type = "button"; minus.className = "attr-step"; minus.textContent = "−"; minus.setAttribute("aria-label", `减少${label}`);
-    const inp = document.createElement("input");
-    inp.type = "number"; inp.min = "1"; inp.max = "10"; inp.value = "5"; inp.dataset.attr = key;
-    inp.inputMode = "numeric";
-    const plus = document.createElement("button");
-    plus.type = "button"; plus.className = "attr-step"; plus.textContent = "+"; plus.setAttribute("aria-label", `增加${label}`);
-    inp.addEventListener("input", () => updatePool(containerId, poolId));
-    minus.addEventListener("click", () => {
-      inp.value = String(Math.max(1, Math.min(10, (Number(inp.value) || 5) - 1)));
-      updatePool(containerId, poolId);
-    });
-    plus.addEventListener("click", () => {
-      inp.value = String(Math.max(1, Math.min(10, (Number(inp.value) || 5) + 1)));
-      updatePool(containerId, poolId);
-    });
-    control.append(minus, inp, plus);
-    lab.append(name, control);
-    box.appendChild(lab);
+    const wrap = document.createElement("label");
+    wrap.textContent = label;
+    const input = document.createElement("input");
+    input.type = "number";
+    input.min = "1";
+    input.max = "10";
+    input.value = "5";
+    input.dataset.attr = key;
+    input.addEventListener("input", () => updateAttrs(containerId, poolId));
+    wrap.appendChild(input);
+    box.appendChild(wrap);
   }
-  updatePool(containerId, poolId);
+  updateAttrs(containerId, poolId);
 }
-function readAttrs(containerId) {
-  const out = {};
-  for (const inp of $(containerId).querySelectorAll("input[data-attr]")) {
-    out[inp.dataset.attr] = Math.max(1, Math.min(10, Number(inp.value) || 5));
+function roomAttrs(containerId) {
+  const attrs = {};
+  for (const input of $(containerId).querySelectorAll("input[data-attr]")) {
+    attrs[input.dataset.attr] = Math.max(1, Math.min(10, Number(input.value) || 5));
   }
-  return out;
+  return attrs;
 }
-function updatePool(containerId, poolId) {
-  const a = readAttrs(containerId);
-  const total = Object.values(a).reduce((x, y) => x + y, 0);
-  const el = $(poolId);
-  el.innerHTML = `已分配 <b>${total}</b> / 30 点`;
-  el.classList.toggle("over", total > 30);
+function updateAttrs(containerId, poolId) {
+  const total = Object.values(roomAttrs(containerId)).reduce((sum, value) => sum + value, 0);
+  const pool = $(poolId);
+  pool.textContent = `属性总和 ${total} / 30（需要 24–30）`;
+  pool.classList.toggle("over", total < 24 || total > 30);
 }
 function validAttrs(containerId) {
-  const total = Object.values(readAttrs(containerId)).reduce((x, y) => x + y, 0);
+  const total = Object.values(roomAttrs(containerId)).reduce((sum, value) => sum + value, 0);
   return total >= 24 && total <= 30;
 }
+function characterPayload(prefix) {
+  return {
+    name: $(`${prefix}-name`).value,
+    role: $(`${prefix}-role`).value,
+    bio: $(`${prefix}-bio`).value,
+    appearance: $(`${prefix}-appearance`).value,
+    personality: $(`${prefix}-personality`).value,
+    ability: $(`${prefix}-ability`).value,
+    goal: $(`${prefix}-goal`).value,
+    attrs: roomAttrs(`${prefix}-attrs`),
+  };
+}
+function showLobbyView(name) {
+  document.querySelectorAll("[data-lobby-view]").forEach((button) => button.classList.toggle("on", button.dataset.lobbyView === name));
+  document.querySelectorAll("[data-lobby-panel]").forEach((panel) => panel.classList.toggle("on", panel.dataset.lobbyPanel === name));
+}
+function setStatus(id, text, error = false) {
+  const node = $(id);
+  if (!node) return;
+  node.textContent = text;
+  node.classList.toggle("err", error);
+}
 
-async function loadScenarios() {
-  const r = await api("/api/meta");
-  const list = (r.body && r.body.scenarios) || [];
-  roomScenarios = list;
-  roomPublicBase = (r.body && r.body.publicBase) || "";
+async function loadMeta() {
+  const response = await api("/api/meta");
+  if (!response.ok) throw new Error(response.body?.error || "无法读取剧本列表");
+  roomScenarios = response.body.scenarios || [];
+  roomPublicBase = response.body.publicBase || "";
   const picker = $("c-scenario");
   picker.innerHTML = "";
-  for (const s of list) {
+  for (const scenario of roomScenarios) {
     const option = document.createElement("option");
-    option.value = String(s.id || "");
-    option.textContent = `${s.title || "未命名剧本"}${s.genre ? `（${s.genre}）` : ""}`;
+    option.value = scenario.id;
+    option.textContent = `${scenario.title}${scenario.genre ? `（${scenario.genre}）` : ""}`;
     picker.appendChild(option);
   }
-  if (!list.length) {
-    picker.innerHTML = '<option value="">（剧本加载失败，请从首页进入）</option>';
-    $("c-err").textContent = "剧本列表没加载出来，点右上角“回到单机”重新进入。";
+  renderScenarioDetail();
+}
+function renderScenarioDetail() {
+  const scenario = roomScenarios.find((item) => item.id === $("c-scenario").value);
+  $("scenario-detail").textContent = scenario
+    ? `${scenario.genre || "原创"} · ${scenario.players || "2–6 人"} · ${scenario.blurb || "暂无简介"}`
+    : "选择剧本后显示世界观简介和游玩标签。";
+  $("c-difficulty-wrap").classList.toggle("hidden", $("c-mode").value !== "trpg");
+}
+
+async function loadRoomList() {
+  setStatus("list-error", "");
+  const query = new URLSearchParams();
+  const q = $("list-search").value.trim();
+  if (q) query.set("q", q);
+  if ($("list-mode").value) query.set("mode", $("list-mode").value);
+  if ($("list-status").value) query.set("status", $("list-status").value);
+  const response = await api(`/api/rooms/list?${query}`);
+  if (!response.ok) {
+    setStatus("list-error", response.body?.error || "房间列表加载失败", true);
+    return;
   }
-  updateRoomModeControls();
+  roomPublicBase = response.body.publicBase || roomPublicBase;
+  renderRoomList(response.body.rooms || []);
 }
-
-function effectiveRoomMode() {
-  const selected = $("c-mode").value;
-  return selected === "trpg" ? "trpg" : "free";
+function renderRoomList(rooms) {
+  const box = $("public-room-list");
+  box.innerHTML = "";
+  if (!rooms.length) {
+    box.innerHTML = '<div class="empty">暂时没有符合条件的房间。你可以创建公开房，等待玩家加入。</div>';
+    return;
+  }
+  for (const item of rooms) {
+    const card = document.createElement("article");
+    card.className = "room-card";
+    const visibility = item.visibility === "password" ? "密码房" : "公开房";
+    const state = item.status === "playing" ? "进行中" : `招募中 ${item.readyCount}/${item.playerCount} 已准备`;
+    card.innerHTML = `
+      <div class="room-card-head"><b>${esc(item.scenarioTitle)}</b><span class="badge ${item.status === "playing" ? "warn" : "ok"}">${esc(state)}</span></div>
+      <div class="meta">${esc(item.genre || "原创")} · ${item.mode === "free" ? "自由叙事" : "跑团规则"} · ${esc(item.difficulty)} · 房主 ${esc(item.hostName)}</div>
+      <div class="mini">
+        <span class="tag">${esc(visibility)}</span>
+        <span class="tag">${item.playerCount}/${item.maxPlayers} 人</span>
+        <span class="tag">${item.onlineCount} 在线</span>
+        ${item.allowSpectators ? `<span class="tag">可旁观 ${item.spectatorCount}</span>` : ""}
+        <span class="tag">房间 ${esc(item.code)}</span>
+      </div>`;
+    const actions = document.createElement("div");
+    actions.className = "room-card-actions";
+    const join = document.createElement("button");
+    join.className = "primary";
+    join.textContent = !item.joinable
+      ? "当前不可加入"
+      : item.status === "playing"
+        ? "旁观此局"
+        : item.hasPassword ? "输入密码加入" : "加入房间";
+    join.disabled = !item.joinable;
+    join.addEventListener("click", () => {
+      $("j-code").value = item.code;
+      $("j-spectator").checked = item.status === "playing";
+      $("j-password-wrap").classList.toggle("hidden", !item.hasPassword);
+      showLobbyView("join");
+      $("j-code").focus();
+      setStatus("j-err", item.hasPassword ? "这是密码房，请输入房间密码。" : "");
+    });
+    actions.appendChild(join);
+    if (item.status === "playing" && item.allowSpectators && item.joinable) {
+      const watch = document.createElement("button");
+      watch.className = "ghost";
+      watch.textContent = "进入旁观席";
+      watch.addEventListener("click", () => {
+        $("j-code").value = item.code;
+        $("j-spectator").checked = true;
+        $("j-password-wrap").classList.toggle("hidden", !item.hasPassword);
+        showLobbyView("join");
+      });
+      actions.appendChild(watch);
+    }
+    card.appendChild(actions);
+    box.appendChild(card);
+  }
 }
-
-function updateRoomModeControls() {
-  $("c-difficulty-wrap")?.classList.toggle("hidden", effectiveRoomMode() !== "trpg");
+async function quickMatch() {
+  const response = await api("/api/rooms/list?status=lobby");
+  const target = (response.body?.rooms || []).find((item) => item.joinable && !item.hasPassword) ||
+    (response.body?.rooms || []).find((item) => item.joinable);
+  if (!target) {
+    setStatus("list-error", "当前没有可快速匹配的房间。", true);
+    return;
+  }
+  $("j-code").value = target.code;
+  $("j-spectator").checked = false;
+  $("j-password-wrap").classList.toggle("hidden", !target.hasPassword);
+  showLobbyView("join");
+  setStatus("j-err", target.hasPassword ? "已匹配到密码房，请向房主询问密码。" : "已匹配到房间，请确认角色资料后加入。");
 }
 
 async function createRoom() {
-  $("c-err").textContent = "";
-  if (!$("c-scenario").value) { $("c-err").textContent = "剧本还没加载好。"; return; }
-  if (!validAttrs("c-attrs")) { $("c-err").textContent = "属性点需要在 24–30 之间。"; return; }
-  const r = await post("/api/rooms/create", {
-    scenarioId: $("c-scenario").value,
-    mode: $("c-mode").value,
-    difficulty: $("c-diff").value,
-    opening: $("c-opening").value,
-    language: window.PT_I18N?.getLanguage() || "zh-Hans",
-    character: { name: $("c-name").value, role: $("c-role").value, bio: $("c-bio").value, attrs: readAttrs("c-attrs") },
-  });
-  if (!r.ok) { $("c-err").textContent = r.body?.error || "创建失败"; return; }
-  enter(r.body.code);
+  setStatus("c-err", "");
+  if (!$("c-scenario").value) return setStatus("c-err", "剧本尚未加载。", true);
+  if (!characterPayload("c").name.trim()) return setStatus("c-err", "请填写角色名。", true);
+  if (!validAttrs("c-attrs")) return setStatus("c-err", "属性总和需要在 24–30 之间。", true);
+  if ($("c-visibility").value === "password" && $("c-password").value.length < 4) {
+    return setStatus("c-err", "密码房至少需要 4 个字符。", true);
+  }
+  $("btn-create").disabled = true;
+  try {
+    const response = await post("/api/rooms/create", {
+      scenarioId:$("c-scenario").value,
+      mode:$("c-mode").value,
+      difficulty:$("c-diff").value,
+      visibility:$("c-visibility").value,
+      password:$("c-password").value,
+      maxPlayers:Number($("c-max").value),
+      roundSeconds:Number($("c-round").value),
+      allowSpectators:$("c-spectators").checked,
+      autoAdvance:$("c-auto").checked,
+      opening:$("c-opening").value,
+      language:window.PT_I18N?.getLanguage() || "zh-Hans",
+      character:characterPayload("c"),
+    });
+    if (!response.ok) throw new Error(response.body?.error || "创建失败");
+    inviteToken = response.body.room.invitePath ? new URL(response.body.room.invitePath, location.origin).searchParams.get("invite") || "" : "";
+    enter(response.body.code);
+  } catch (error) {
+    setStatus("c-err", error.message || String(error), true);
+  } finally {
+    $("btn-create").disabled = false;
+  }
+}
+async function joinRoom(spectator = false) {
+  setStatus("j-err", "");
+  code = $("j-code").value.trim().toUpperCase();
+  if (!code) return setStatus("j-err", "请填写房间码。", true);
+  if (!spectator && !characterPayload("j").name.trim()) return setStatus("j-err", "请填写角色名。", true);
+  if (!spectator && !validAttrs("j-attrs")) return setStatus("j-err", "属性总和需要在 24–30 之间。", true);
+  $("btn-join").disabled = true;
+  $("btn-watch").disabled = true;
+  try {
+    const response = await post("/api/rooms/join", {
+      code,
+      password:$("j-password").value,
+      inviteToken:$("j-invite").value.trim() || inviteToken,
+      asSpectator:spectator || $("j-spectator").checked,
+      language:window.PT_I18N?.getLanguage() || "zh-Hans",
+      character:characterPayload("j"),
+    });
+    if (!response.ok) throw new Error(response.body?.error || "加入失败");
+    enter(code);
+  } catch (error) {
+    setStatus("j-err", error.message || String(error), true);
+  } finally {
+    $("btn-join").disabled = false;
+    $("btn-watch").disabled = false;
+  }
 }
 
-async function joinRoom() {
-  $("j-err").textContent = "";
-  const c = $("j-code").value.trim().toUpperCase();
-  if (!c) { $("j-err").textContent = "先填房间码"; return; }
-  if (!validAttrs("j-attrs")) { $("j-err").textContent = "属性点需要在 24–30 之间。"; return; }
-  const r = await post("/api/rooms/join", {
-    code: c,
-    character: { name: $("j-name").value, role: $("j-role").value, bio: $("j-bio").value, attrs: readAttrs("j-attrs") },
-  });
-  if (!r.ok) { $("j-err").textContent = r.body?.error || "加入失败"; return; }
-  enter(c);
-}
-
-function enter(c) {
-  code = c;
-  $("lobby").style.display = "none";
-  $("roomView").style.display = "block";
-  if (pollTimer) clearInterval(pollTimer);
+function enter(roomCode) {
+  code = String(roomCode || "").toUpperCase();
+  $("lobby").classList.add("hidden");
+  $("roomView").classList.remove("hidden");
   lastRoomRevision = "";
+  if (pollTimer) clearInterval(pollTimer);
   poll();
-  pollTimer = setInterval(poll, 2500);
+  pollTimer = setInterval(poll, 2200);
+  if (!voicePollTimer) voicePollTimer = setInterval(pollVoiceSignals, 1600);
 }
-
-document.addEventListener("visibilitychange", () => {
-  if (document.hidden) {
-    if (pollTimer) clearInterval(pollTimer);
-    pollTimer = null;
+async function tryResumeFromUrl() {
+  const initialCode = String(params.get("code") || "").toUpperCase();
+  if (!initialCode) return;
+  code = initialCode;
+  $("j-code").value = initialCode;
+  $("j-invite").value = inviteToken;
+  const response = await api(`/api/rooms/state?code=${encodeURIComponent(initialCode)}`);
+  if (response.ok && response.body.room) {
+    room = response.body.room;
+    enter(initialCode);
     return;
   }
-  if (code) {
-    poll();
-    if (!pollTimer) pollTimer = setInterval(poll, 2500);
-  }
-});
+  showLobbyView("join");
+  setStatus("j-err", response.body?.error || "请先创建角色并加入房间。");
+}
 
+function setReconnect(show) {
+  $("reconnect-banner").classList.toggle("hidden", !show);
+}
 async function poll() {
   if (!code || pollBusy || document.hidden) return;
   pollBusy = true;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8000);
+  const timeout = setTimeout(() => controller.abort(), 9000);
   try {
-    const stateUrl = "/api/rooms/state?code=" + encodeURIComponent(code) +
-      (lastRoomRevision ? "&v=" + encodeURIComponent(lastRoomRevision) : "");
-    const r = await api(stateUrl, { signal: controller.signal });
-    if (!r.ok) { $("r-err").textContent = r.body?.error || "房间不存在"; return; }
-    if (r.body?.unchanged) {
-      lastRoomRevision = r.body.revision || lastRoomRevision;
+    const revisionQuery = lastRoomRevision ? `&v=${encodeURIComponent(lastRoomRevision)}` : "";
+    const response = await api(`/api/rooms/state?code=${encodeURIComponent(code)}${revisionQuery}`, { signal:controller.signal });
+    if (!response.ok) {
+      reconnectFailures += 1;
+      if (response.status === 403 && response.body?.joinRequired) {
+        setReconnect(false);
+        alert("你已经不在此房间，可能已被房主移出或主动离席。");
+        location.href = "/room";
+        return;
+      }
+      if (reconnectFailures >= 2) setReconnect(true);
       return;
     }
-    const nextRoom = r.body.room;
-    const revision = nextRoom.revision || `${nextRoom.updatedAt || 0}|${nextRoom.turn || 0}|${nextRoom.status}|${nextRoom.log?.length || 0}|${nextRoom.busy ? 1 : 0}`;
-    if (revision === lastRoomRevision) return;
-    lastRoomRevision = revision;
-    room = nextRoom;
-    render();
+    reconnectFailures = 0;
+    setReconnect(false);
+    if (response.body.unchanged) {
+      room.serverNow = response.body.serverNow || Date.now();
+      room.roundDeadline = response.body.roundDeadline || room.roundDeadline;
+      room.busy = Boolean(response.body.busy);
+      for (const presence of response.body.presence || []) {
+        const person = room.players.find((item) => item.pid === presence.pid) || room.spectators.find((item) => item.pid === presence.pid);
+        if (person) {
+          person.online = Boolean(presence.online);
+          if (person.online) person.lastSeenAt = response.body.serverNow || Date.now();
+        }
+      }
+      renderPresence();
+      tickCountdown();
+      return;
+    }
+    if (response.body.room) {
+      const previousTurn = room?.turn;
+      room = response.body.room;
+      lastRoomRevision = room.revision;
+      if (previousTurn !== room.turn) autoAdvanceTriggeredTurn = -1;
+      render();
+    }
   } catch {
-    // 网络短暂抖动时保留当前界面，下一轮轮询会继续。
+    reconnectFailures += 1;
+    if (reconnectFailures >= 2) setReconnect(true);
   } finally {
     clearTimeout(timeout);
     pollBusy = false;
   }
 }
-
-function bar(v, max, cls) {
-  const pct = Math.max(0, Math.min(100, (v / Math.max(1, max)) * 100));
-  return `<div class="bar ${cls}"><i style="width:${pct}%"></i></div>`;
+function markChanged() {
+  lastRoomRevision = "";
+  poll();
 }
 
-function setRoomPending(on, message) {
-  roomRequestBusy = on;
-  clearInterval(roomPendingTimer);
-  roomPendingTimer = null;
-  if (!on) {
-    $("btn-action").disabled = !room || room.status !== "playing";
-    $("btn-advance").disabled = false;
-    if (room) {
-      $("r-status").textContent =
-        room.status === "lobby"
-          ? "等待房主开始…"
-          : room.myActionSubmitted
-            ? "你已提交行动，等待其他玩家或房主推进。"
-            : "写下你这一轮的行动。";
-    }
-    return;
-  }
-  const startedAt = Date.now();
-  const update = () => {
-    const seconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
-    $("r-status").textContent = `${message}${seconds ? ` · 已等待 ${seconds} 秒` : ""}`;
-  };
-  update();
-  roomPendingTimer = setInterval(update, 1000);
-  $("btn-action").disabled = true;
-  $("btn-advance").disabled = true;
+function participantBar(value, max, className) {
+  const width = Math.max(0, Math.min(100, (Number(value) / Math.max(1, Number(max))) * 100));
+  return `<div class="bar ${className}"><i style="width:${width}%"></i></div>`;
 }
-
+function sinceText(timestamp) {
+  if (!timestamp) return "在线状态未知";
+  const seconds = Math.max(0, Math.floor((Date.now() - Number(timestamp)) / 1000));
+  return seconds < 15 ? "在线" : `${seconds} 秒前在线`;
+}
+function renderPresence() {
+  if (!room) return;
+  document.querySelectorAll("[data-presence-pid]").forEach((node) => {
+    const pid = node.dataset.presencePid;
+    const player = room.players.find((item) => item.pid === pid) || room.spectators.find((item) => item.pid === pid);
+    if (!player) return;
+    node.textContent = player.online ? "在线" : "离线";
+    node.classList.toggle("ok", Boolean(player.online));
+    node.classList.toggle("bad", !player.online);
+  });
+  $("r-online").textContent = `玩家 ${room.players.filter((p) => p.online).length}/${room.players.length} 在线 · 旁观 ${room.spectators.filter((p) => p.online).length}`;
+}
 function render() {
-  const r = room;
-  if (r.scenario?.visual) applyRoomVisual(r.scenario.visual);
-  $("r-code").textContent = r.code;
-  $("r-scenario").textContent = r.scenario.title;
-  $("r-mode").textContent = (r.mode === "free" ? "自由探索" : "跑团") + " · " + ({ easy:"轻松", normal:"标准", hard:"硬核" }[r.difficulty] || "");
-  $("r-turn").textContent = (r.mode === "free" ? "探索 " + r.turn : "第 " + r.turn + " 回合") + " · " + compactClock(r.state.clock);
-  $("r-research").textContent = r.research?.sources?.length
-    ? `资料校准：${r.research.sources.length} 个来源`
-    : "资料校准：本地资料";
-  $("r-log-title").textContent = r.mode === "free" ? "世界记录" : "剧情记录";
-  $("btn-advance").textContent = r.mode === "free" ? "推进世界" : "推进剧情";
-  $("btn-start").style.display = r.isHost && r.status === "lobby" ? "inline-block" : "none";
-  $("btn-advance").style.display = r.isHost && r.status === "playing" ? "inline-block" : "none";
-  $("btn-action").disabled = roomRequestBusy || r.status !== "playing";
-  if (!roomRequestBusy) {
-    $("r-status").textContent = r.status === "lobby" ? "等待房主开始…" : (r.busy ? "房主正在处理本轮推演，请稍候。" : (r.myActionSubmitted ? "你已提交行动，等待其他玩家或房主推进。" : "写下你这一轮的行动。"));
+  if (!room) return;
+  $("r-code").textContent = room.code;
+  $("r-scenario").textContent = room.scenario.title;
+  $("r-visibility").textContent = room.visibility === "invite" ? "私密邀请房" : room.visibility === "password" ? "密码房" : "公开房";
+  $("r-status").textContent = room.status === "lobby" ? "招募中" : room.isSpectator ? "旁观中" : "进行中";
+  $("r-turn").textContent = `${room.mode === "free" ? "探索" : "回合"} ${room.turn}`;
+  $("r-log-title").textContent = room.mode === "free" ? "世界剧情" : "剧情正文";
+  $("btn-advance").textContent = room.mode === "free" ? "推进世界" : "推进剧情";
+  $("btn-advance").classList.toggle("hidden", !room.isHost || room.status !== "playing");
+  $("btn-start").classList.toggle("hidden", !room.isHost || room.status !== "lobby");
+  $("btn-start").disabled = !room.canStart;
+  $("btn-ready").classList.toggle("hidden", room.status !== "lobby" || room.isSpectator);
+  const myPlayer = room.players.find((item) => item.pid === room.myPid);
+  $("btn-ready").textContent = myPlayer?.ready ? "取消准备" : "准备";
+  $("spectator-notice").classList.toggle("hidden", !room.isSpectator);
+  $("actionRow").classList.toggle("hidden", room.isSpectator);
+  $("btn-room-settings").classList.toggle("hidden", !room.isHost);
+  $("btn-snapshot").classList.toggle("hidden", !room.isHost);
+  $("btn-snapshot").disabled = room.busy;
+  $("btn-action").disabled = room.isSpectator || room.status !== "playing" || room.busy || roomRequestBusy;
+  $("btn-advance").disabled = room.busy || roomRequestBusy;
+  $("btn-ready").disabled = roomRequestBusy;
+  $("r-status").textContent = room.status === "lobby"
+    ? `${room.players.filter((p) => p.ready).length}/${room.players.length} 已准备${room.isHost ? "；所有玩家准备后才能开始。" : "；等待房主开始。"}`
+    : room.busy
+      ? "本轮正在推演，请稍候。"
+      : room.myActionSubmitted
+        ? "你已提交行动，仍可在推进前修改。"
+        : "写下本轮行动；倒计时结束后未行动玩家会进入超时托管。";
+  if (myPlayer) $("btn-action").textContent = myPlayer.actionSubmitted ? "更新行动" : "提交行动";
+  renderPlayers();
+  renderStory();
+  renderChat();
+  renderWorld();
+  renderRoundSummary();
+  renderCountdownBase();
+  renderVoiceMembers();
+  if (room.status === "playing" && !sessionStorage.getItem(`opening-${room.code}-${room.turn}`) && room.turn === 0) {
+    sessionStorage.setItem(`opening-${room.code}-${room.turn}`, "1");
+    showOpening();
   }
-
-  $("r-players").innerHTML = "";
-  for (const p of r.players) {
-    const s = r.state.status[p.pid] || { hp: 0, hpMax: 10, san: 0, sanMax: 10 };
-    const g = r.state.growth[p.pid] || { level: 1, xp: 0 };
-    const a = p.character.attrs || {};
-    const attrChips = [["str","力"],["dex","敏"],["con","体"],["int","智"],["per","感"],["cha","魅"]]
-      .map(([k, label]) => `<span class="tag">${label}${a[k] ?? 5}</span>`)
-      .join("");
-    const items = (r.state.items[p.pid] || []).map((i) => `<span class="tag">${esc(i)}</span>`).join("");
-    const el = document.createElement("div");
-    el.className = "player";
-    el.innerHTML =
-      `<div class="n">${p.avatar ? `<img src="${esc(p.avatar)}" alt="">` : ""}<b>${esc(p.character.name)}</b><span class="meta">${esc(p.character.role || "")}</span>` +
-      `<span class="tag ${p.ready ? "on" : ""}" style="margin-left:auto">${r.status === "lobby" ? (p.ready ? "已准备" : "等待") : (p.ready ? "已行动" : "待行动")}</span></div>` +
-      (p.character.bio ? `<div class="meta">${esc(p.character.bio)}</div>` : "") +
-      `<div class="bars">${bar(s.hp, s.hpMax, "hp")}${bar(s.san, s.sanMax, "san")}</div>` +
-      `<div class="meta">HP ${s.hp}/${s.hpMax} · SAN ${s.san}/${s.sanMax} · Lv.${g.level} (${g.xp || 0} XP)</div>` +
-      `<div class="mini">${attrChips}</div>` +
-      `<div class="mini">${items || '<span class="tag">背包空</span>'}</div>`;
-    $("r-players").appendChild(el);
+}
+function renderPlayers() {
+  const box = $("r-players");
+  box.innerHTML = "";
+  for (const player of room.players) {
+    const status = room.state.status[player.pid] || { hp:0, hpMax:10, san:0, sanMax:10 };
+    const growth = room.state.growth[player.pid] || { level:1, xp:0 };
+    const muted = Number(player.mutedUntil) < 0 ? "永久禁言" : Number(player.mutedUntil) > Date.now() ? "禁言中" : "";
+    const node = document.createElement("article");
+    node.className = `player${player.online ? "" : " offline"}`;
+    node.innerHTML = `
+      <div class="player-head">
+        ${player.avatar ? `<img src="${esc(player.avatar)}" alt="">` : ""}
+        <b>${esc(player.character.name)}</b>
+        ${player.isHost ? '<span class="badge warn">房主</span>' : ""}
+        <span class="badge ${player.online ? "ok" : "bad"}" data-presence-pid="${esc(player.pid)}">${player.online ? "在线" : "离线"}</span>
+      </div>
+      <div class="meta">${esc(player.character.role || "旅人")} · 玩家 ${esc(player.name)} · ${esc(sinceText(player.lastSeenAt))}</div>
+      ${player.character.bio ? `<div class="meta">${esc(player.character.bio)}</div>` : ""}
+      <div class="mini">
+        <span class="tag ${player.ready ? "ok" : ""}">${room.status === "lobby" ? (player.ready ? "已准备" : "未准备") : (player.actionSubmitted ? "已行动" : "待行动")}</span>
+        ${muted ? `<span class="tag bad">${muted}</span>` : ""}
+        ${player.voice?.connected ? `<span class="tag ${player.voice.micOn ? "ok" : ""}">${player.voice.micOn ? "语音开麦" : "语音静音"}</span>` : ""}
+      </div>
+      <div class="bars">${participantBar(status.hp, status.hpMax, "hp")}${participantBar(status.san, status.sanMax, "san")}</div>
+      <div class="meta">HP ${status.hp}/${status.hpMax} · SAN ${status.san}/${status.sanMax} · Lv.${growth.level || 1}</div>`;
+    if (room.isHost && !player.isHost) {
+      const tools = document.createElement("div");
+      tools.className = "player-tools";
+      const mute = document.createElement("button");
+      mute.className = "ghost";
+      mute.textContent = muted ? "解除禁言" : "禁言 15 分钟";
+      mute.addEventListener("click", () => moderate("mute", player.pid, { unmute:Boolean(muted), minutes:15 }));
+      const kick = document.createElement("button");
+      kick.className = "danger";
+      kick.textContent = "移出房间";
+      kick.addEventListener("click", () => {
+        if (confirm(`确定把 ${player.character.name} 移出房间？`)) moderate("kick", player.pid);
+      });
+      const transfer = document.createElement("button");
+      transfer.className = "ghost";
+      transfer.textContent = "转让房主";
+      transfer.addEventListener("click", () => {
+        if (confirm(`确定把房主转让给 ${player.character.name}？`)) moderate("transfer", player.pid);
+      });
+      tools.append(mute, kick, transfer);
+      node.appendChild(tools);
+    }
+    box.appendChild(node);
   }
-
-  $("r-clock").textContent = compactClock(r.state.clock);
-  $("r-clock").title = r.state.clock || "";
-  $("r-location").textContent = r.state.location || "未记录";
-  renderTab();
-
-  const objBox = $("r-objectives");
-  const objs = r.state.objectives || [];
-  objBox.classList.toggle("hidden", !objs.length);
-  objBox.innerHTML = objs.map((o) => `<div class="item">${esc(o)}</div>`).join("");
-  const qBox = $("r-quests");
-  const qs = r.state.quests || [];
-  qBox.innerHTML = qs.length
-    ? qs.map((q) => `<div class="item"${q.done ? ' style="opacity:.5;text-decoration:line-through"' : ""}>${esc(q.text)}</div>`).join("")
-    : '<div class="hint">暂无任务</div>';
-  const nBox = $("r-npcs");
-  nBox.innerHTML = (r.state.npcs || []).map((n) => `<span class="tag">${esc(n)}</span>`).join("") || '<span class="tag">还没有认识的人</span>';
-  const codexTab = document.querySelector('#r-tabs button[data-tab="codex"]');
-  const hasCodex = Boolean((r.state.codex || []).length);
-  codexTab?.classList.toggle("hidden", !hasCodex);
-  if (!hasCodex && tab === "codex") tab = "events";
-
-  if (r.status === "playing" && !sessionStorage.getItem("ro-" + r.code)) {
-    sessionStorage.setItem("ro-" + r.code, "1");
-    showRoomOpening();
+  const spectatorBox = $("r-spectators");
+  spectatorBox.innerHTML = `<h3>旁观席 ${room.spectators.length}</h3>`;
+  if (!room.spectators.length) spectatorBox.insertAdjacentHTML("beforeend", '<div class="hint">暂无旁观者</div>');
+  for (const viewer of room.spectators) {
+    const row = document.createElement("div");
+    row.className = "player";
+    row.innerHTML = `<div class="player-head"><b>${esc(viewer.name)}</b><span class="badge ${viewer.online ? "ok" : "bad"}" data-presence-pid="${esc(viewer.pid)}">${viewer.online ? "在线" : "离线"}</span>${viewer.isSelf ? '<span class="badge">你</span>' : ""}</div>`;
+    if (room.isHost && !viewer.isSelf) {
+      const tools = document.createElement("div");
+      tools.className = "player-tools";
+      const mute = document.createElement("button");
+      mute.className = "ghost";
+      mute.textContent = viewer.mutedUntil ? "解除禁言" : "禁言";
+      mute.addEventListener("click", () => moderate("mute", viewer.pid, { unmute:Boolean(viewer.mutedUntil), minutes:15 }));
+      const kick = document.createElement("button");
+      kick.className = "danger";
+      kick.textContent = "移出旁观席";
+      kick.addEventListener("click", () => moderate("kick", viewer.pid));
+      tools.append(mute, kick);
+      row.appendChild(tools);
+    }
+    spectatorBox.appendChild(row);
   }
-
+}
+function renderStory() {
   const log = $("log");
+  const nearBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
   log.innerHTML = "";
-  for (const e of r.log) {
-    const el = document.createElement("div");
-    el.className = "seg " + (e.type === "gm" ? "gm" : e.type === "player" ? "player" : "sys");
-    el.textContent = e.type === "player" ? (e.who + "：" + e.text) : e.text;
-    if (e.type === "gm" && Array.isArray(e.suggestions) && e.suggestions.length) {
+  for (const event of room.log) {
+    const node = document.createElement("div");
+    node.className = `seg ${event.type === "gm" ? "gm" : event.type === "player" ? "player" : "sys"}`;
+    node.textContent = event.type === "player" ? `${event.who}：${event.text}` : event.text;
+    if (event.type === "gm" && Array.isArray(event.suggestions) && event.suggestions.length) {
       const box = document.createElement("div");
-      box.className = "room-suggestions";
-      const title = document.createElement("div");
-      title.className = "room-suggestions-title";
-      title.textContent = r.mode === "free" ? "探索方向" : "推荐行动";
-      box.appendChild(title);
-      e.suggestions.forEach((text, index) => {
+      box.className = "suggestions";
+      event.suggestions.forEach((text, index) => {
         const button = document.createElement("button");
         button.type = "button";
-        button.className = "room-suggestion";
-        const no = document.createElement("b");
-        no.textContent = String(index + 1);
-        const label = document.createElement("span");
-        label.textContent = text;
-        button.append(no, label);
+        button.innerHTML = `<b>${index + 1}</b><span>${esc(text)}</span>`;
         button.addEventListener("click", () => {
           $("r-action").value = text;
           $("r-action").focus();
         });
         box.appendChild(button);
       });
-      el.appendChild(box);
+      node.appendChild(box);
     }
-    log.appendChild(el);
+    log.appendChild(node);
   }
-  log.scrollTop = log.scrollHeight;
+  if (nearBottom) log.scrollTop = log.scrollHeight;
 }
-
+function renderChat() {
+  const box = $("chat-list");
+  const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+  box.innerHTML = "";
+  for (const message of room.chat || []) {
+    const node = document.createElement("div");
+    node.className = `chat-msg${message.role === "system" ? " system" : ""}`;
+    if (message.role === "system") node.textContent = message.text;
+    else node.innerHTML = `<b>${esc(message.name)}</b>${message.role === "spectator" ? ' <span class="badge">旁观</span>' : ""}<div>${esc(message.text)}</div><span class="meta">${esc(message.playerName || "")} · ${new Date(message.at).toLocaleTimeString("zh-CN", { hour:"2-digit", minute:"2-digit" })}</span>`;
+    box.appendChild(node);
+  }
+  if (!(room.chat || []).length) box.innerHTML = '<div class="empty">还没有聊天。聊天内容不会写入剧情日志。</div>';
+  if (nearBottom) box.scrollTop = box.scrollHeight;
+  const muted = Number(room.myMutedUntil) < 0 || Number(room.myMutedUntil) > Date.now();
+  $("chat-input").disabled = muted;
+  $("btn-chat-send").disabled = muted;
+  $("chat-status").textContent = Number(room.myMutedUntil) < 0
+    ? "你已被永久禁言。"
+    : Number(room.myMutedUntil) > Date.now()
+      ? `你已被禁言至 ${new Date(room.myMutedUntil).toLocaleString("zh-CN")}。`
+      : "";
+}
+function renderWorld() {
+  $("r-clock").textContent = room.state.clock || "未记录";
+  $("r-location").textContent = room.state.location || "未记录";
+  renderTab();
+  const list = (items, empty) => items?.length ? items.map((item) => `<div class="player">${esc(item)}</div>`).join("") : `<div class="hint">${empty}</div>`;
+  $("r-objectives").innerHTML = list(room.state.objectives || [], "暂无公开目标");
+  $("r-quests").innerHTML = list((room.state.quests || []).map((item) => `${item.text}${item.done ? "（完成）" : ""}`), "暂无任务");
+  $("r-npcs").innerHTML = (room.state.npcs || []).map((name) => `<span class="tag">${esc(name)}</span>`).join("") || '<span class="hint">暂无</span>';
+}
 function renderTab() {
   const body = $("r-tab-body");
-  const st = room.state;
-  const list = (arr) => `<div class="list">${arr.length ? arr.map((x) => `<div class="item">${esc(x)}</div>`).join("") : '<div class="hint">暂无</div>'}</div>`;
-  if (tab === "events") {
-    body.innerHTML = list((st.events || []).map((e) => `<b>${esc(e.title)}</b>${e.note ? " · " + esc(e.note) : ""} <span class="meta">${esc(compactClock(e.at))}</span>`));
-  } else if (tab === "plot") {
-    body.innerHTML = list(st.plot || []);
-  } else if (tab === "codex") {
-    body.innerHTML = list(st.codex || []);
+  const state = room.state || {};
+  if (activeTab === "events") {
+    body.innerHTML = (state.events || []).length
+      ? state.events.map((event) => `<div class="history-item"><b>${esc(event.title)}</b><p>${esc(event.note || "")} · ${esc(event.at || "")}</p></div>`).join("")
+      : '<div class="hint">暂无事件</div>';
+  } else if (activeTab === "plot") {
+    body.innerHTML = (state.plot || []).length ? state.plot.map((item) => `<div class="history-item">${esc(item)}</div>`).join("") : '<div class="hint">暂无情节线</div>';
+  } else if (activeTab === "codex") {
+    body.innerHTML = (state.codex || []).length ? state.codex.map((item) => `<div class="history-item">${esc(item)}</div>`).join("") : '<div class="hint">暂无图鉴</div>';
   } else {
-    const rel = Object.entries(st.relations || {});
-    body.innerHTML = rel.length
-      ? `<div class="list">${rel.map(([k, v]) => `<div class="item"><b>${esc(k)}</b> · ${esc(v)}</div>`).join("")}</div>`
-      : '<div class="hint">还没有建立人物关系</div>';
+    const relations = Object.entries(state.relations || {});
+    body.innerHTML = relations.length ? relations.map(([name, attitude]) => `<div class="history-item"><b>${esc(name)}</b><p>${esc(attitude)}</p></div>`).join("") : '<div class="hint">暂无人物关系</div>';
   }
 }
-
-function esc(s) {
-  return String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+function renderRoundSummary() {
+  const box = $("round-list");
+  const rounds = room.roundHistory || [];
+  box.innerHTML = rounds.length
+    ? rounds.slice().reverse().map((round) => `<div class="history-item"><b>第 ${round.turn} 回合 · ${round.actionCount} 个行动</b><p>${esc(round.narration || "本轮没有正文摘要")}</p><button class="ghost" type="button" data-history-turn="${round.turn}">查看存档</button></div>`).join("")
+    : '<div class="hint">完成一个回合后会在这里生成独立存档。</div>';
+  box.querySelectorAll("[data-history-turn]").forEach((button) => button.addEventListener("click", () => openHistory(Number(button.dataset.historyTurn))));
 }
-
-function showRoomOpening() {
+function renderCountdownBase() {
+  if (room?.serverNow) room.clockOffset = Date.now() - Number(room.serverNow);
+  tickCountdown();
+}
+function tickCountdown() {
   if (!room) return;
-  const firstGm = room.log.find((e) => e.type === "gm");
-  const opening = room.opening || (firstGm && firstGm.text) || room.scenario.blurb || "（暂无开场）";
-  const players = room.players
-    .map((p) => {
-      const a = p.character.attrs || {};
-      const attrs = `力${a.str ?? 5} 敏${a.dex ?? 5} 体${a.con ?? 5} 智${a.int ?? 5} 感${a.per ?? 5} 魅${a.cha ?? 5}`;
-      return `<div class="item"><b>${esc(p.character.name)}</b> · ${esc(p.character.role || "")}${p.character.bio ? " · " + esc(p.character.bio) : ""}<div class="meta">${attrs}</div></div>`;
-    })
-    .join("");
-  $("ro-title").textContent = room.scenario.title + " · 开场";
-  $("ro-body").innerHTML =
-    `<div class="meta">${esc(room.scenario.genre || "")}${room.scenario.playStyle === "open-world" ? " · 开放世界" : ""} · ${room.mode === "free" ? "自由叙事" : "跑团"} · ${({ easy:"轻松", normal:"标准", hard:"硬核" }[room.difficulty]) || ""} · ${esc(compactClock(room.state.clock))}</div>` +
-    (room.scenario.blurb ? `<div class="meta">${esc(room.scenario.blurb)}</div>` : "") +
-    `<div class="ro-sec">玩家角色</div>${players || '<div class="hint">暂无</div>'}` +
-    `<div class="ro-sec">开场</div><div class="ro-story">${esc(opening)}</div>`;
-  $("roomOpening").classList.remove("hidden");
+  const node = $("r-countdown");
+  if (room.status !== "playing" || !room.roundDeadline) {
+    node.textContent = "";
+    return;
+  }
+  const now = Date.now() - Number(room.clockOffset || 0);
+  const left = Math.max(0, Math.ceil((Number(room.roundDeadline) - now) / 1000));
+  node.textContent = left ? `本轮 ${left}s` : "本轮已到时";
+  node.classList.toggle("urgent", left <= 20);
+  if (!left && room.autoAdvance && room.turn !== autoAdvanceTriggeredTurn && !room.busy && Date.now() >= autoAdvanceRetryAt) {
+    autoAdvanceTriggeredTurn = room.turn;
+    triggerAutoAdvance();
+  }
 }
+setInterval(tickCountdown, 500);
 
-async function start() {
-  const r = await post("/api/rooms/start", { code });
-  if (!r.ok) { $("r-err").textContent = r.body?.error || "开始失败"; return; }
-  room = r.body.room; render();
-}
-async function action() {
-  if (roomRequestBusy) return;
+async function submitAction() {
+  if (!room || roomRequestBusy) return;
   const text = $("r-action").value.trim();
-  if (!text) return;
-  setRoomPending(true, "正在提交行动");
+  if (!text) return setStatus("r-err", "请先写行动。", true);
+  roomRequestBusy = true;
+  $("btn-action").disabled = true;
+  $("r-status").textContent = "正在提交行动…";
   try {
-    const r = await post("/api/rooms/action", { code, text });
-    if (!r.ok) { $("r-err").textContent = r.body?.error || "提交失败"; return; }
+    const response = await post("/api/rooms/action", { code, text });
+    if (!response.ok) throw new Error(response.body?.error || "提交失败");
     $("r-action").value = "";
-    room = r.body.room;
-    lastRoomRevision = "";
+    room = response.body.room;
+    markChanged();
     render();
   } catch (error) {
-    $("r-err").textContent = "提交失败，请检查网络后重试：" + (error?.message || error);
+    setStatus("r-err", error.message || String(error), true);
   } finally {
-    setRoomPending(false);
+    roomRequestBusy = false;
+    if (room) $("btn-action").disabled = room.isSpectator || room.status !== "playing" || room.busy;
   }
 }
-async function advance() {
+async function toggleReady() {
+  const response = await post("/api/rooms/ready", { code });
+  if (!response.ok) return setStatus("r-err", response.body?.error || "准备失败", true);
+  room = response.body.room;
+  render();
+}
+async function startRoom() {
+  const response = await post("/api/rooms/start", { code });
+  if (!response.ok) return setStatus("r-err", response.body?.error || "开始失败", true);
+  room = response.body.room;
+  render();
+}
+async function advanceRoom() {
   if (roomRequestBusy) return;
-  setRoomPending(true, "正在进行多人推演");
-  $("r-err").textContent = "";
+  roomRequestBusy = true;
+  $("btn-advance").disabled = true;
+  $("r-status").textContent = "正在进行多人推演…";
   try {
-    const r = await post("/api/rooms/advance", { code, language: window.PT_I18N?.getLanguage() || "zh-Hans" });
-    if (!r.ok) { $("r-err").textContent = r.body?.error || "推进失败"; return; }
-    room = r.body.room;
-    lastRoomRevision = "";
+    const response = await post("/api/rooms/advance", { code, language:window.PT_I18N?.getLanguage() || "zh-Hans" });
+    if (!response.ok) throw new Error(response.body?.error || "推进失败");
+    room = response.body.room;
+    markChanged();
     render();
   } catch (error) {
-    $("r-err").textContent = "推演连接中断，请稍后重试：" + (error?.message || error);
+    setStatus("r-err", error.message || String(error), true);
   } finally {
-    setRoomPending(false);
+    roomRequestBusy = false;
+    $("btn-advance").disabled = false;
   }
 }
-async function leave() {
-  await post("/api/rooms/leave", { code });
-  code = ""; location.reload();
+async function triggerAutoAdvance() {
+  const response = await post("/api/rooms/auto", { code, language:window.PT_I18N?.getLanguage() || "zh-Hans" });
+  if (!response.ok) {
+    setStatus("r-err", response.body?.error || "自动推进失败", true);
+    autoAdvanceTriggeredTurn = -1;
+    autoAdvanceRetryAt = Date.now() + 15000;
+    return;
+  }
+  room = response.body.room;
+  markChanged();
+  render();
 }
-function exportLog() {
-  if (!room) return;
-  const lines = [`房间 ${room.code} · ${room.scenario.title}`, `模式：${room.mode === "free" ? "自由叙事" : "跑团"} · 难度：${room.difficulty}`, ""];
-  for (const e of room.log) lines.push(e.type === "player" ? `${e.who}：${e.text}` : e.text);
-  const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = `联机日志-${room.code}.txt`;
-  a.click();
+async function sendChat() {
+  const text = $("chat-input").value.trim();
+  if (!text) return;
+  $("btn-chat-send").disabled = true;
+  try {
+    const response = await post("/api/rooms/chat/send", { code, text });
+    if (!response.ok) throw new Error(response.body?.error || "发送失败");
+    $("chat-input").value = "";
+    room = response.body.room;
+    markChanged();
+    renderChat();
+  } catch (error) {
+    setStatus("chat-status", error.message || String(error), true);
+  } finally {
+    $("btn-chat-send").disabled = false;
+  }
+}
+async function moderate(action, pid, extra = {}) {
+  const response = await post(`/api/rooms/${action}`, { code, pid, ...extra });
+  if (!response.ok) return alert(response.body?.error || "操作失败");
+  room = response.body.room;
+  render();
 }
 
-$("btn-create").onclick = createRoom;
-$("btn-join").onclick = joinRoom;
-$("btn-start").onclick = start;
-$("btn-action").onclick = action;
-$("btn-advance").onclick = advance;
-$("btn-leave").onclick = leave;
-$("btn-export").onclick = exportLog;
-$("btn-opening-room").onclick = showRoomOpening;
-$("ro-close").onclick = () => $("roomOpening").classList.add("hidden");
-$("ro-start").onclick = () => $("roomOpening").classList.add("hidden");
-$("c-mode").addEventListener("change", updateRoomModeControls);
-$("c-scenario").addEventListener("change", updateRoomModeControls);
-document.querySelectorAll("#quickActions button").forEach((b) => {
-  b.addEventListener("click", () => {
-    $("r-action").value = b.dataset.q || "";
-    $("r-action").focus();
+async function openHistory(turn = null) {
+  $("historyModal").classList.remove("hidden");
+  historyPage = 0;
+  if (turn == null) return loadHistoryPage();
+  const response = await api(`/api/rooms/history?code=${encodeURIComponent(code)}&page=0`);
+  if (!response.ok) return ($("history-body").textContent = response.body?.error || "加载失败");
+  const rounds = response.body.rounds || [];
+  const start = Math.max(0, rounds.findIndex((item) => Number(item.turn) === Number(turn)));
+  historyPage = Math.floor(start / 10);
+  loadHistoryPage();
+}
+async function loadHistoryPage() {
+  const response = await api(`/api/rooms/history?code=${encodeURIComponent(code)}&page=${historyPage}`);
+  if (!response.ok) return ($("history-body").textContent = response.body?.error || "加载失败");
+  const box = $("history-body");
+  box.innerHTML = "";
+  for (const round of response.body.rounds || []) {
+    const node = document.createElement("article");
+    node.className = "history-item";
+    const actions = (round.actions || []).map((item) => `${item.name}：${item.text}`).join("\n");
+    node.innerHTML = `<b>第 ${round.turn} 回合 · ${new Date(round.at).toLocaleString("zh-CN")}</b><p>${esc(actions || "无行动记录")}</p><p>${esc(round.narration || "")}</p>`;
+    box.appendChild(node);
+  }
+  if (!box.children.length) box.innerHTML = '<div class="empty">暂无历史存档</div>';
+  $("history-page").textContent = `第 ${historyPage + 1} 页`;
+  $("history-prev").disabled = historyPage <= 0;
+  $("history-next").disabled = !response.body.hasMore;
+}
+function showOpening() {
+  if (!room) return;
+  const opening = room.opening || room.log.find((event) => event.type === "gm")?.text || room.scenario.blurb || "暂无开场";
+  $("opening-title").textContent = `${room.scenario.title} · 开场`;
+  $("opening-body").innerHTML = `<div class="meta">${esc(room.scenario.genre || "")} · ${room.mode === "free" ? "自由叙事" : "跑团规则"} · ${esc(room.difficulty)}</div><p class="story-copy">${esc(opening)}</p><h3>玩家角色</h3>${room.players.map((player) => `<div class="history-item"><b>${esc(player.character.name)}</b> · ${esc(player.character.role || "")}<p>${esc(player.character.bio || "")}</p></div>`).join("")}`;
+  $("openingModal").classList.remove("hidden");
+}
+
+function downloadSnapshot() {
+  const anchor = document.createElement("a");
+  anchor.href = withKey(`/api/rooms/snapshot?code=${encodeURIComponent(code)}`);
+  anchor.download = `联机房间恢复-${code}.json`;
+  anchor.click();
+}
+async function readRecoveryFile() {
+  const file = $("recover-file").files[0];
+  if (!file) return null;
+  try {
+    pendingRecovery.snapshot = JSON.parse(await file.text());
+    pendingRecovery.verified = false;
+    $("recover-import").disabled = true;
+    return pendingRecovery.snapshot;
+  } catch {
+    setStatus("recover-status", "恢复文件不是有效 JSON。", true);
+    return null;
+  }
+}
+async function verifyRecovery() {
+  const snapshot = await readRecoveryFile();
+  if (!snapshot) return;
+  const response = await post("/api/rooms/recover/verify", { snapshot });
+  if (!response.ok) return setStatus("recover-status", response.body?.error || "验证失败", true);
+  pendingRecovery.verified = true;
+  $("recover-import").disabled = false;
+  setStatus("recover-status", `验证通过：房间 ${response.body.code}，第 ${response.body.turn} 回合，${response.body.players} 位玩家。`);
+}
+async function importRecovery() {
+  if (!pendingRecovery.snapshot || !pendingRecovery.verified) return;
+  if (!confirm("恢复会覆盖同房间码的当前房间数据（如果存在），确定继续吗？")) return;
+  const response = await post("/api/rooms/recover", { snapshot:pendingRecovery.snapshot });
+  if (!response.ok) return setStatus("recover-status", response.body?.error || "恢复失败", true);
+  setStatus("recover-status", "恢复完成，正在进入房间…");
+  inviteToken = response.body.room.invitePath ? new URL(response.body.room.invitePath, location.origin).searchParams.get("invite") || "" : inviteToken;
+  enter(response.body.code);
+}
+
+async function joinVoice() {
+  if (voiceJoined) return;
+  if (!navigator.mediaDevices?.getUserMedia) return setStatus("voice-state", "当前浏览器不支持麦克风访问。", true);
+  try {
+    localVoiceStream = await navigator.mediaDevices.getUserMedia({
+      audio:{ echoCancellation:true, noiseSuppression:true, autoGainControl:true },
+      video:false,
+    });
+    const response = await post("/api/rooms/voice/join", { code, micOn:true });
+    if (!response.ok) throw new Error(response.body?.error || "无法加入语音");
+    voiceJoined = true;
+    micOn = true;
+    $("btn-voice-join").disabled = true;
+    $("btn-voice-mic").disabled = false;
+    $("btn-voice-leave").disabled = false;
+    $("voice-state").textContent = "已加入房间语音。浏览器会与房间内已加入语音的玩家建立点对点音频。";
+    if (!voiceHeartbeatTimer) {
+      voiceHeartbeatTimer = setInterval(() => post("/api/rooms/voice/heartbeat", { code, micOn }).catch(() => {}), 4000);
+    }
+    await establishVoicePeers(response.body.voiceMembers || []);
+  } catch (error) {
+    setStatus("voice-state", `语音连接失败：${error.message || error}`, true);
+    if (localVoiceStream) localVoiceStream.getTracks().forEach((track) => track.stop());
+    localVoiceStream = null;
+  }
+}
+function createVoicePeer(pid) {
+  if (voicePeers.has(pid)) return voicePeers.get(pid);
+  const peer = new RTCPeerConnection({
+    iceServers:[
+      { urls:"stun:stun.l.google.com:19302" },
+      { urls:"stun:stun1.l.google.com:19302" },
+    ],
   });
+  for (const track of localVoiceStream?.getTracks() || []) peer.addTrack(track, localVoiceStream);
+  peer.onicecandidate = (event) => {
+    if (event.candidate) post("/api/rooms/voice/signal", { code, targetPid:pid, type:"ice", payload:event.candidate.toJSON() }).catch(() => {});
+  };
+  peer.ontrack = (event) => {
+    const audio = document.createElement("audio");
+    audio.autoplay = true;
+    audio.playsInline = true;
+    audio.srcObject = event.streams[0];
+    audio.dataset.voicePid = pid;
+    $("remote-audio").appendChild(audio);
+  };
+  peer.onconnectionstatechange = () => {
+    const member = $("voice-members").querySelector(`[data-voice-pid="${CSS.escape(pid)}"] .voice-connection`);
+    if (member) member.textContent = peer.connectionState;
+  };
+  peer.pendingIce = [];
+  voicePeers.set(pid, peer);
+  return peer;
+}
+async function makeOffer(pid) {
+  if (!voiceJoined || !room?.myPid || !pid || room.myPid >= pid) return;
+  const peer = createVoicePeer(pid);
+  if (peer.signalingState !== "stable") return;
+  const offer = await peer.createOffer();
+  await peer.setLocalDescription(offer);
+  await post("/api/rooms/voice/signal", { code, targetPid:pid, type:"offer", payload:peer.localDescription });
+}
+async function establishVoicePeers(members) {
+  const memberIds = new Set((members || []).map((member) => member.pid).filter(Boolean));
+  for (const [pid, peer] of voicePeers) {
+    if (memberIds.has(pid)) continue;
+    peer.close();
+    voicePeers.delete(pid);
+    $("remote-audio").querySelector(`[data-voice-pid="${CSS.escape(pid)}"]`)?.remove();
+  }
+  if (room) {
+    const active = new Map((members || []).map((member) => [member.pid, Boolean(member.micOn)]));
+    for (const person of [...room.players, ...room.spectators]) {
+      person.voice = active.has(person.pid)
+        ? { connected:true, micOn:active.get(person.pid) }
+        : { connected:false, micOn:false };
+    }
+    renderPlayers();
+  }
+  renderVoiceMembers(members);
+  for (const member of members) {
+    if (member.pid && member.pid !== room.myPid) {
+      if (!voicePeers.has(member.pid)) {
+        createVoicePeer(member.pid);
+        await makeOffer(member.pid);
+      }
+    }
+  }
+}
+async function pollVoiceSignals() {
+  if (!code || document.hidden) return;
+  try {
+    const response = await api(`/api/rooms/voice/signals?code=${encodeURIComponent(code)}`);
+    if (!response.ok) return;
+    await establishVoicePeers(response.body.voiceMembers || []);
+    for (const signal of response.body.signals || []) {
+      if (!voiceJoined || !room?.myPid) continue;
+      const peer = createVoicePeer(signal.fromPid);
+      if (signal.type === "offer") {
+        await peer.setRemoteDescription(signal.payload);
+        for (const candidate of peer.pendingIce.splice(0)) await peer.addIceCandidate(candidate).catch(() => {});
+        const answer = await peer.createAnswer();
+        await peer.setLocalDescription(answer);
+        await post("/api/rooms/voice/signal", { code, targetPid:signal.fromPid, type:"answer", payload:peer.localDescription });
+      } else if (signal.type === "answer") {
+        if (peer.signalingState !== "stable") {
+          await peer.setRemoteDescription(signal.payload);
+          for (const candidate of peer.pendingIce.splice(0)) await peer.addIceCandidate(candidate).catch(() => {});
+        }
+      } else if (signal.type === "ice" && signal.payload) {
+        if (peer.remoteDescription) await peer.addIceCandidate(signal.payload).catch(() => {});
+        else peer.pendingIce.push(signal.payload);
+      }
+    }
+  } catch {}
+}
+function renderVoiceMembers(members = null) {
+  if (!room) return;
+  const box = $("voice-members");
+  const list = members || [
+    ...room.players.filter((player) => player.voice?.connected).map((player) => ({ pid:player.pid, role:"player", micOn:player.voice.micOn })),
+    ...room.spectators.filter((viewer) => viewer.voice?.connected).map((viewer) => ({ pid:viewer.pid, role:"spectator", micOn:viewer.voice.micOn })),
+  ];
+  box.innerHTML = list.length ? list.map((item) => {
+    const person = room.players.find((player) => player.pid === item.pid) || room.spectators.find((viewer) => viewer.pid === item.pid);
+    return `<div class="voice-member" data-voice-pid="${esc(item.pid)}"><span>${esc(person?.character?.name || person?.name || "玩家")}${item.role === "spectator" ? "（旁观）" : ""}</span><span class="meta">${item.micOn ? "开麦" : "静音"} · <span class="voice-connection">${voicePeers.get(item.pid)?.connectionState || "等待"}</span></span></div>`;
+  }).join("") : '<div class="hint">房间里暂时没有其他人加入语音。</div>';
+}
+async function toggleMic() {
+  if (!localVoiceStream) return;
+  micOn = !micOn;
+  localVoiceStream.getAudioTracks().forEach((track) => (track.enabled = micOn));
+  $("btn-voice-mic").textContent = micOn ? "关闭麦克风" : "打开麦克风";
+  await post("/api/rooms/voice/heartbeat", { code, micOn }).catch(() => {});
+}
+async function leaveVoice() {
+  if (!voiceJoined) return;
+  voiceJoined = false;
+  await post("/api/rooms/voice/leave", { code }).catch(() => {});
+  for (const peer of voicePeers.values()) peer.close();
+  voicePeers.clear();
+  localVoiceStream?.getTracks().forEach((track) => track.stop());
+  localVoiceStream = null;
+  $("remote-audio").innerHTML = "";
+  if (voiceHeartbeatTimer) clearInterval(voiceHeartbeatTimer);
+  voiceHeartbeatTimer = null;
+  $("btn-voice-join").disabled = false;
+  $("btn-voice-mic").disabled = true;
+  $("btn-voice-leave").disabled = true;
+  $("voice-state").textContent = "已离开房间语音。";
+}
+function voiceTypeIntoAction() {
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!Recognition) return setStatus("r-err", "当前浏览器不支持语音识别，可直接使用房间语音。", true);
+  const recognition = new Recognition();
+  const language = window.PT_I18N?.getLanguage() || "zh-Hans";
+  recognition.lang = language === "zh-Hans" ? "zh-CN" : language === "zh-Hant" ? "zh-TW" : language;
+  recognition.interimResults = false;
+  recognition.onresult = (event) => {
+    const text = Array.from(event.results).map((result) => result[0].transcript).join("");
+    $("r-action").value = `${$("r-action").value}${$("r-action").value ? "\n" : ""}${text}`;
+  };
+  recognition.onerror = () => setStatus("r-err", "语音识别失败，请检查浏览器权限。", true);
+  recognition.start();
+}
+
+async function leaveRoom() {
+  if (confirm("确定离开房间？")) {
+    await leaveVoice();
+    await post("/api/rooms/leave", { code }).catch(() => {});
+    location.href = "/room";
+  }
+}
+function handleVisibility() {
+  if (document.hidden) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  } else if (code) {
+    poll();
+    if (!pollTimer) pollTimer = setInterval(poll, 2200);
+  }
+}
+
+document.querySelectorAll("[data-lobby-view]").forEach((button) => button.addEventListener("click", () => showLobbyView(button.dataset.lobbyView)));
+document.querySelectorAll("[data-close]").forEach((button) => button.addEventListener("click", () => $(button.dataset.close).classList.add("hidden")));
+document.querySelectorAll("[data-side]").forEach((button) => button.addEventListener("click", () => {
+  activeSide = button.dataset.side;
+  document.querySelectorAll("[data-side]").forEach((item) => item.classList.toggle("on", item === button));
+  document.querySelectorAll("[data-side-panel]").forEach((panel) => panel.classList.toggle("on", panel.dataset.sidePanel === activeSide));
+}));
+document.querySelectorAll("#r-tabs button").forEach((button) => button.addEventListener("click", () => {
+  activeTab = button.dataset.tab;
+  document.querySelectorAll("#r-tabs button").forEach((item) => item.classList.toggle("on", item === button));
+  renderTab();
+}));
+document.querySelectorAll("#quickActions button").forEach((button) => button.addEventListener("click", () => {
+  $("r-action").value = button.dataset.q || "";
+  $("r-action").focus();
+}));
+$("c-visibility").addEventListener("change", () => $("c-password-wrap").classList.toggle("hidden", $("c-visibility").value !== "password"));
+$("c-scenario").addEventListener("change", renderScenarioDetail);
+$("c-mode").addEventListener("change", renderScenarioDetail);
+$("btn-create").addEventListener("click", createRoom);
+$("btn-join").addEventListener("click", () => joinRoom(false));
+$("btn-watch").addEventListener("click", () => joinRoom(true));
+$("list-refresh").addEventListener("click", loadRoomList);
+$("list-search").addEventListener("input", () => setTimeout(loadRoomList, 180));
+$("list-mode").addEventListener("change", loadRoomList);
+$("list-status").addEventListener("change", loadRoomList);
+$("match-quick").addEventListener("click", quickMatch);
+$("btn-ready").addEventListener("click", toggleReady);
+$("btn-start").addEventListener("click", startRoom);
+$("btn-action").addEventListener("click", submitAction);
+$("btn-advance").addEventListener("click", advanceRoom);
+$("btn-chat-send").addEventListener("click", sendChat);
+$("chat-input").addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    sendChat();
+  }
 });
-$("btn-copy").onclick = () => {
-  // 在本机/内网打开时也要给出公开地址，否则复制出去的链接别人打不开
-  const localHost = (() => {
-    const h = String(location.hostname || "").toLowerCase();
-    if (h === "localhost" || h === "::1" || h === "[::1]") return true;
-    return /^(127\.|10\.|192\.168\.|169\.254\.)/.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h);
-  })();
-  const base = (localHost && roomPublicBase ? String(roomPublicBase).replace(/\/+$/, "") : location.origin);
-  // 站点不再需要邀请码时不带 k 参数
-  const query = [];
-  if (inviteKey) query.push("k=" + encodeURIComponent(inviteKey));
-  if (code) query.push("code=" + encodeURIComponent(code));
-  const link = base + "/room" + (query.length ? "?" + query.join("&") : "");
-  if (navigator.clipboard) navigator.clipboard.writeText(link);
-  $("r-err").textContent = "房间链接已复制";
-};
-document.querySelectorAll("#r-tabs button").forEach((b) => {
-  b.addEventListener("click", () => {
-    tab = b.dataset.tab;
-    document.querySelectorAll("#r-tabs button").forEach((x) => x.classList.toggle("on", x === b));
-    renderTab();
+$("btn-copy").addEventListener("click", () => {
+  const base = roomPublicBase ? String(roomPublicBase).replace(/\/+$/, "") : location.origin;
+  const path = room?.invitePath || `/room?code=${encodeURIComponent(code)}&invite=${encodeURIComponent(inviteToken)}`;
+  const link = base + path + (inviteKey ? `${path.includes("?") ? "&" : "?"}k=${encodeURIComponent(inviteKey)}` : "");
+  navigator.clipboard?.writeText(link);
+  setStatus("r-err", "邀请链接已复制。");
+});
+$("btn-opening-room").addEventListener("click", showOpening);
+$("btn-history").addEventListener("click", () => openHistory());
+$("history-prev").addEventListener("click", () => { if (historyPage > 0) { historyPage -= 1; loadHistoryPage(); } });
+$("history-next").addEventListener("click", () => { historyPage += 1; loadHistoryPage(); });
+$("btn-snapshot").addEventListener("click", downloadSnapshot);
+$("btn-leave").addEventListener("click", leaveRoom);
+$("btn-voice-join").addEventListener("click", joinVoice);
+$("btn-voice-mic").addEventListener("click", toggleMic);
+$("btn-voice-leave").addEventListener("click", leaveVoice);
+$("btn-voice-type").addEventListener("click", voiceTypeIntoAction);
+$("recover-verify").addEventListener("click", verifyRecovery);
+$("recover-import").addEventListener("click", importRecovery);
+$("recover-file").addEventListener("change", () => {
+  pendingRecovery.verified = false;
+  $("recover-import").disabled = true;
+  setStatus("recover-status", "已选择文件，请先验证。");
+});
+$("btn-room-settings").addEventListener("click", () => {
+  if (!room?.isHost) return;
+  $("set-visibility").value = room.visibility;
+  $("set-password").value = "";
+  $("set-max").value = room.maxPlayers;
+  $("set-round").value = room.roundSeconds;
+  $("set-spectators").checked = room.allowSpectators;
+  $("set-auto").checked = room.autoAdvance;
+  $("settings-status").textContent = room.hasPassword ? "当前已有房间密码；保留密码请留空。" : "";
+  $("settingsModal").classList.remove("hidden");
+});
+$("settings-save").addEventListener("click", async () => {
+  const response = await post("/api/rooms/settings", {
+    code,
+    visibility:$("set-visibility").value,
+    password:$("set-password").value,
+    maxPlayers:Number($("set-max").value),
+    roundSeconds:Number($("set-round").value),
+    allowSpectators:$("set-spectators").checked,
+    autoAdvance:$("set-auto").checked,
   });
+  if (!response.ok) return ($("settings-status").textContent = response.body?.error || "保存失败");
+  room = response.body.room;
+  $("settingsModal").classList.add("hidden");
+  render();
+});
+$("btn-close-room").addEventListener("click", async () => {
+  if (!confirm("解散后所有玩家都会离开，且房间不会保留。确定吗？")) return;
+  const response = await post("/api/rooms/close", { code });
+  if (!response.ok) return ($("settings-status").textContent = response.body?.error || "解散失败");
+  location.href = "/room";
+});
+window.addEventListener("online", () => { if (code) poll(); });
+window.addEventListener("offline", () => setReconnect(true));
+document.addEventListener("visibilitychange", handleVisibility);
+window.addEventListener("beforeunload", () => {
+  if (voiceJoined) navigator.sendBeacon(withKey("/api/rooms/voice/leave"), new Blob([JSON.stringify({ code })], { type:"application/json" }));
 });
 
 buildAttrs("c-attrs", "c-pool");
 buildAttrs("j-attrs", "j-pool");
-const preCode = params.get("code");
-if (preCode) $("j-code").value = preCode.toUpperCase();
-loadScenarios();
+if (location.hash === "#match" || location.hash === "#rooms") showLobbyView("list");
+loadMeta().catch((error) => setStatus("c-err", error.message || String(error), true));
+loadRoomList().catch((error) => setStatus("list-error", error.message || String(error), true));
+tryResumeFromUrl().catch(() => showLobbyView("join"));
 </script>
 </body>
 </html>

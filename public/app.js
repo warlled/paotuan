@@ -688,6 +688,136 @@ function bindResumeButton() {
   });
 }
 
+let homeMpBound = false;
+
+function roomAttrPayload() {
+  const out = {};
+  for (const key of ["str", "dex", "con", "int", "per", "cha"]) {
+    out[key] = Math.max(1, Math.min(10, Number($(`home-mp-${key}`)?.value) || 5));
+  }
+  return out;
+}
+
+function updateHomeMpPool() {
+  const total = Object.values(roomAttrPayload()).reduce((sum, value) => sum + value, 0);
+  const box = $("home-mp-pool");
+  if (!box) return total;
+  box.textContent = `属性总和 ${total} / 30（需要 24–30）`;
+  box.classList.toggle("over", total < 24 || total > 30);
+  return total;
+}
+
+function renderHomeMpAttrs() {
+  const box = $("home-mp-attrs");
+  if (!box || box.dataset.ready) return;
+  box.dataset.ready = "1";
+  for (const [key, label] of [["str","力量"],["dex","敏捷"],["con","体质"],["int","智力"],["per","感知"],["cha","魅力"]]) {
+    const wrap = document.createElement("label");
+    wrap.textContent = label;
+    const input = document.createElement("input");
+    input.id = `home-mp-${key}`;
+    input.type = "number";
+    input.min = "1";
+    input.max = "10";
+    input.value = "5";
+    input.addEventListener("input", updateHomeMpPool);
+    wrap.appendChild(input);
+    box.appendChild(wrap);
+  }
+  updateHomeMpPool();
+}
+
+function renderHomeMpScenarios() {
+  const picker = $("home-mp-scenario");
+  if (!picker || !meta?.scenarios) return;
+  const previous = picker.value;
+  picker.innerHTML = "";
+  for (const scenario of meta.scenarios) {
+    const option = document.createElement("option");
+    option.value = scenario.id;
+    option.textContent = `${scenario.title}${scenario.genre ? `（${scenario.genre}）` : ""}`;
+    picker.appendChild(option);
+  }
+  if ([...picker.options].some((option) => option.value === previous)) picker.value = previous;
+  renderHomeMpSummary();
+}
+
+function renderHomeMpSummary() {
+  const picker = $("home-mp-scenario");
+  const box = $("home-mp-summary");
+  if (!picker || !box) return;
+  const scenario = meta?.scenarios?.find((item) => item.id === picker.value);
+  box.textContent = scenario
+    ? `${scenario.genre || "原创"} · ${scenario.players || "2–6 人"} · ${scenario.blurb || "暂无简介"}`
+    : "选择剧本后会显示类型、简介和推荐人数。";
+}
+
+function initHomeMultiplayer(data) {
+  if (!$("home-mp")) return;
+  renderHomeMpAttrs();
+  meta = data;
+  renderHomeMpScenarios();
+  if (homeMpBound) return;
+  homeMpBound = true;
+  $("home-mp-scenario").addEventListener("change", renderHomeMpSummary);
+  $("home-mp-visibility").addEventListener("change", () => {
+    $("home-mp-password-wrap").classList.toggle("hidden", $("home-mp-visibility").value !== "password");
+  });
+  $("home-mp-submit").addEventListener("click", async () => {
+    const status = $("home-mp-status");
+    const name = $("home-mp-name").value.trim();
+    const total = updateHomeMpPool();
+    if (!$("home-mp-scenario").value) return void (status.textContent = "请选择剧本。");
+    if (!name) return void (status.textContent = "请填写角色名。");
+    if (total < 24 || total > 30) return void (status.textContent = "属性总和需要在 24–30 之间。");
+    if ($("home-mp-visibility").value === "password" && $("home-mp-password").value.length < 4) {
+      return void (status.textContent = "密码房至少需要 4 个字符。");
+    }
+    $("home-mp-submit").disabled = true;
+    status.textContent = "正在创建多人房间…";
+    try {
+      const response = await fetch("/api/rooms/create", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          scenarioId: $("home-mp-scenario").value,
+          mode: $("home-mp-mode").value,
+          difficulty: $("home-mp-difficulty").value,
+          visibility: $("home-mp-visibility").value,
+          password: $("home-mp-password").value,
+          maxPlayers: Number($("home-mp-max").value),
+          roundSeconds: Number($("home-mp-round").value),
+          allowSpectators: $("home-mp-spectators").checked,
+          autoAdvance: $("home-mp-auto").checked,
+          opening: $("home-mp-opening").value,
+          language: window.PT_I18N?.getLanguage() || "zh-Hans",
+          character: {
+            name,
+            role: $("home-mp-role").value,
+            bio: $("home-mp-bio").value,
+            appearance: $("home-mp-appearance").value,
+            personality: $("home-mp-personality").value,
+            ability: $("home-mp-ability").value,
+            goal: $("home-mp-goal").value,
+            attrs: roomAttrPayload(),
+          },
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "创建失败");
+      status.textContent = "房间已创建，正在进入…";
+      const roomPath = result.room.visibility === "invite" && result.room.invitePath
+        ? result.room.invitePath
+        : `/room?code=${encodeURIComponent(result.code)}`;
+      location.href = roomPath;
+    } catch (error) {
+      status.textContent = error.message || String(error);
+    } finally {
+      $("home-mp-submit").disabled = false;
+    }
+  });
+}
+
 function applyMetaData(data, cached = false) {
   meta = data;
   applyDefaultModelLabel(data.model, data.modelLabel);
@@ -695,6 +825,7 @@ function applyMetaData(data, cached = false) {
   renderDiffs();
   renderAttrs();
   renderPresets();
+  initHomeMultiplayer(data);
   fillSettings();
   $("set-length").innerHTML = "";
   $("roll-skill").innerHTML = "";

@@ -95,7 +95,7 @@ const communityLast = new Map();
 const i18nBusy = new Set();
 const SITE_THEMES = ["pink", "cream", "ink-green", "warm-brown", "night-blue", "violet-night", "pure-black"];
 const SCENARIO_VISIBILITIES = ["public", "contacts", "private"];
-const PRIVACY_VERSION = "2026-11-28-v2";
+const PRIVACY_VERSION = "2026-11-28-v3";
 const STATIC_IMAGE_MIMES = new Set(["image/png", "image/jpeg", "image/webp"]);
 
 function userFile(sid) {
@@ -1266,6 +1266,50 @@ const ROOMS_FILE = path.join(engine.WORK, "rooms.json");
 let rooms = readJsonFile(ROOMS_FILE, {});
 if (!rooms || typeof rooms !== "object" || Array.isArray(rooms)) rooms = {};
 const ROOM_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const roomVoiceMembers = new Map();
+const roomVoiceSignals = new Map();
+const roomChatTimes = new Map();
+
+function ensureRoomSchema(room) {
+  if (!room || typeof room !== "object") return room;
+  room.visibility = ["public", "password", "invite"].includes(room.visibility)
+    ? room.visibility
+    : "public";
+  room.maxPlayers = Math.max(2, Math.min(8, Number(room.maxPlayers) || 6));
+  room.allowSpectators = room.allowSpectators !== false;
+  room.spectators = Array.isArray(room.spectators) ? room.spectators.slice(0, 12) : [];
+  room.ready = room.ready && typeof room.ready === "object" ? room.ready : {};
+  room.muted = room.muted && typeof room.muted === "object" ? room.muted : {};
+  room.kickedSids = room.kickedSids && typeof room.kickedSids === "object" ? room.kickedSids : {};
+  room.chat = Array.isArray(room.chat) ? room.chat.slice(-200) : [];
+  room.rounds = Array.isArray(room.rounds) ? room.rounds.slice(-80) : [];
+  room.log = Array.isArray(room.log) ? room.log.slice(-1000) : [];
+  room.roundSeconds = Math.max(30, Math.min(900, Number(room.roundSeconds) || 120));
+  room.autoAdvance = room.autoAdvance === true;
+  room.roundDeadline = Math.max(0, Number(room.roundDeadline) || 0);
+  room.autoPilotedTurn = Number.isFinite(Number(room.autoPilotedTurn))
+    ? Math.trunc(Number(room.autoPilotedTurn))
+    : -1;
+  room.inviteToken = String(room.inviteToken || "").replace(/[^a-z0-9_-]/gi, "").slice(0, 64);
+  if (!room.inviteToken) room.inviteToken = crypto.randomBytes(18).toString("base64url");
+  room.passwordHash = room.passwordHash && typeof room.passwordHash === "object"
+    ? room.passwordHash
+    : null;
+  room.lastActivityAt = Number(room.lastActivityAt || room.updatedAt || room.createdAt || Date.now());
+  room.players = Array.isArray(room.players) ? room.players.slice(0, 8) : [];
+  room.players.forEach((player) => {
+    player.lastSeenAt = Number(player.lastSeenAt || 0);
+  });
+  room.spectators.forEach((viewer) => {
+    viewer.lastSeenAt = Number(viewer.lastSeenAt || 0);
+  });
+  return room;
+}
+
+for (const room of Object.values(rooms)) {
+  ensureRoomSchema(room);
+  room.busy = false;
+}
 
 function saveRooms() {
   writeJsonFile(ROOMS_FILE, rooms);
@@ -1303,18 +1347,101 @@ function roomRevision(room) {
     room.turn || 0,
     room.status || "",
     room.log?.length || 0,
+    room.chat?.length || 0,
+    Object.values(room.ready || {}).filter(Boolean).length,
+    room.spectators?.length || 0,
     room.busy ? 1 : 0,
     Object.keys(room.actions || {}).length,
+    room.roundDeadline || 0,
   ].join("|");
 }
 
+function roomParticipant(room, sid) {
+  const player = room.players.find((item) => item.sid === sid);
+  if (player) return { role: "player", item: player };
+  const spectator = room.spectators.find((item) => item.sid === sid);
+  if (spectator) return { role: "spectator", item: spectator };
+  return null;
+}
+
+function touchRoomParticipant(room, sid) {
+  const participant = roomParticipant(room, sid);
+  if (!participant) return null;
+  participant.item.lastSeenAt = Date.now();
+  const voices = roomVoiceMembers.get(room.code);
+  const voice = voices?.get(sid);
+  if (voice) voice.lastSeenAt = Date.now();
+  return participant;
+}
+
+function participantOnline(item, now = Date.now()) {
+  return Number(item?.lastSeenAt || 0) > 0 && now - Number(item.lastSeenAt) <= 12_000;
+}
+
+function roomMutedUntil(room, sid) {
+  const until = Number(room.muted?.[sid] || 0);
+  return until < 0 ? -1 : Math.max(0, until);
+}
+
+function roomReadyFor(room, sid) {
+  return Boolean(room.ready?.[sid]);
+}
+
+function processRoomDeadline(room) {
+  if (
+    room.status !== "playing" ||
+    !room.roundDeadline ||
+    Date.now() < Number(room.roundDeadline) ||
+    room.autoPilotedTurn === room.turn
+  ) return false;
+  let count = 0;
+  for (const player of room.players) {
+    if (room.actions[player.sid]) continue;
+    room.actions[player.sid] = `（超时托管）${player.character.name}根据当前处境谨慎行动，优先保护自己并留意新的线索。`;
+    count += 1;
+  }
+  room.autoPilotedTurn = room.turn;
+  room.log.push({
+    type: "sys",
+    text: count
+      ? `本轮倒计时结束，${count} 位未行动玩家已进入超时托管。`
+      : "本轮倒计时结束，正在等待房主或自动推进。",
+    at: Date.now(),
+  });
+  room.updatedAt = Date.now();
+  room.lastActivityAt = room.updatedAt;
+  saveRooms();
+  return true;
+}
+
 function publicRoom(room, sid) {
+  ensureRoomSchema(room);
   const scenario = room.scenario || {};
   engine.normalizeSessionTime(room.state, scenario);
   const hostIdentity = displayIdentityForSid(room.hostSid, sid, { pid: room.hostPid });
+  const mine = roomParticipant(room, sid);
+  const now = Date.now();
+  const voices = roomVoiceMembers.get(room.code) || new Map();
+  const voiceView = (pid) => {
+    const entry = [...voices.values()].find(
+      (item) => item.pid === pid && now - Number(item.lastSeenAt || 0) <= 20_000
+    );
+    return entry
+      ? { connected: true, micOn: Boolean(entry.micOn) }
+      : { connected: false, micOn: false };
+  };
+  const canStart =
+    room.hostSid === sid &&
+    room.status === "lobby" &&
+    room.players.length >= 2 &&
+    room.players.every((player) => roomReadyFor(room, player.sid));
   return {
     code: room.code,
     status: room.status,
+    visibility: room.visibility,
+    hasPassword: Boolean(room.passwordHash),
+    maxPlayers: room.maxPlayers,
+    allowSpectators: room.allowSpectators,
     mode: room.mode,
     difficulty: room.difficulty,
     scenario: {
@@ -1336,15 +1463,67 @@ function publicRoom(room, sid) {
         name: identity.name,
         avatar: identity.avatar,
         character: p.character,
-        ready: Boolean(room.actions[p.sid]),
+        ready: room.status === "lobby" ? roomReadyFor(room, p.sid) : Boolean(room.actions[p.sid]),
+        actionSubmitted: Boolean(room.actions[p.sid]),
+        online: participantOnline(p, now),
+        lastSeenAt: Number(p.lastSeenAt || 0),
+        mutedUntil: roomMutedUntil(room, p.sid),
+        isHost: room.hostSid === p.sid,
+        voice: voiceView(p.pid),
+      };
+    }),
+    spectators: room.spectators.map((viewer) => {
+      const identity = displayIdentityForSid(viewer.sid, sid, {
+        pid: viewer.pid,
+        name: viewer.name,
+        avatar: viewer.avatar,
+      });
+      return {
+        pid: identity.pid,
+        name: identity.name,
+        avatar: identity.avatar,
+        online: participantOnline(viewer, now),
+        lastSeenAt: Number(viewer.lastSeenAt || 0),
+        isSelf: viewer.sid === sid,
+        mutedUntil: roomMutedUntil(room, viewer.sid),
+        voice: voiceView(identity.pid),
       };
     }),
     isHost: room.hostSid === sid,
+    isSpectator: mine?.role === "spectator",
+    myRole: mine?.role || "",
+    myPid: mine?.item?.pid || "",
+    myMutedUntil: roomMutedUntil(room, sid),
+    canStart,
     hostPid: hostIdentity.pid,
     turn: room.turn,
+    roundSeconds: room.roundSeconds,
+    roundDeadline: room.roundDeadline,
+    autoAdvance: room.autoAdvance,
+    serverNow: now,
     updatedAt: room.updatedAt || room.createdAt || 0,
     revision: roomRevision(room),
-    log: room.log.slice(-80),
+    log: room.log.slice(-80).map(({ sid: _sid, ...event }) => event),
+    chat: room.chat.slice(-80).map((message) => ({
+      id: message.id,
+      pid: message.pid,
+      name: String(message.name || "玩家").slice(0, 40),
+      playerName: message.sid
+        ? displayIdentityForSid(message.sid, sid).name
+        : "系统",
+      role: message.role,
+      text: String(message.text || "").slice(0, 500),
+      at: message.at,
+    })),
+    roundHistory: room.rounds.slice(-20).map((round) => ({
+      turn: round.turn,
+      at: round.at,
+      narration: String(round.narration || "").slice(0, 500),
+      actionCount: Array.isArray(round.actions) ? round.actions.length : 0,
+    })),
+    invitePath: room.hostSid === sid
+      ? `/room?code=${encodeURIComponent(room.code)}&invite=${encodeURIComponent(room.inviteToken)}`
+      : "",
     state: {
       ...room.state,
       clock: engine.clockText(room.state.time),
@@ -1476,7 +1655,14 @@ function roomPrompt(room) {
       const g = room.state.growth[p.pid] || {};
       const a = p.character.attrs || {};
       const attrText = `力${a.str ?? 5} 敏${a.dex ?? 5} 体${a.con ?? 5} 智${a.int ?? 5} 感${a.per ?? 5} 魅${a.cha ?? 5}`;
-      return `- ${p.character.name}（玩家 ${p.name}）：${p.character.role || "旅人"}${p.character.bio ? "｜" + p.character.bio : ""}｜${attrText}｜HP ${st.hp ?? "?"} / SAN ${st.san ?? "?"}｜等级 ${g.level || 1}｜物品：${items}`;
+      const profileBits = [
+        p.character.bio && `背景：${p.character.bio}`,
+        p.character.appearance && `外貌：${p.character.appearance}`,
+        p.character.personality && `性格：${p.character.personality}`,
+        p.character.ability && `能力：${p.character.ability}`,
+        p.character.goal && `目标：${p.character.goal}`,
+      ].filter(Boolean);
+      return `- ${p.character.name}（玩家 ${p.name}）：${p.character.role || "旅人"}｜${attrText}${profileBits.length ? "｜" + profileBits.join("｜") : ""}｜HP ${st.hp ?? "?"} / SAN ${st.san ?? "?"}｜等级 ${g.level || 1}｜物品：${items}`;
     })
     .join("\n");
   const actions = room.players
@@ -1530,6 +1716,128 @@ function roomPrompt(room) {
   ].join("\n");
 }
 
+async function advanceRoom(room, requestedByEntry, options = {}) {
+  ensureRoomSchema(room);
+  if (room.status !== "playing") {
+    const error = new Error("游戏还没开始");
+    error.status = 400;
+    throw error;
+  }
+  if (room.busy) {
+    const error = new Error("正在推演，稍等");
+    error.status = 429;
+    throw error;
+  }
+  const hostEntry = getEntry(room.hostSid, room.hostSid === "owner");
+  const roomUsesByok = hasUsableByok(room.hostSid);
+  const roomHostAccount = loadAccount(room.hostSid);
+  if (!hostEntry.owner && !roomUsesByok && guestQuotaLeft() <= 0) {
+    const error = new Error("今天网站默认模型的公用额度已经达到安全上限，明天再试或使用自己的模型 Key。");
+    error.status = 429;
+    throw error;
+  }
+  if (!hostEntry.owner && !roomUsesByok && roomHostAccount && accountQuotaLeft(roomHostAccount) <= 0) {
+    const error = new Error("房主账号今天的网站默认模型额度已经用完，可使用自己的模型 Key。");
+    error.status = 429;
+    throw error;
+  }
+  if (options.language != null) room.language = engine.normalizeLanguage(options.language);
+  room.promptProfile = loadPromptProfileFor(room.hostSid);
+  const submittedActions = room.players
+    .map((player) => ({
+      pid: player.pid,
+      name: player.character?.name || player.name || "玩家",
+      text: String(room.actions[player.sid] || "").trim(),
+    }))
+    .filter((item) => item.text);
+  if (!submittedActions.length) {
+    const error = new Error("还没有人提交行动");
+    error.status = 400;
+    throw error;
+  }
+  if (
+    room.mode === "free" &&
+    engine.violatesContentBoundary([
+      ...submittedActions.map((item) => item.text),
+      String(room.promptProfile?.customInstructions || ""),
+      String(room.scenario?.gmInstructions || ""),
+    ].join("\n"))
+  ) {
+    const error = new Error("本轮行动或自定义规则触及现实敏感政治或严重违规内容，请修改后再推进。");
+    error.status = 400;
+    throw error;
+  }
+  room.busy = true;
+  room.updatedAt = Date.now();
+  saveRooms();
+  try {
+    room.research = scenarioResearchForTurn(room.scenario);
+    const result = await withModelSlot(async () => {
+      if (!hostEntry.owner && !roomUsesByok) {
+        addGuestCalls(1);
+        if (roomHostAccount) recordAccountModelCall(roomHostAccount, 1);
+      }
+      return engine.askModel(
+        roomPrompt(room),
+        { reasoningEffort: "low" },
+        usableModelFor(hostEntry, room.hostSid)
+      );
+    });
+    const parsed = engine.parseModelTurn(result.text);
+    let narration = parsed.narrative || String(result.text || "").slice(0, 4000);
+    if (
+      room.mode === "free" &&
+      engine.violatesContentBoundary([
+        narration,
+        ...(parsed.suggestions || []),
+        JSON.stringify(parsed.state || {}),
+      ].join("\n"))
+    ) {
+      narration = "本次生成触及网站禁止的现实敏感政治或严重违规范围，内容已被拦截。请换一个虚构且不涉及现实伤害的探索方向。";
+      parsed.suggestions = [];
+      parsed.state = { advance_minutes: 0 };
+    }
+    const completedTurn = room.turn + 1;
+    if (narration) {
+      room.log.push({
+        type: "gm",
+        text: narration,
+        suggestions: parsed.suggestions,
+        at: Date.now(),
+        turn: completedTurn,
+      });
+    }
+    const actionGate = engine.actionStateGate(submittedActions.map((item) => item.text).join("\n"));
+    const stateBefore = JSON.parse(JSON.stringify(room.state));
+    applyRoomState(room, parsed.state || {}, actionGate);
+    room.rounds.push({
+      turn: completedTurn,
+      at: Date.now(),
+      auto: options.auto === true,
+      actions: submittedActions,
+      narration,
+      suggestions: parsed.suggestions || [],
+      before: stateBefore,
+      after: JSON.parse(JSON.stringify(room.state)),
+    });
+    room.rounds = room.rounds.slice(-80);
+    room.turn = completedTurn;
+    room.actions = {};
+    room.ready = {};
+    room.autoPilotedTurn = -1;
+    room.roundDeadline = Date.now() + room.roundSeconds * 1000;
+    room.updatedAt = Date.now();
+    room.lastActivityAt = room.updatedAt;
+    room.busy = false;
+    saveRooms();
+  } catch (error) {
+    room.busy = false;
+    room.updatedAt = Date.now();
+    saveRooms();
+    throw error;
+  }
+}
+
 function sanitizeRoomCharacter(input, fallbackName) {
   const c = input && typeof input === "object" ? input : {};
   const attrs = {};
@@ -1541,6 +1849,10 @@ function sanitizeRoomCharacter(input, fallbackName) {
     name: String(c.name || fallbackName || "旅人").slice(0, 24),
     role: String(c.role || "旅人").slice(0, 40),
     bio: String(c.bio || "").slice(0, 200),
+    appearance: String(c.appearance || "").slice(0, 240),
+    personality: String(c.personality || "").slice(0, 240),
+    ability: String(c.ability || "").slice(0, 240),
+    goal: String(c.goal || "").slice(0, 240),
     attrs,
   };
 }
@@ -1550,6 +1862,81 @@ function initRoomStatus(character) {
   const hpMax = 18 + (Number(a.con) || 5) * 2;
   const sanMax = 18 + (Number(a.int) || 5) + (Number(a.per) || 5);
   return { hp: hpMax, hpMax, san: sanMax, sanMax, money: 20 };
+}
+
+function roomSummary(room, sid) {
+  ensureRoomSchema(room);
+  const mine = roomParticipant(room, sid);
+  return {
+    code: room.code,
+    scenarioId: room.scenario?.id || "",
+    scenarioTitle: room.scenario?.title || "未命名剧本",
+    genre: room.scenario?.genre || "",
+    mode: room.mode,
+    difficulty: room.difficulty,
+    status: room.status,
+    visibility: room.visibility,
+    hasPassword: Boolean(room.passwordHash),
+    allowSpectators: room.allowSpectators,
+    playerCount: room.players.length,
+    maxPlayers: room.maxPlayers,
+    spectatorCount: room.spectators.length,
+    hostName: displayIdentityForSid(room.hostSid, sid, { pid: room.hostPid }).name,
+    turn: room.turn,
+    readyCount: room.players.filter((player) => roomReadyFor(room, player.sid)).length,
+    onlineCount: room.players.filter((player) => participantOnline(player)).length,
+    createdAt: room.createdAt || 0,
+    updatedAt: room.updatedAt || 0,
+    joined: Boolean(mine),
+    joinable:
+      !room.kickedSids[sid] &&
+      ((room.status === "lobby" && room.players.length < room.maxPlayers) ||
+        (room.status === "playing" && room.allowSpectators && room.spectators.length < 12)),
+  };
+}
+
+function roomSnapshotFor(room, sid) {
+  ensureRoomSchema(room);
+  const snapshot = {
+    format: "paotuan-room-recovery",
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    hostSid: room.hostSid,
+    room: {
+      ...room,
+      busy: false,
+      roundDeadline: 0,
+    },
+  };
+  const canonical = JSON.stringify(snapshot.room);
+  snapshot.checksum = crypto.createHash("sha256").update(canonical).digest("hex");
+  snapshot.signature = crypto
+    .createHmac("sha256", PLAYER_SESSION_SECRET)
+    .update(`room-recovery|${snapshot.hostSid}|${snapshot.checksum}`)
+    .digest("hex");
+  return snapshot;
+}
+
+function verifyRoomSnapshot(snapshot, sid) {
+  if (!snapshot || snapshot.format !== "paotuan-room-recovery" || snapshot.version !== 1) {
+    throw new Error("这不是受支持的联机房间恢复快照。");
+  }
+  if (!snapshot.room || typeof snapshot.room !== "object") throw new Error("恢复快照缺少房间数据。");
+  if (snapshot.hostSid !== sid || snapshot.room.hostSid !== sid) {
+    throw new Error("只有原房主在同一账号身份下才能恢复这个房间。");
+  }
+  const canonical = JSON.stringify(snapshot.room);
+  const checksum = crypto.createHash("sha256").update(canonical).digest("hex");
+  if (!safeEqualText(checksum, snapshot.checksum)) throw new Error("恢复快照校验失败，数据可能已损坏或被修改。");
+  const signature = crypto
+    .createHmac("sha256", PLAYER_SESSION_SECRET)
+    .update(`room-recovery|${snapshot.hostSid}|${checksum}`)
+    .digest("hex");
+  if (!safeEqualText(signature, snapshot.signature)) {
+    throw new Error("恢复快照签名不匹配。请确认新实例使用相同的 SESSION_SECRET。");
+  }
+  if (!/^[A-Z0-9]{6,16}$/.test(String(snapshot.room.code || ""))) throw new Error("恢复快照里的房间码无效。");
+  return { checksum, room: snapshot.room };
 }
 
 function communityView(post, sid) {
@@ -1757,7 +2144,12 @@ function privacyExportData(entry) {
       .filter((message) => message.sid === sid)
       .map((message) => feedbackView(message, sid)),
     rooms: Object.values(rooms)
-      .filter((room) => room.hostSid === sid || room.players?.some((player) => player.sid === sid))
+      .filter(
+        (room) =>
+          room.hostSid === sid ||
+          room.players?.some((player) => player.sid === sid) ||
+          room.spectators?.some((viewer) => viewer.sid === sid)
+      )
       .map((room) => ({
         code: room.code,
         status: room.status,
@@ -2947,7 +3339,7 @@ function applySecurityHeaders(req, res) {
   res.setHeader("cross-origin-resource-policy", "same-origin");
   res.setHeader(
     "permissions-policy",
-    "camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=()"
+    "camera=(), microphone=(self), geolocation=(), payment=(), usb=(), serial=(), bluetooth=()"
   );
   res.setHeader(
     "content-security-policy",
@@ -2957,7 +3349,7 @@ function applySecurityHeaders(req, res) {
       "object-src 'none'",
       "frame-ancestors 'none'",
       "form-action 'self'",
-      "connect-src 'self'",
+        "connect-src 'self' stun:",
       "manifest-src 'self'",
       "img-src 'self' data: blob:",
       "media-src 'self' data: blob:",
@@ -3061,7 +3453,34 @@ function requestRateLimit(req, pathname, sid, ip) {
     ipLimit = 60;
     windowMs = 60 * 60 * 1000;
     bucketName = "room-create";
-  } else if (["/api/new", "/api/action", "/api/rooms/advance"].includes(pathname)) {
+  } else if (pathname === "/api/rooms/join") {
+    limit = 40;
+    ipLimit = 100;
+    windowMs = 60 * 60 * 1000;
+    bucketName = "room-join";
+  } else if (pathname === "/api/rooms/chat/send") {
+    limit = 180;
+    ipLimit = 360;
+    bucketName = "room-chat";
+  } else if (pathname.startsWith("/api/rooms/voice/")) {
+    limit = 900;
+    ipLimit = 1500;
+    bucketName = "room-voice";
+  } else if (
+    [
+      "/api/rooms/ready",
+      "/api/rooms/kick",
+      "/api/rooms/mute",
+      "/api/rooms/transfer",
+      "/api/rooms/settings",
+      "/api/rooms/recover",
+    ].includes(pathname)
+  ) {
+    limit = 120;
+    ipLimit = 240;
+    windowMs = 60 * 60 * 1000;
+    bucketName = "room-admin";
+  } else if (["/api/new", "/api/action", "/api/rooms/advance", "/api/rooms/auto"].includes(pathname)) {
     limit = 160;
     ipLimit = 400;
     windowMs = 60 * 60 * 1000;
@@ -3532,6 +3951,7 @@ function restoreBackup(b) {
   }
   if (b.rooms && typeof b.rooms === "object" && !Array.isArray(b.rooms)) {
     rooms = b.rooms;
+    Object.values(rooms).forEach(ensureRoomSchema);
     saveRooms();
     out.rooms = Object.keys(rooms).length;
   }
@@ -6232,13 +6652,20 @@ async function handleRequest(req, res) {
     for (const [code, room] of Object.entries(rooms)) {
       if (room.hostSid === sid) {
         delete rooms[code];
+        roomVoiceMembers.delete(code);
+        roomVoiceSignals.delete(code);
         removedRooms += 1;
         continue;
       }
       const player = room.players?.find((item) => item.sid === sid);
       if (player?.pid && room.state?.status) delete room.state.status[player.pid];
       room.players = (room.players || []).filter((item) => item.sid !== sid);
+      room.spectators = (room.spectators || []).filter((item) => item.sid !== sid);
+      room.chat = (room.chat || []).filter((message) => message.sid !== sid);
       delete room.actions?.[sid];
+      delete room.ready?.[sid];
+      delete room.muted?.[sid];
+      roomVoiceMembers.get(code)?.delete(sid);
     }
     const previousVote = votes.voters[sid];
     if (previousVote) votes[previousVote] = Math.max(0, (Number(votes[previousVote]) || 0) - 1);
@@ -6716,11 +7143,22 @@ async function handleRequest(req, res) {
     const body = await readBody(req);
     const sc = visibleScenario(entry, String(body.scenarioId || ""));
     if (!sc) return send(res, 400, { error: "剧本不存在" });
+    const visibility = ["public", "password", "invite"].includes(body.visibility)
+      ? body.visibility
+      : "public";
+    const roomPassword = String(body.password || "");
+    if (visibility === "password" && (roomPassword.length < 4 || roomPassword.length > 64)) {
+      return send(res, 400, { error: "密码房需要设置 4–64 个字符的房间密码。" });
+    }
     let prof = loadProfileFor(entry.sid);
     if (!prof.pid) prof = saveProfileFor(entry.sid, {});
     const cut = Date.now() - 24 * 3600 * 1000;
     for (const [code, room] of Object.entries(rooms)) {
-      if ((room.updatedAt || room.createdAt || 0) < cut) delete rooms[code];
+      if ((room.updatedAt || room.createdAt || 0) < cut) {
+        delete rooms[code];
+        roomVoiceMembers.delete(code);
+        roomVoiceSignals.delete(code);
+      }
     }
     const code = makeRoomCode();
     const room = {
@@ -6730,7 +7168,14 @@ async function handleRequest(req, res) {
       scenario: sc,
       mode: engine.resolveMode(body.mode, sc),
       difficulty: ["easy", "normal", "hard"].includes(body.difficulty) ? body.difficulty : "normal",
+      visibility,
+      passwordHash: visibility === "password" ? makePasswordRecord(roomPassword) : null,
+      maxPlayers: Math.max(2, Math.min(8, Number(body.maxPlayers) || 6)),
+      allowSpectators: body.allowSpectators !== false,
+      roundSeconds: Math.max(30, Math.min(900, Number(body.roundSeconds) || 120)),
+      autoAdvance: body.autoAdvance === true,
       opening: String(body.opening || "").slice(0, 500),
+      inviteToken: crypto.randomBytes(18).toString("base64url"),
       language: engine.normalizeLanguage(body.language),
       promptProfile: loadPromptProfileFor(entry.sid),
       status: "lobby",
@@ -6741,8 +7186,17 @@ async function handleRequest(req, res) {
           name: prof.name || "匿名旅人",
           avatar: prof.avatar || "",
           character: sanitizeRoomCharacter(body.character, prof.name),
+          lastSeenAt: Date.now(),
         },
       ],
+      spectators: [],
+      ready: {},
+      muted: {},
+      kickedSids: {},
+      chat: [],
+      rounds: [],
+      roundDeadline: 0,
+      autoPilotedTurn: -1,
       actions: {},
       log: [],
       state: newRoomState(sc),
@@ -6757,15 +7211,85 @@ async function handleRequest(req, res) {
     return send(res, 200, { ok: true, code, room: publicRoom(room, entry.sid) });
   }
 
+  if (p === "/api/rooms/list" && req.method === "GET") {
+    const q = String(url.searchParams.get("q") || "").trim().toLowerCase().slice(0, 80);
+    const mode = String(url.searchParams.get("mode") || "");
+    const status = String(url.searchParams.get("status") || "");
+    const roomsView = Object.values(rooms)
+      .map((room) => {
+        ensureRoomSchema(room);
+        return room;
+      })
+      .filter((room) => room.visibility !== "invite")
+      .filter((room) => !mode || room.mode === mode)
+      .filter((room) => !status || room.status === status)
+      .filter((room) => {
+        if (!q) return true;
+        return [room.code, room.scenario?.title, room.scenario?.genre, room.scenario?.blurb]
+          .some((value) => String(value || "").toLowerCase().includes(q));
+      })
+      .sort((a, b) => (Number(b.updatedAt || 0) - Number(a.updatedAt || 0)))
+      .slice(0, 100)
+      .map((room) => roomSummary(room, entry.sid));
+    return send(res, 200, {
+      rooms: roomsView,
+      publicBase: String(engine.config.publicBase || ""),
+      serverNow: Date.now(),
+    });
+  }
+
   if (req.method === "POST" && p === "/api/rooms/join") {
     const body = await readBody(req);
     const code = String(body.code || "").trim().toUpperCase();
     const room = rooms[code];
     if (!room) return send(res, 404, { error: "房间不存在" });
-    if (room.status !== "lobby") return send(res, 400, { error: "这局已经开始，等下一局吧" });
-    if (room.players.length >= 6) return send(res, 400, { error: "房间满了（最多 6 人）" });
+    ensureRoomSchema(room);
+    const kickedUntil = Number(room.kickedSids[entry.sid] || 0);
+    if (kickedUntil > Date.now()) return send(res, 403, { error: "你已被房主移出这个房间。" });
+    if (kickedUntil) delete room.kickedSids[entry.sid];
     let prof = loadProfileFor(entry.sid);
     if (!prof.pid) prof = saveProfileFor(entry.sid, {});
+    const moved = roomParticipant(room, entry.sid);
+    if (moved) {
+      moved.item.lastSeenAt = Date.now();
+      if (moved.role === "player") {
+        moved.item.name = prof.name || moved.item.name;
+        moved.item.avatar = prof.avatar || moved.item.avatar;
+      }
+      room.updatedAt = Date.now();
+      saveRooms();
+      return send(res, 200, { ok: true, room: publicRoom(room, entry.sid), reconnected: true });
+    }
+    if (room.visibility === "invite") {
+      const invite = String(body.inviteToken || "").trim();
+      if (!invite || !safeEqualText(invite, room.inviteToken)) {
+        return send(res, 403, { error: "私密邀请房需要有效邀请链接。" });
+      }
+    }
+    if (room.visibility === "password" && !verifyPassword(String(body.password || ""), room.passwordHash)) {
+      return send(res, 403, { error: "房间密码不正确。" });
+    }
+    const asSpectator = body.asSpectator === true;
+    if (asSpectator) {
+      if (!room.allowSpectators) return send(res, 403, { error: "这个房间没有开启旁观模式。" });
+      if (room.spectators.length >= 12) return send(res, 400, { error: "旁观席位已满。" });
+      room.spectators.push({
+        sid: entry.sid,
+        pid: prof.pid,
+        name: prof.name || "匿名旅人",
+        avatar: prof.avatar || "",
+        joinedAt: Date.now(),
+        lastSeenAt: Date.now(),
+      });
+      room.updatedAt = Date.now();
+      saveRooms();
+      return send(res, 200, { ok: true, room: publicRoom(room, entry.sid), spectator: true });
+    }
+    if (room.status !== "lobby") {
+      if (room.allowSpectators) return send(res, 409, { error: "对局已经开始，只能以旁观者身份进入。" , spectatorAvailable: true });
+      return send(res, 400, { error: "这局已经开始，等下一局吧" });
+    }
+    if (room.players.length >= room.maxPlayers) return send(res, 400, { error: `房间满了（最多 ${room.maxPlayers} 人）` });
     if (!room.players.some((p) => p.sid === entry.sid)) {
       const character = sanitizeRoomCharacter(body.character, prof.name);
       room.players.push({
@@ -6774,8 +7298,15 @@ async function handleRequest(req, res) {
         name: prof.name || "匿名旅人",
         avatar: prof.avatar || "",
         character,
+        lastSeenAt: Date.now(),
       });
       room.state.status[prof.pid] = initRoomStatus(character);
+      room.ready[entry.sid] = false;
+      room.log.push({
+        type: "sys",
+        text: `${character.name} 加入了房间。`,
+        at: Date.now(),
+      });
     }
     room.updatedAt = Date.now();
     saveRooms();
@@ -6785,11 +7316,82 @@ async function handleRequest(req, res) {
   if (p === "/api/rooms/state") {
     const room = rooms[String(url.searchParams.get("code") || "").trim().toUpperCase()];
     if (!room) return send(res, 404, { error: "房间不存在" });
+    ensureRoomSchema(room);
+    const participant = roomParticipant(room, entry.sid);
+    if (!participant) return send(res, 403, { error: "请先加入房间或旁观席。", joinRequired: true });
+    processRoomDeadline(room);
+    touchRoomParticipant(room, entry.sid);
     const revision = roomRevision(room);
     if (url.searchParams.get("v") === revision) {
-      return send(res, 200, { unchanged: true, revision });
+      return send(res, 200, {
+        unchanged: true,
+        revision,
+        serverNow: Date.now(),
+        roundDeadline: room.roundDeadline,
+        busy: Boolean(room.busy),
+        autoPilotedTurn: room.autoPilotedTurn,
+        presence: [
+          ...room.players.map((player) => ({ pid: player.pid, online: participantOnline(player) })),
+          ...room.spectators.map((viewer) => ({ pid: viewer.pid, online: participantOnline(viewer) })),
+        ],
+      });
     }
     return send(res, 200, { room: publicRoom(room, entry.sid) });
+  }
+
+  if (req.method === "POST" && p === "/api/rooms/ready") {
+    const body = await readBody(req);
+    const room = rooms[String(body.code || "").trim().toUpperCase()];
+    if (!room) return send(res, 404, { error: "房间不存在" });
+    ensureRoomSchema(room);
+    if (room.status !== "lobby") return send(res, 400, { error: "游戏开始后不再使用准备状态。" });
+    const player = room.players.find((item) => item.sid === entry.sid);
+    if (!player) return send(res, 403, { error: "旁观者不能准备或提交行动。" });
+    room.ready[entry.sid] = typeof body.ready === "boolean" ? body.ready : !roomReadyFor(room, entry.sid);
+    player.lastSeenAt = Date.now();
+    room.updatedAt = Date.now();
+    saveRooms();
+    return send(res, 200, { ok: true, room: publicRoom(room, entry.sid) });
+  }
+
+  if (req.method === "POST" && p === "/api/rooms/settings") {
+    const body = await readBody(req);
+    const room = rooms[String(body.code || "").trim().toUpperCase()];
+    if (!room) return send(res, 404, { error: "房间不存在" });
+    if (room.hostSid !== entry.sid) return send(res, 403, { error: "只有房主可以修改房间设置。" });
+    ensureRoomSchema(room);
+    if (room.status !== "lobby") {
+      if (typeof body.autoAdvance === "boolean") room.autoAdvance = body.autoAdvance;
+      if (body.roundSeconds != null) room.roundSeconds = Math.max(60, Math.min(900, Number(body.roundSeconds) || room.roundSeconds));
+      if (typeof body.allowSpectators === "boolean") room.allowSpectators = body.allowSpectators;
+      room.updatedAt = Date.now();
+      saveRooms();
+      return send(res, 200, { ok: true, room: publicRoom(room, entry.sid) });
+    }
+    if (["public", "password", "invite"].includes(body.visibility)) room.visibility = body.visibility;
+    if (
+      body.visibility === "password" &&
+      (!room.passwordHash || body.password)
+    ) {
+      const password = String(body.password || "");
+      if (password.length < 4 || password.length > 64) {
+        return send(res, 400, { error: "密码房需要设置 4–64 个字符的房间密码。" });
+      }
+      room.passwordHash = makePasswordRecord(password);
+      room.visibility = "password";
+    }
+    if (body.visibility && body.visibility !== "password") room.passwordHash = null;
+    if (body.maxPlayers != null) {
+      const maxPlayers = Math.max(2, Math.min(8, Number(body.maxPlayers) || room.maxPlayers));
+      if (maxPlayers < room.players.length) return send(res, 400, { error: "人数上限不能低于当前玩家数。" });
+      room.maxPlayers = maxPlayers;
+    }
+    if (typeof body.allowSpectators === "boolean") room.allowSpectators = body.allowSpectators;
+    if (body.roundSeconds != null) room.roundSeconds = Math.max(30, Math.min(900, Number(body.roundSeconds) || room.roundSeconds));
+    if (typeof body.autoAdvance === "boolean") room.autoAdvance = body.autoAdvance;
+    room.updatedAt = Date.now();
+    saveRooms();
+    return send(res, 200, { ok: true, room: publicRoom(room, entry.sid) });
   }
 
   if (req.method === "POST" && p === "/api/rooms/start") {
@@ -6797,12 +7399,23 @@ async function handleRequest(req, res) {
     const room = rooms[String(body.code || "").trim().toUpperCase()];
     if (!room) return send(res, 404, { error: "房间不存在" });
     if (room.hostSid !== entry.sid) return send(res, 403, { error: "只有房主可以开始" });
+    ensureRoomSchema(room);
+    if (room.players.length < 2) return send(res, 400, { error: "至少需要 2 位玩家才能开始。" });
+    if (!room.players.every((player) => roomReadyFor(room, player.sid))) {
+      return send(res, 400, { error: "还有玩家没有点击准备。" });
+    }
     room.status = "playing";
+    room.roundDeadline = Date.now() + room.roundSeconds * 1000;
+    room.autoPilotedTurn = -1;
     room.opening = room.opening || room.scenario.hook || "";
     if (room.opening) {
       room.log.push({ type: "gm", text: room.opening, at: Date.now() });
     }
-    room.log.push({ type: "sys", text: "游戏开始，请每位玩家写下自己的行动。", at: Date.now() });
+    room.log.push({
+      type: "sys",
+      text: `游戏开始，请每位玩家写下自己的行动。本轮倒计时 ${room.roundSeconds} 秒。`,
+      at: Date.now(),
+    });
     room.updatedAt = Date.now();
     saveRooms();
     return send(res, 200, { ok: true, room: publicRoom(room, entry.sid) });
@@ -6812,17 +7425,77 @@ async function handleRequest(req, res) {
     const body = await readBody(req);
     const room = rooms[String(body.code || "").trim().toUpperCase()];
     if (!room) return send(res, 404, { error: "房间不存在" });
+    ensureRoomSchema(room);
     if (room.status !== "playing") return send(res, 400, { error: "游戏还没开始" });
+    if (room.busy) return send(res, 429, { error: "本轮正在推演，暂时不能修改行动。" });
     const player = room.players.find((p) => p.sid === entry.sid);
-    if (!player) return send(res, 403, { error: "你不在这个房间里" });
+    if (!player) return send(res, 403, { error: room.spectators.some((p) => p.sid === entry.sid) ? "旁观者不能提交行动。" : "你不在这个房间里" });
     const text = String(body.text || "").trim().slice(0, 500);
     if (!text) return send(res, 400, { error: "先写行动" });
     if (room.mode === "free" && engine.violatesContentBoundary(text)) {
       return send(res, 400, { error: "这条行动触及网站禁止的现实敏感政治或严重违规内容，请换一个虚构且不涉及现实伤害的方向。" });
     }
+    const previous = room.log.findLast?.(
+      (event) => event.type === "player" && event.sid === entry.sid && event.turn === room.turn
+    );
     room.actions[entry.sid] = text;
-    room.log.push({ type: "player", who: player.character.name, text, at: Date.now() });
+    if (previous) {
+      previous.text = text;
+      previous.at = Date.now();
+    } else {
+      room.log.push({
+        type: "player",
+        sid: entry.sid,
+        turn: room.turn,
+        who: player.character.name,
+        text,
+        at: Date.now(),
+      });
+    }
+    player.lastSeenAt = Date.now();
     room.updatedAt = Date.now();
+    room.lastActivityAt = room.updatedAt;
+    saveRooms();
+    return send(res, 200, { ok: true, room: publicRoom(room, entry.sid) });
+  }
+
+  if (req.method === "POST" && p === "/api/rooms/chat/send") {
+    const body = await readBody(req);
+    const room = rooms[String(body.code || "").trim().toUpperCase()];
+    if (!room) return send(res, 404, { error: "房间不存在" });
+    ensureRoomSchema(room);
+    const participant = roomParticipant(room, entry.sid);
+    if (!participant) return send(res, 403, { error: "请先加入房间或旁观席。" });
+    const mutedUntil = roomMutedUntil(room, entry.sid);
+    if (mutedUntil === -1 || mutedUntil > Date.now()) {
+      return send(res, 403, {
+        error: mutedUntil === -1
+          ? "你已被房主永久禁言。"
+          : `你已被禁言，${new Date(mutedUntil).toLocaleString("zh-CN")} 后恢复。`,
+      });
+    }
+    const lastAt = roomChatTimes.get(`${room.code}|${entry.sid}`) || 0;
+    if (Date.now() - lastAt < 700) return send(res, 429, { error: "聊天发送太快，请稍等。" });
+    const text = String(body.text || "").trim().slice(0, 500);
+    if (!text) return send(res, 400, { error: "消息不能为空。" });
+    if (engine.violatesContentBoundary(text)) {
+      return send(res, 400, { error: "消息包含网站禁止的现实敏感政治或严重违规内容。" });
+    }
+    roomChatTimes.set(`${room.code}|${entry.sid}`, Date.now());
+    participant.item.lastSeenAt = Date.now();
+    room.chat.push({
+      id: crypto.randomUUID(),
+      sid: entry.sid,
+      pid: participant.item.pid,
+      name: participant.item.character?.name || participant.item.name || "玩家",
+      playerName: displayIdentityForSid(entry.sid, entry.sid).name,
+      role: participant.role,
+      text,
+      at: Date.now(),
+    });
+    room.chat = room.chat.slice(-200);
+    room.updatedAt = Date.now();
+    room.lastActivityAt = room.updatedAt;
     saveRooms();
     return send(res, 200, { ok: true, room: publicRoom(room, entry.sid) });
   }
@@ -6832,80 +7505,346 @@ async function handleRequest(req, res) {
     const room = rooms[String(body.code || "").trim().toUpperCase()];
     if (!room) return send(res, 404, { error: "房间不存在" });
     if (room.hostSid !== entry.sid) return send(res, 403, { error: "只有房主可以推进剧情" });
-    if (room.status !== "playing") return send(res, 400, { error: "游戏还没开始" });
-    if (room.busy) return send(res, 429, { error: "正在推演，稍等" });
-    const roomUsesByok = hasUsableByok(room.hostSid);
-    const roomHostAccount = loadAccount(room.hostSid);
-    if (!entry.owner && !roomUsesByok && guestQuotaLeft() <= 0) {
-      return send(res, 429, { error: "今天网站默认模型的公用额度已经达到安全上限，明天再试或使用自己的模型 Key。" });
-    }
-    if (!entry.owner && !roomUsesByok && roomHostAccount && accountQuotaLeft(roomHostAccount) <= 0) {
-      return send(res, 429, { error: "这个账号今天的网站默认模型额度已经用完，可使用自己的模型 Key。" });
-    }
-    if (body.language != null) room.language = engine.normalizeLanguage(body.language);
-    room.promptProfile = loadPromptProfileFor(room.hostSid);
-    if (!Object.keys(room.actions).length) return send(res, 400, { error: "还没有人提交行动" });
-    if (
-      room.mode === "free" &&
-      engine.violatesContentBoundary([
-        ...Object.values(room.actions),
-        String(room.promptProfile?.customInstructions || ""),
-        String(room.scenario?.gmInstructions || ""),
-      ].join("\n"))
-    ) {
-      return send(res, 400, { error: "本轮行动或自定义规则触及现实敏感政治或严重违规内容，请修改后再推进。" });
-    }
-    room.busy = true;
     try {
-      room.research = scenarioResearchForTurn(room.scenario);
-      const result = await withModelSlot(async () => {
-        if (!entry.owner && !roomUsesByok) {
-          addGuestCalls(1);
-          if (roomHostAccount) recordAccountModelCall(roomHostAccount, 1);
-        }
-        return engine.askModel(roomPrompt(room), { reasoningEffort: "low" }, usableModelFor(entry, room.hostSid));
+      await advanceRoom(room, entry, {
+        language: body.language,
+        auto: false,
       });
-      const parsed = engine.parseModelTurn(result.text);
-      let narration = parsed.narrative || String(result.text || "").slice(0, 4000);
-      if (
-        room.mode === "free" &&
-        engine.violatesContentBoundary([
-          narration,
-          ...(parsed.suggestions || []),
-          JSON.stringify(parsed.state || {}),
-        ].join("\n"))
-      ) {
-        narration = "本次生成触及网站禁止的现实敏感政治或严重违规范围，内容已被拦截。请换一个虚构且不涉及现实伤害的探索方向。";
-        parsed.suggestions = [];
-        parsed.state = { advance_minutes: 0 };
-      }
-      if (narration) room.log.push({ type: "gm", text: narration, suggestions: parsed.suggestions, at: Date.now() });
-      const actionGate = engine.actionStateGate(Object.values(room.actions).join("\n"));
-      applyRoomState(room, parsed.state || {}, actionGate);
-      room.turn += 1;
-      room.actions = {};
-      room.updatedAt = Date.now();
-      saveRooms();
       return send(res, 200, { ok: true, room: publicRoom(room, entry.sid) });
-    } catch (err) {
-      saveRooms();
-      return send(res, err.code === "MODEL_QUEUE_FULL" ? 503 : 500, { error: `推演失败：${err.message}` });
-    } finally {
-      room.busy = false;
+    } catch (error) {
+      return send(
+        res,
+        Number(error.status) || (error.code === "MODEL_QUEUE_FULL" ? 503 : 500),
+        { error: `${error.message}`.startsWith("推演失败") ? error.message : `推演失败：${error.message}` }
+      );
     }
+  }
+
+  if (req.method === "POST" && p === "/api/rooms/auto") {
+    const body = await readBody(req);
+    const room = rooms[String(body.code || "").trim().toUpperCase()];
+    if (!room) return send(res, 404, { error: "房间不存在" });
+    if (!roomParticipant(room, entry.sid)) return send(res, 403, { error: "请先加入房间或旁观席。" });
+    ensureRoomSchema(room);
+    if (!room.autoAdvance) return send(res, 400, { error: "房主没有开启自动推进。" });
+    processRoomDeadline(room);
+    const force = body.force === true && room.hostSid === entry.sid;
+    if (room.roundDeadline && Date.now() < room.roundDeadline && !force) {
+      return send(res, 409, { error: "本轮倒计时尚未结束。", roundDeadline: room.roundDeadline });
+    }
+    if (room.busy) return send(res, 429, { error: "正在推演，稍等。" });
+    if (!Object.keys(room.actions).length) return send(res, 400, { error: "当前没有可推进的行动。" });
+    try {
+      await advanceRoom(room, entry, {
+        language: body.language,
+        auto: true,
+      });
+      return send(res, 200, { ok: true, room: publicRoom(room, entry.sid) });
+    } catch (error) {
+      return send(
+        res,
+        Number(error.status) || (error.code === "MODEL_QUEUE_FULL" ? 503 : 500),
+        { error: `自动推进失败：${error.message}` }
+      );
+    }
+  }
+
+  if (req.method === "POST" && p === "/api/rooms/kick") {
+    const body = await readBody(req);
+    const room = rooms[String(body.code || "").trim().toUpperCase()];
+    if (!room) return send(res, 404, { error: "房间不存在" });
+    if (room.hostSid !== entry.sid) return send(res, 403, { error: "只有房主可以移出玩家。" });
+    ensureRoomSchema(room);
+    const pid = String(body.pid || "");
+    const target =
+      room.players.find((item) => item.pid === pid) ||
+      room.spectators.find((item) => item.pid === pid);
+    if (!target) return send(res, 404, { error: "找不到该玩家或旁观者。" });
+    if (target.sid === room.hostSid) return send(res, 400, { error: "不能移出房主自己，请先转让房主。" });
+    room.players = room.players.filter((item) => item.sid !== target.sid);
+    room.spectators = room.spectators.filter((item) => item.sid !== target.sid);
+    delete room.actions[target.sid];
+    delete room.ready[target.sid];
+    delete room.muted[target.sid];
+    if (target.pid && room.state.status) delete room.state.status[target.pid];
+    room.kickedSids[target.sid] = Date.now() + 24 * 3600 * 1000;
+    roomVoiceMembers.get(room.code)?.delete(target.sid);
+    const voiceQueue = roomVoiceSignals.get(room.code);
+    if (voiceQueue) {
+      roomVoiceSignals.set(
+        room.code,
+        voiceQueue.filter((item) => item.fromSid !== target.sid && item.targetSid !== target.sid)
+      );
+    }
+    room.chat.push({
+      id: crypto.randomUUID(),
+      sid: "",
+      pid: "",
+      name: "系统",
+      role: "system",
+      text: `${target.character?.name || target.name || "玩家"} 已被房主移出房间。`,
+      at: Date.now(),
+    });
+    room.updatedAt = Date.now();
+    saveRooms();
+    return send(res, 200, { ok: true, room: publicRoom(room, entry.sid) });
+  }
+
+  if (req.method === "POST" && p === "/api/rooms/mute") {
+    const body = await readBody(req);
+    const room = rooms[String(body.code || "").trim().toUpperCase()];
+    if (!room) return send(res, 404, { error: "房间不存在" });
+    if (room.hostSid !== entry.sid) return send(res, 403, { error: "只有房主可以禁言。" });
+    ensureRoomSchema(room);
+    const pid = String(body.pid || "");
+    const target =
+      room.players.find((item) => item.pid === pid) ||
+      room.spectators.find((item) => item.pid === pid);
+    if (!target) return send(res, 404, { error: "找不到该玩家或旁观者。" });
+    if (target.sid === room.hostSid) return send(res, 400, { error: "房主不能禁言自己。" });
+    const minutes = Number(body.minutes);
+    if (body.unmute === true || minutes === 0) delete room.muted[target.sid];
+    else if (body.permanent === true) room.muted[target.sid] = -1;
+    else room.muted[target.sid] = Date.now() + Math.max(1, Math.min(1440, minutes || 15)) * 60 * 1000;
+    room.updatedAt = Date.now();
+    saveRooms();
+    return send(res, 200, { ok: true, room: publicRoom(room, entry.sid) });
+  }
+
+  if (req.method === "POST" && p === "/api/rooms/transfer") {
+    const body = await readBody(req);
+    const room = rooms[String(body.code || "").trim().toUpperCase()];
+    if (!room) return send(res, 404, { error: "房间不存在" });
+    if (room.hostSid !== entry.sid) return send(res, 403, { error: "只有房主可以转让房主。" });
+    ensureRoomSchema(room);
+    const target = room.players.find((item) => item.pid === String(body.pid || ""));
+    if (!target) return send(res, 404, { error: "只能转让给房间内的玩家。" });
+    if (target.sid === room.hostSid) return send(res, 400, { error: "该玩家已经是房主。" });
+    room.hostSid = target.sid;
+    room.hostPid = target.pid;
+    room.log.push({
+      type: "sys",
+      text: `${target.character?.name || target.name} 接任房主。`,
+      at: Date.now(),
+    });
+    room.updatedAt = Date.now();
+    saveRooms();
+    return send(res, 200, { ok: true, room: publicRoom(room, entry.sid) });
+  }
+
+  if (req.method === "GET" && p === "/api/rooms/history") {
+    const room = rooms[String(url.searchParams.get("code") || "").trim().toUpperCase()];
+    if (!room) return send(res, 404, { error: "房间不存在" });
+    if (!roomParticipant(room, entry.sid)) return send(res, 403, { error: "请先加入房间或旁观席。" });
+    ensureRoomSchema(room);
+    const page = Math.max(0, Number(url.searchParams.get("page")) || 0);
+    const pageSize = 10;
+    const rounds = room.rounds.slice().reverse().slice(page * pageSize, page * pageSize + pageSize);
+    return send(res, 200, {
+      rounds,
+      page,
+      pageSize,
+      total: room.rounds.length,
+      hasMore: (page + 1) * pageSize < room.rounds.length,
+    });
+  }
+
+  if (p === "/api/rooms/snapshot" && req.method === "GET") {
+    const room = rooms[String(url.searchParams.get("code") || "").trim().toUpperCase()];
+    if (!room) return send(res, 404, { error: "房间不存在" });
+    if (room.hostSid !== entry.sid) return send(res, 403, { error: "只有房主可以导出恢复快照。" });
+    if (room.busy) return send(res, 409, { error: "本轮推演尚未结束，请等待完成后再导出。" });
+    return send(res, 200, roomSnapshotFor(room, entry.sid));
+  }
+
+  if (req.method === "POST" && p === "/api/rooms/recover/verify") {
+    const body = await readBody(req);
+    try {
+      const verified = verifyRoomSnapshot(body.snapshot || body, entry.sid);
+      return send(res, 200, {
+        ok: true,
+        code: verified.room.code,
+        turn: verified.room.turn,
+        players: verified.room.players?.length || 0,
+        checksum: verified.checksum,
+      });
+    } catch (error) {
+      return send(res, 400, { error: String(error.message || error) });
+    }
+  }
+
+  if (req.method === "POST" && p === "/api/rooms/recover") {
+    const body = await readBody(req);
+    let verified;
+    try {
+      verified = verifyRoomSnapshot(body.snapshot || body, entry.sid);
+    } catch (error) {
+      return send(res, 400, { error: String(error.message || error) });
+    }
+    const incoming = ensureRoomSchema(verified.room);
+    if (rooms[incoming.code] && rooms[incoming.code].hostSid !== entry.sid) {
+      return send(res, 409, { error: "该房间码已被其他房主占用。" });
+    }
+    incoming.busy = false;
+    incoming.roundDeadline = incoming.status === "playing"
+      ? Date.now() + incoming.roundSeconds * 1000
+      : 0;
+    incoming.updatedAt = Date.now();
+    incoming.lastActivityAt = incoming.updatedAt;
+    incoming.log = Array.isArray(incoming.log) ? incoming.log.slice(-500) : [];
+    incoming.log.push({
+      type: "sys",
+      text: "房间已从经过签名校验的跨实例快照恢复。",
+      at: Date.now(),
+    });
+    rooms[incoming.code] = incoming;
+    saveRooms();
+    return send(res, 200, { ok: true, room: publicRoom(incoming, entry.sid) });
+  }
+
+  if (req.method === "POST" && p === "/api/rooms/voice/join") {
+    const body = await readBody(req);
+    const room = rooms[String(body.code || "").trim().toUpperCase()];
+    if (!room) return send(res, 404, { error: "房间不存在" });
+    const participant = roomParticipant(room, entry.sid);
+    if (!participant) return send(res, 403, { error: "请先加入房间或旁观席。" });
+    if (!roomVoiceMembers.has(room.code)) roomVoiceMembers.set(room.code, new Map());
+    const members = roomVoiceMembers.get(room.code);
+    members.set(entry.sid, {
+      sid: entry.sid,
+      pid: participant.item.pid,
+      role: participant.role,
+      micOn: body.micOn !== false,
+      lastSeenAt: Date.now(),
+    });
+    for (const [sid, value] of members) {
+      if (Date.now() - Number(value.lastSeenAt || 0) > 30_000) members.delete(sid);
+    }
+    return send(res, 200, {
+      ok: true,
+      voiceMembers: [...members.values()]
+        .filter((item) => Date.now() - item.lastSeenAt <= 20_000)
+        .map(({ pid, role, micOn }) => ({ pid, role, micOn })),
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" },
+      ],
+    });
+  }
+
+  if (req.method === "POST" && p === "/api/rooms/voice/leave") {
+    const body = await readBody(req);
+    const code = String(body.code || "").trim().toUpperCase();
+    roomVoiceMembers.get(code)?.delete(entry.sid);
+    const queue = roomVoiceSignals.get(code);
+    if (queue) {
+      roomVoiceSignals.set(code, queue.filter((item) => item.fromSid !== entry.sid && item.targetSid !== entry.sid));
+    }
+    return send(res, 200, { ok: true });
+  }
+
+  if (req.method === "POST" && p === "/api/rooms/voice/heartbeat") {
+    const body = await readBody(req);
+    const code = String(body.code || "").trim().toUpperCase();
+    const member = roomVoiceMembers.get(code)?.get(entry.sid);
+    if (member) {
+      member.lastSeenAt = Date.now();
+      member.micOn = body.micOn !== false;
+    }
+    return send(res, 200, { ok: Boolean(member), micOn: Boolean(member?.micOn) });
+  }
+
+  if (req.method === "POST" && p === "/api/rooms/voice/signal") {
+    const body = await readBody(req);
+    const code = String(body.code || "").trim().toUpperCase();
+    const room = rooms[code];
+    if (!room) return send(res, 404, { error: "房间不存在" });
+    const from = roomParticipant(room, entry.sid);
+    if (!from) return send(res, 403, { error: "请先加入房间或旁观席。" });
+    const targetPid = String(body.targetPid || "");
+    const target = [...room.players, ...room.spectators].find((item) => item.pid === targetPid);
+    if (!target || target.sid === entry.sid) return send(res, 404, { error: "语音目标不在房间内。" });
+    const type = String(body.type || "");
+    if (!["offer", "answer", "ice"].includes(type)) return send(res, 400, { error: "不支持的语音信令类型。" });
+    const payloadText = JSON.stringify(body.payload || null);
+    if (payloadText.length > 16_000) return send(res, 413, { error: "语音信令过大。" });
+    const queue = roomVoiceSignals.get(code) || [];
+    queue.push({
+      id: crypto.randomUUID(),
+      fromSid: entry.sid,
+      fromPid: from.item.pid,
+      targetSid: target.sid,
+      targetPid,
+      type,
+      payload: JSON.parse(payloadText),
+      at: Date.now(),
+    });
+    roomVoiceSignals.set(code, queue.filter((item) => Date.now() - item.at <= 60_000).slice(-500));
+    return send(res, 200, { ok: true });
+  }
+
+  if (req.method === "GET" && p === "/api/rooms/voice/signals") {
+    const code = String(url.searchParams.get("code") || "").trim().toUpperCase();
+    if (!rooms[code] || !roomParticipant(rooms[code], entry.sid)) {
+      return send(res, 403, { error: "请先加入房间或旁观席。" });
+    }
+    const queue = roomVoiceSignals.get(code) || [];
+    const mine = queue.filter((item) => item.targetSid === entry.sid);
+    roomVoiceSignals.set(code, queue.filter((item) => item.targetSid !== entry.sid));
+    const members = roomVoiceMembers.get(code);
+    if (members?.has(entry.sid)) members.get(entry.sid).lastSeenAt = Date.now();
+    return send(res, 200, {
+      signals: mine,
+      serverNow: Date.now(),
+      voiceMembers: members
+        ? [...members.values()]
+            .filter((item) => Date.now() - item.lastSeenAt <= 20_000)
+            .map(({ pid, role, micOn }) => ({ pid, role, micOn }))
+        : [],
+    });
   }
 
   if (req.method === "POST" && p === "/api/rooms/leave") {
     const body = await readBody(req);
     const room = rooms[String(body.code || "").trim().toUpperCase()];
     if (!room) return send(res, 404, { error: "房间不存在" });
+    ensureRoomSchema(room);
+    const leaving = roomParticipant(room, entry.sid);
     room.players = room.players.filter((p) => p.sid !== entry.sid);
+    room.spectators = room.spectators.filter((p) => p.sid !== entry.sid);
     delete room.actions[entry.sid];
-    if (!room.players.length) delete rooms[room.code];
-    else if (room.hostSid === entry.sid) {
-      room.hostSid = room.players[0].sid;
-      room.hostPid = room.players[0].pid;
+    delete room.ready[entry.sid];
+    delete room.muted[entry.sid];
+    roomVoiceMembers.get(room.code)?.delete(entry.sid);
+    const voiceQueue = roomVoiceSignals.get(room.code);
+    if (voiceQueue) {
+      roomVoiceSignals.set(
+        room.code,
+        voiceQueue.filter((item) => item.fromSid !== entry.sid && item.targetSid !== entry.sid)
+      );
     }
+    if (!room.players.length) {
+      delete rooms[room.code];
+      roomVoiceMembers.delete(room.code);
+      roomVoiceSignals.delete(room.code);
+    }
+    else if (room.hostSid === entry.sid) {
+      const nextHost = room.players.find((player) => participantOnline(player)) || room.players[0];
+      room.hostSid = nextHost.sid;
+      room.hostPid = nextHost.pid;
+      room.log.push({
+        type: "sys",
+        text: `房主已离开，${nextHost.character?.name || nextHost.name} 接任房主。`,
+        at: Date.now(),
+      });
+    } else if (leaving) {
+      room.log.push({
+        type: "sys",
+        text: `${leaving.item.character?.name || leaving.item.name || "一位玩家"} ${leaving.role === "spectator" ? "离开旁观席" : "离开房间"}。`,
+        at: Date.now(),
+      });
+    }
+    room.updatedAt = Date.now();
     saveRooms();
     return send(res, 200, { ok: true });
   }
@@ -6916,6 +7855,8 @@ async function handleRequest(req, res) {
     if (!room) return send(res, 404, { error: "房间不存在" });
     if (room.hostSid !== entry.sid) return send(res, 403, { error: "只有房主可以解散" });
     delete rooms[room.code];
+    roomVoiceMembers.delete(room.code);
+    roomVoiceSignals.delete(room.code);
     saveRooms();
     return send(res, 200, { ok: true });
   }
@@ -7237,6 +8178,20 @@ setInterval(() => {
   }
   for (const [sid, cached] of profileCache) {
     if (!cached || now >= cached.expires) profileCache.delete(sid);
+  }
+  for (const [code, members] of roomVoiceMembers) {
+    for (const [sid, member] of members) {
+      if (now - Number(member.lastSeenAt || 0) > 30_000) members.delete(sid);
+    }
+    if (!members.size) roomVoiceMembers.delete(code);
+  }
+  for (const [code, queue] of roomVoiceSignals) {
+    const next = queue.filter((item) => now - Number(item.at || 0) <= 60_000);
+    if (next.length) roomVoiceSignals.set(code, next);
+    else roomVoiceSignals.delete(code);
+  }
+  for (const [key, at] of roomChatTimes) {
+    if (now - Number(at || 0) > 10 * 60 * 1000) roomChatTimes.delete(key);
   }
 }, 5 * 60 * 1000).unref();
 

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>玩家自由创作游玩社区网站平台</title>
-<link rel="stylesheet" href="/style.css?v=20261128-identity2">
+<link rel="stylesheet" href="/style.css?v=20261128-room2">
 <link rel="stylesheet" href="/bottom-nav.css?v=20261127-navpages1">
 </head>
 <body>
@@ -63,6 +63,23 @@
         <h3 id="official-notices-title">官方公告</h3>
         <span>由网站管理组发布</span>
       </div>
+      <article class="official-notice">
+        <time>2026-11-28</time>
+        <div>
+          <b>多人联机大厅与房间系统全面升级</b>
+          <p><b>主页入口：</b>主页新增醒目的多人联机区域，可以直接查看“进入联机大厅”和“匹配大厅”入口，也可以在主页展开快速建房。快速建房支持选择剧本、玩法、难度、房间类型、人数上限、每轮倒计时、旁观、自动推进和开局设定，并可详细填写角色背景、外貌、性格、能力、目标与六项属性。</p>
+          <p><b>房间类型与匹配大厅：</b>联机房间现在分为公开房、密码房和私密邀请房，支持 2–8 人。公开房和密码房会进入公开房间列表，可按剧本、房间码、玩法、状态搜索并快速匹配；私密邀请房不进入公开列表，只能通过房主生成的随机邀请链接进入。房间密码使用 scrypt 加盐哈希，不保存明文。</p>
+          <p><b>旁观与席位：</b>房主可决定是否允许旁观，开始后的对局仍然可以让新玩家进入旁观席。每个房间最多保留 12 个旁观席位；旁观者可以阅读剧情、世界状态、聊天和历史，但不能准备、提交行动或推进剧情。</p>
+          <p><b>独立准备与开始：</b>每位玩家拥有独立准备按钮；所有玩家都准备后，房主才能开始游戏。玩家在线、离线、准备、已行动、被禁言和语音状态会分开显示，不再把“提交行动”误当作大厅准备。</p>
+          <p><b>房主管理：</b>房主可以踢出玩家或旁观者、禁言 15 分钟、解除禁言、永久禁言和转让房主，也可以修改密码、人数、旁观权限、每轮倒计时和自动推进。被踢玩家 24 小时内无法重新进入同一房间；房主离开时会自动把房主身份交给下一位在线玩家。</p>
+          <p><b>倒计时、超时托管与自动推进：</b>每轮具有服务端倒计时。到时仍未提交行动的玩家会自动进入超时托管；房主开启自动推进后，任何一位仍在房间的玩家都可以在倒计时结束后触发下一轮推演。服务器使用房间忙碌锁防止多人同时触发、重复生成或重复消耗额度。</p>
+          <p><b>聊天与剧情分离：</b>房间聊天与剧情正文彻底分开保存。聊天不会进入 GM 提示词，也不会混进剧情日志；剧情正文、玩家行动、系统通知、开场回顾和世界状态仍各自保留。聊天消息支持时间显示、玩家身份和旁观标签，禁言会直接阻止发送。</p>
+          <p><b>历史与断线重连：</b>每完成一轮都会生成独立回合存档，保留本轮行动、正文、建议和状态变化。房内可按页浏览完整历史存档。网络中断时页面会显示重连状态并自动继续轮询；玩家在线状态会按心跳时间实时更新。</p>
+          <p><b>房间语音与语音输入：</b>房间内新增 WebRTC 点对点语音，可加入语音、开关麦克风、查看其他语音成员状态和离开语音。浏览器支持时会额外提供“语音输入”，把口述内容转换到行动框中。语音音频不会写入房间存档；严格 NAT、企业防火墙或缺少 TURN 服务时，点对点语音可能无法连通。</p>
+          <p><b>跨实例恢复验证：</b>房主可导出带校验和 HMAC 签名的恢复快照，导入前会验证快照完整性、原房主身份和共享会话密钥，篡改文件会被拒绝。导出时会等待本轮推演结束，避免保存半步状态。快照是人工灾备手段，不能替代持久盘；跨实例恢复要求各实例使用相同的 `SESSION_SECRET`。</p>
+          <p><b>安全与边界：</b>公开列表不会暴露私密邀请令牌；聊天、语音信令、恢复快照和房间控制接口均经过成员身份、房主权限、体积和频率限制。语音只交换浏览器会话所需的 SDP / ICE 信令，服务器不保存音频。请勿把恢复快照上传到公开网盘；Render 当前没有持久盘，实例重建后仍可能需要手动恢复。</p>
+        </div>
+      </article>
       <article class="official-notice">
         <time>2026-11-28</time>
         <div>
@@ -428,7 +445,7 @@
         <p><b>公开内容：</b>设置为公开的剧本、社区帖子、留言、评论、昵称和头像可能被其他玩家看到、复制或转发。请勿发布身份证号、住址、电话、账号密码、API Key 或其他敏感信息。设置为“仅自己”的剧本不会出现在他人剧本列表中。</p>
         <p><b>创作者权利：</b>创作者保留其原创作品署名权，可随时修改署名、可见范围或删除自己的剧本。平台仅按你的可见性设置存储、展示和提供给符合范围的玩家游玩，不会把作品冒充为平台原创。</p>
         <p><b>联系人可见：</b>联系人范围只依据对方不可自行伪造的随机玩家 ID 匹配。昵称可被任意修改，因此不再作为访问控制凭据。联系人可见仍不等同于高强度加密，请勿用它承载账号密码、真实住址或其他高风险秘密。</p>
-        <p><b>AI 处理：</b>只有开局、回合推演和联机推进需要把当前剧情、角色、设定和行动发送到所选 AI 服务。使用网站默认模型时数据发送到网站配置的模型服务商；使用自定义 API 时发送到你填写的服务商。本站不把这些内容用于出售或广告画像，也不会把密钥展示给其他玩家。</p>
+        <p><b>AI 处理：</b>只有开局、回合推演和联机推进需要把当前剧情、角色、设定和行动发送到所选 AI 服务。使用网站默认模型时数据发送到网站配置的模型服务商；使用自定义 API 时发送到你填写的服务商。本站不把这些内容用于出售或广告画像，也不会把密钥展示给其他玩家。房间语音采用浏览器点对点连接，服务器只转发建立连接所需的信令，不保存音频；STUN 服务可能看到双方网络地址。</p>
         <p><b>保存与删除：</b>个人资料、私人笔记、GM 提示词和自带模型配置会使用 AES-256-GCM 加密保存。你可以在下方导出个人资料、剧本、预设、存档、帖子和留言，也可以删除当前浏览器身份下的个人数据。删除会移除服务器中的对应活动数据；已被他人复制、转发的内容无法追回，手动备份文件也可能保留历史副本。</p>
         <p><b>你的选择：</b>你可以关闭搜索发现、个人空间、活动身份展示和在线人数计入，也可以设置新剧本默认仅自己、联系人可见或公开。关闭活动身份不会删除已有公开内容，但之后显示的昵称和头像会匿名化。</p>
       </div>
@@ -629,6 +646,58 @@
   <div class="setup-wrap">
     <h1>玩家自由创作游玩<span>社区网站平台</span></h1>
     <div class="setup-sub">选一个剧本和角色开始故事；也可以自己写剧本、发布作品、装饰自己的空间。</div>
+    <section class="home-mp" id="home-mp">
+      <div class="home-mp-head">
+        <div>
+          <div class="home-mp-kicker">MULTIPLAYER LOBBY</div>
+          <h2>多人联机</h2>
+          <p>公开房、密码房与私密邀请房；支持旁观、准备、房间聊天、语音、倒计时与房主管理。</p>
+        </div>
+        <div class="home-mp-actions">
+          <a class="primary2" href="/room">进入联机大厅</a>
+          <a class="ghost" href="/room#match">匹配大厅</a>
+        </div>
+      </div>
+      <details class="home-mp-create">
+        <summary>在主页快速创建联机房间</summary>
+        <div class="home-mp-grid">
+          <div class="home-mp-col">
+            <h3>剧本与房间</h3>
+            <div class="home-mp-fields">
+              <label>剧本<select id="home-mp-scenario"><option value="">正在读取剧本…</option></select></label>
+              <label>玩法<select id="home-mp-mode"><option value="free" selected>自由叙事</option><option value="trpg">跑团规则</option></select></label>
+              <label>难度<select id="home-mp-difficulty"><option value="easy">轻松</option><option value="normal" selected>标准</option><option value="hard">硬核</option></select></label>
+              <label>房间类型<select id="home-mp-visibility"><option value="public">公开房</option><option value="password">密码房</option><option value="invite">私密邀请房</option></select></label>
+              <label id="home-mp-password-wrap" class="hidden">房间密码<input id="home-mp-password" type="password" maxlength="64" placeholder="4–64 个字符"></label>
+              <label>人数上限<input id="home-mp-max" type="number" min="2" max="8" value="6"></label>
+              <label>每轮倒计时（秒）<input id="home-mp-round" type="number" min="30" max="900" value="120"></label>
+              <label class="home-mp-check"><input id="home-mp-spectators" type="checkbox" checked> 允许旁观</label>
+              <label class="home-mp-check"><input id="home-mp-auto" type="checkbox"> 倒计时结束后自动推进</label>
+            </div>
+            <label>开局设定<textarea id="home-mp-opening" rows="2" placeholder="所有角色如何聚到一起，开场从哪一刻开始"></textarea></label>
+            <div class="home-mp-summary" id="home-mp-summary">选择剧本后会显示类型、简介和推荐人数。</div>
+          </div>
+          <div class="home-mp-col">
+            <h3>你的角色</h3>
+            <div class="home-mp-fields">
+              <label>角色名<input id="home-mp-name" maxlength="24" placeholder="例如：沈聿"></label>
+              <label>身份 / 职业<input id="home-mp-role" maxlength="40" placeholder="例如：报社记者"></label>
+              <label class="span2">背景<input id="home-mp-bio" maxlength="200" placeholder="来历、经历与当前的牵挂"></label>
+              <label class="span2">外貌<textarea id="home-mp-appearance" rows="2" maxlength="240" placeholder="衣着、体态、容易记住的特征"></textarea></label>
+              <label class="span2">性格<textarea id="home-mp-personality" rows="2" maxlength="240" placeholder="平时怎样，压力下又会怎样"></textarea></label>
+              <label class="span2">能力<textarea id="home-mp-ability" rows="2" maxlength="240" placeholder="擅长的事、可被叙事承认的能力"></textarea></label>
+              <label class="span2">目标 / 动机<textarea id="home-mp-goal" rows="2" maxlength="240" placeholder="这一局最想得到、保护或查明的事"></textarea></label>
+            </div>
+            <div class="home-mp-attrs" id="home-mp-attrs"></div>
+            <div class="home-mp-pool" id="home-mp-pool"></div>
+            <div class="home-mp-create-actions">
+              <button id="home-mp-submit" class="primary2" type="button">创建并进入房间</button>
+              <span id="home-mp-status" class="hint"></span>
+            </div>
+          </div>
+        </div>
+      </details>
+    </section>
     <div id="scenario-main">
     <div class="create-bar">
       <button id="gm-console-open" class="ghost" type="button">高级叙事控制台</button>
@@ -1351,8 +1420,8 @@
 </div>
 
 <script src="/bottom-nav.js?v=20261127-navpages1"></script>
-<script src="/i18n.js?v=20261127-privacy1"></script>
-<script src="/app.js?v=20261128-identity2"></script>
+<script src="/i18n.js?v=20261128-room2"></script>
+<script src="/app.js?v=20261128-room2"></script>
 <script src="/vendor/pptxgen.bundle.js?v=3.12.0" async></script>
 </body>
 </html>
