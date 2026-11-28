@@ -14,6 +14,16 @@ const research = require("./research");
 
 const ROOT = __dirname;
 const PUBLIC = path.join(ROOT, "public");
+/** 站点固定图标：浏览器标签页 / 书签 / 手机主屏 / PWA 安装共用。 */
+const SITE_ASSET_TYPES = {
+  "favicon.ico": "image/x-icon",
+  "icon-32.png": "image/png",
+  "icon-192.png": "image/png",
+  "icon-512.png": "image/png",
+  "icon-maskable-512.png": "image/png",
+  "apple-touch-icon.png": "image/png",
+  "manifest.webmanifest": "application/manifest+json; charset=utf-8",
+};
 const STATE_FILE = path.join(engine.WORK, "server.json");
 const SESS_DIR = path.join(engine.WORK, "sessions");
 const STATS_FILE = path.join(engine.WORK, "share-stats.json");
@@ -6139,8 +6149,18 @@ async function handleRequest(req, res) {
   }
 
   // 第三方库（PPT 导出）放本地，避免依赖外部 CDN
-  if (req.method === "GET" && p.startsWith("/vendor/")) {
-    const name = p.slice("/vendor/".length);
+  // 站点图标与 PWA 清单
+  if (req.method === "GET" && SITE_ASSET_TYPES[p.slice(1)]) {
+    const name = p.slice(1);
+    const file = path.join(PUBLIC, name);
+    if (!fs.existsSync(file)) return send(res, 404, "not found", "text/plain; charset=utf-8");
+    res.setHeader("content-type", SITE_ASSET_TYPES[name]);
+    res.setHeader("cache-control", "public, max-age=86400");
+    res.setHeader("x-content-type-options", "nosniff");
+    res.end(fs.readFileSync(file));
+    return;
+  }
+  if (req.method === "GET" && p.startsWith("/vendor/")) {    const name = p.slice("/vendor/".length);
     if (!/^[a-z0-9._-]+$/i.test(name)) return send(res, 404, "not found", "text/plain; charset=utf-8");
     const file = path.join(PUBLIC, "vendor", name);
     if (!fs.existsSync(file)) return send(res, 404, "not found", "text/plain; charset=utf-8");

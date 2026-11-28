@@ -1,4 +1,4 @@
-work/
+﻿work/
 bin/
 .env
 .env.cloud
@@ -10,3 +10,7 @@ bin/
 *.ico
 node_modules/
 私密信息.txt
+!public/favicon.ico
+!public/icon-*.png
+!public/apple-touch-icon.png
+

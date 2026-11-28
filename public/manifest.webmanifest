@@ -1,0 +1,16 @@
+{
+  "name": "玩家自由创作游玩社区网站平台",
+  "short_name": "创作游玩",
+  "description": "跑团推演、自由探索与剧本创作的社区平台",
+  "lang": "zh-Hans",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#fbf7f1",
+  "theme_color": "#fbf7f1",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
