@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>玩家自由创作游玩社区网站平台</title>
-<link rel="stylesheet" href="/style.css?v=20261128-account1">
+<link rel="stylesheet" href="/style.css?v=20261128-identity2">
 <link rel="stylesheet" href="/bottom-nav.css?v=20261127-navpages1">
 </head>
 <body>
@@ -67,8 +67,8 @@
         <time>2026-11-28</time>
         <div>
           <b>正式账号、设备同步与玩家社交系统上线</b>
-          <p><b>账号与设备：</b>现在可以在“我的 → 注册 / 登录”创建可选账号。支持唯一昵称、密码登录、一次性恢复码找回、多设备同步、设备列表、单设备撤销、退出其他设备和修改密码。匿名试玩仍然保留。</p>
-          <p><b>账号安全：</b>密码使用 scrypt 加盐哈希，账号资料继续使用 AES-256-GCM 加密保存；玩家身份同时依赖签名 Cookie 与可撤销设备会话，不再只依赖单个浏览器 Cookie。登录、密码修改、恢复、API Key 更新或删除、设备撤销和数据导出都会写入个人安全日志。</p>
+          <p><b>账号与设备：</b>现在可以在“我的 → 注册 / 登录”创建可选账号。支持昵称密码、邮箱验证码、手机号验证码、QQ 官方授权和微信官方授权注册登录；邮箱与手机号也可用于登录、找回密码和绑定现有账号。另有唯一昵称、一次性恢复码、多设备同步、设备列表、单设备撤销、退出其他设备和修改密码。匿名试玩仍然保留。</p>
+          <p><b>账号安全：</b>密码使用 scrypt 加盐哈希，账号资料继续使用 AES-256-GCM 加密保存；邮箱、手机号和第三方身份只进入加密账号文件，登录查找索引仅保存不可逆摘要。第三方授权不保存 access token。玩家身份同时依赖签名 Cookie 与可撤销设备会话；登录、联系方式注册、第三方登录、密码修改、恢复、身份绑定或解绑、API Key 更新或删除、设备撤销和数据导出都会写入个人安全日志。</p>
           <p><b>玩家互动：</b>玩家空间新增关注、好友请求、好友私信、拉黑和举报。好友之间可以私信；拉黑会解除关注和好友关系，并阻止私信及相关公开内容显示。举报会进入后台记录供管理员处理。</p>
           <p><b>注销与数据权利：</b>“账号、设备与安全”中提供永久注销入口。验证当前密码后，会删除账号、设备会话、资料、剧本、存档、帖子、好友关系、私信、设备记录和安全日志。公开内容曾被他人复制或转发的，仍无法追回外部副本。</p>
           <p><b>小号与额度说明：</b>系统会根据签名浏览器标识、来源网络指纹、注册频率和账号级额度记录风险信号，并在后台标记可能需要人工审核的账号。但用户可以清除 Cookie、换浏览器、换网络或使用其他设备，因此任何网站都无法保证 100% 识别小号。风险信号不会代替人工判断，默认模型另有账号级和全站级每日硬上限。</p>
@@ -282,6 +282,17 @@
       <div class="account-auth-grid">
         <label>昵称<input id="account-auth-name" maxlength="20" autocomplete="username" placeholder="唯一昵称"></label>
         <label id="account-recovery-wrap" class="hidden">恢复码<input id="account-auth-recovery" autocomplete="one-time-code" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX"></label>
+        <label id="account-identifier-wrap">邮箱或手机号<div class="account-input-row">
+          <select id="account-auth-identifier-type" aria-label="账号验证方式">
+            <option value="email">邮箱</option>
+            <option value="phone">手机号</option>
+          </select>
+          <input id="account-auth-identifier" type="email" autocomplete="username email" placeholder="name@example.com 或手机号">
+        </div></label>
+        <label id="account-code-wrap">验证码<div class="account-input-row">
+          <input id="account-auth-code" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6 位验证码">
+          <button id="account-code-send" class="ghost" type="button">获取验证码</button>
+        </div><span id="account-code-status" class="hint"></span></label>
         <label>密码<input id="account-auth-password" type="password" maxlength="128" autocomplete="current-password" placeholder="至少 8 个字符"></label>
         <label id="account-confirm-wrap" class="hidden">确认密码<input id="account-auth-confirm" type="password" maxlength="128" autocomplete="new-password"></label>
       </div>
@@ -289,7 +300,15 @@
         <button id="account-submit" class="primary2" type="button">登录</button>
         <span id="account-auth-status" class="hint"></span>
       </div>
-      <p class="hint">不提供邮箱找回。注册成功后会显示一次性恢复码，请抄到离线位置保存；丢失密码和恢复码将无法恢复账号。</p>
+      <div class="account-oauth-box">
+        <b>第三方快捷登录 / 注册</b>
+        <div class="account-oauth-actions">
+          <button class="ghost oauth-qq" data-oauth-provider="qq" type="button">QQ</button>
+          <button class="ghost oauth-wechat" data-oauth-provider="wechat" type="button">微信</button>
+        </div>
+        <div id="account-oauth-status" class="hint"></div>
+      </div>
+      <p class="hint">邮箱和手机号可注册、登录、找回密码及绑定到现有账号。注册仍会生成一次性恢复码，请离线保存。第三方按钮会在网站完成对应平台配置后自动开放。</p>
     </section>
     <section id="account-logged" class="hidden">
       <div class="account-identity">
@@ -304,11 +323,35 @@
       </div>
       <div id="account-password-box" class="account-security-box hidden">
         <div class="account-auth-grid">
-          <label>当前密码<input id="account-current-password" type="password" autocomplete="current-password"></label>
+          <label id="account-current-password-wrap">当前密码<input id="account-current-password" type="password" autocomplete="current-password"></label>
           <label>新密码<input id="account-new-password" type="password" autocomplete="new-password"></label>
           <label>确认新密码<input id="account-new-password-confirm" type="password" autocomplete="new-password"></label>
         </div>
         <div class="account-actions"><button id="account-password-save" class="primary2" type="button">保存新密码</button><span id="account-security-status" class="hint"></span></div>
+      </div>
+      <div class="account-identity-bindings">
+        <h3>登录方式与账号绑定</h3>
+        <div id="account-linked-identities" class="account-list"></div>
+        <div class="account-bind-box">
+          <b>绑定邮箱或手机号</b>
+          <div class="account-input-row">
+            <select id="account-bind-type" aria-label="绑定方式">
+              <option value="email">邮箱</option>
+              <option value="phone">手机号</option>
+            </select>
+            <input id="account-bind-value" type="email" autocomplete="email" placeholder="name@example.com 或手机号">
+          </div>
+          <div class="account-input-row">
+            <input id="account-bind-code" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6 位验证码">
+            <button id="account-bind-send" class="ghost" type="button">获取验证码</button>
+            <button id="account-bind-save" class="primary2" type="button">确认绑定</button>
+          </div>
+          <div id="account-bind-status" class="hint"></div>
+        </div>
+        <div class="account-oauth-actions">
+          <button class="ghost oauth-qq" data-bind-oauth="qq" type="button">绑定 QQ</button>
+          <button class="ghost oauth-wechat" data-bind-oauth="wechat" type="button">绑定微信</button>
+        </div>
       </div>
       <h3>已登录设备</h3>
       <div id="account-devices" class="account-list"></div>
@@ -321,6 +364,7 @@
         <p>永久删除账号、设备会话、资料、剧本、存档、帖子、好友关系与私信。操作不可撤销。</p>
         <div class="account-auth-grid">
           <label>当前密码<input id="account-delete-password" type="password" autocomplete="current-password"></label>
+          <label>未设置密码时填写恢复码<input id="account-delete-recovery" autocomplete="one-time-code" placeholder="QQ / 微信账号首次登录后查看恢复码"></label>
           <label>输入“删除我的数据”<input id="account-delete-confirm" autocomplete="off"></label>
         </div>
         <button id="account-delete" class="danger" type="button">永久注销账号</button>
@@ -371,7 +415,7 @@
     <details class="privacy-agreement" open>
       <summary>用户与创作者隐私保护协议 · 2026-11-28</summary>
       <div class="privacy-copy">
-        <p><b>身份与账号：</b>本站允许匿名试玩，也提供可选注册账号。注册账号使用全站唯一昵称、密码哈希、一次性恢复码和设备会话；不要求真实姓名、手机号或邮箱。更换匿名浏览器、使用无痕模式或清除 Cookie 会导致匿名身份丢失；注册账号可通过昵称、密码和恢复码重新登录。</p>
+        <p><b>身份与账号：</b>本站允许匿名试玩，也提供可选注册账号。玩家可以只用昵称和密码，也可以自愿绑定邮箱、手机号、QQ 或微信。邮箱和手机号必须先通过验证码确认归属；第三方登录只读取平台提供的账号标识、公开昵称和头像，不保存访问令牌。更换匿名浏览器、使用无痕模式或清除 Cookie 会导致匿名身份丢失；注册账号可通过已绑定方式、密码和一次性恢复码重新登录。</p>
         <p><b>设备与安全记录：</b>为支持多设备同步和设备撤销，系统保存随机设备 ID、浏览器类型、最近使用时间和加密账号数据。登录、密码、恢复码、API Key 配置、设备撤销和数据导出会产生安全日志；日志只保存来源地址的不可逆指纹，不保存完整 IP 地址、密码或 API Key。</p>
         <p><b>收集的数据：</b>昵称、简介、头像、私人笔记、主题与语言设置；剧本、角色预设、社区帖子、留言、评论、房间与游玩存档；关注、好友、私信、拉黑和举报记录；为运行和安全目的产生的在线状态、设备与基础访问信息。</p>
         <p><b>公开内容：</b>设置为公开的剧本、社区帖子、留言、评论、昵称和头像可能被其他玩家看到、复制或转发。请勿发布身份证号、住址、电话、账号密码、API Key 或其他敏感信息。设置为“仅自己”的剧本不会出现在他人剧本列表中。</p>
@@ -1301,7 +1345,7 @@
 
 <script src="/bottom-nav.js?v=20261127-navpages1"></script>
 <script src="/i18n.js?v=20261127-privacy1"></script>
-<script src="/app.js?v=20261128-account1"></script>
+<script src="/app.js?v=20261128-identity2"></script>
 <script src="/vendor/pptxgen.bundle.js?v=3.12.0" async></script>
 </body>
 </html>

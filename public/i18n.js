@@ -926,6 +926,26 @@
     "属性名称": ["Attribute name", "能力名", "Nom de l'attribut", "Название атрибута"],
     "属性规则": ["Attribute rule", "能力ルール", "Règle de l'attribut", "Правило атрибута"],
     "按掷骰总值判断结果": ["Result is determined by the rolled total", "ダイスの合計値で結果を判定", "Le total du jet détermine le résultat", "Результат определяется суммой броска"],
+    "登录": ["Log in", "ログイン", "Se connecter", "Войти"],
+    "注册": ["Register", "登録", "S'inscrire", "Регистрация"],
+    "找回账号": ["Recover account", "アカウント復旧", "Récupérer le compte", "Восстановить аккаунт"],
+    "昵称": ["Nickname", "ニックネーム", "Pseudo", "Никнейм"],
+    "邮箱": ["Email", "メール", "E-mail", "Эл. почта"],
+    "手机号": ["Phone number", "電話番号", "Numéro de téléphone", "Номер телефона"],
+    "邮箱或手机号": ["Email or phone", "メールまたは電話番号", "E-mail ou téléphone", "Почта или телефон"],
+    "验证码": ["Verification code", "認証コード", "Code de vérification", "Код подтверждения"],
+    "6 位验证码": ["6-digit code", "6桁のコード", "Code à 6 chiffres", "6-значный код"],
+    "获取验证码": ["Send code", "コードを送信", "Envoyer le code", "Отправить код"],
+    "密码": ["Password", "パスワード", "Mot de passe", "Пароль"],
+    "QQ": ["QQ", "QQ", "QQ", "QQ"],
+    "微信": ["WeChat", "WeChat", "WeChat", "WeChat"],
+    "第三方快捷登录 / 注册": ["Quick sign-in / registration", "外部サービスでログイン / 登録", "Connexion / inscription rapide", "Быстрый вход / регистрация"],
+    "登录方式与账号绑定": ["Sign-in methods and linked accounts", "ログイン方法と連携", "Modes de connexion et comptes liés", "Способы входа и привязанные аккаунты"],
+    "绑定邮箱或手机号": ["Link email or phone", "メールまたは電話を連携", "Lier un e-mail ou un téléphone", "Привязать почту или телефон"],
+    "确认绑定": ["Confirm link", "連携を確認", "Confirmer la liaison", "Подтвердить привязку"],
+    "绑定 QQ": ["Link QQ", "QQを連携", "Lier QQ", "Привязать QQ"],
+    "绑定微信": ["Link WeChat", "WeChatを連携", "Lier WeChat", "Привязать WeChat"],
+    "网站管理员尚未配置该平台": ["This provider has not been configured by the site owner", "管理者がこのサービスを未設定です", "Ce service n'a pas été configuré par l'administrateur", "Этот сервис ещё не настроен администратором"],
   };
 
   // Core Korean/German strings. Less common text is translated once through the server cache.
@@ -1175,6 +1195,16 @@
     "轻松": ["쉬움", "Leicht"],
     "标准": ["표준", "Normal"],
     "硬核": ["하드코어", "Hardcore"],
+    "登录": ["로그인", "Anmelden"],
+    "注册": ["가입", "Registrieren"],
+    "找回账号": ["계정 복구", "Konto wiederherstellen"],
+    "邮箱": ["이메일", "E-Mail"],
+    "手机号": ["휴대전화 번호", "Telefonnummer"],
+    "邮箱或手机号": ["이메일 또는 휴대전화", "E-Mail oder Telefon"],
+    "验证码": ["인증 코드", "Bestätigungscode"],
+    "获取验证码": ["인증 코드 받기", "Code senden"],
+    "第三方快捷登录 / 注册": ["외부 서비스 로그인 / 가입", "Externe Anmeldung / Registrierung"],
+    "登录方式与账号绑定": ["로그인 수단 및 계정 연결", "Anmeldewege und verknüpfte Konten"],
   };
 
   const PATTERNS = [

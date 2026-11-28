@@ -31,6 +31,7 @@ const ACCOUNTS_DIR = path.join(engine.WORK, "accounts");
 const ACCOUNT_INDEX_FILE = path.join(ACCOUNTS_DIR, "index.json");
 const ACCOUNT_SOCIAL_FILE = path.join(ACCOUNTS_DIR, "social.json");
 const ACCOUNT_REPORTS_FILE = path.join(ACCOUNTS_DIR, "reports.json");
+const ACCOUNT_VERIFICATIONS_FILE = path.join(ACCOUNTS_DIR, "verifications.json");
 fs.mkdirSync(SESS_DIR, { recursive: true });
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 fs.mkdirSync(USERS_DIR, { recursive: true });
@@ -220,6 +221,14 @@ let accountIndex = (() => {
 if (!accountIndex.fingerprints || typeof accountIndex.fingerprints !== "object") {
   accountIndex.fingerprints = { device: {}, ip: {} };
 }
+if (!accountIndex.identities || typeof accountIndex.identities !== "object") {
+  accountIndex.identities = { email: {}, phone: {}, qq: {}, wechat: {} };
+}
+for (const type of ["email", "phone", "qq", "wechat"]) {
+  if (!accountIndex.identities[type] || typeof accountIndex.identities[type] !== "object") {
+    accountIndex.identities[type] = {};
+  }
+}
 
 function normalizeAccountName(value) {
   return String(value || "").normalize("NFKC").trim().replace(/\s+/g, " ");
@@ -231,6 +240,98 @@ function accountNameKey(value) {
 
 function validAccountName(value) {
   return ACCOUNT_NAME_RULE.test(normalizeAccountName(value));
+}
+
+const ACCOUNT_IDENTITY_TYPES = new Set(["email", "phone", "qq", "wechat"]);
+
+function normalizeEmail(value) {
+  const email = String(value || "").normalize("NFKC").trim().toLowerCase();
+  return email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/u.test(email) ? email : "";
+}
+
+function normalizePhone(value) {
+  let phone = String(value || "").normalize("NFKC").replace(/[\s()-]/g, "");
+  if (phone.startsWith("00")) phone = "+" + phone.slice(2);
+  if (/^1[3-9]\d{9}$/.test(phone)) phone = "+86" + phone;
+  if (!/^\+[1-9]\d{7,14}$/.test(phone)) return "";
+  return phone;
+}
+
+function normalizeContactValue(type, value) {
+  if (type === "email") return normalizeEmail(value);
+  if (type === "phone") return normalizePhone(value);
+  return "";
+}
+
+function maskedIdentity(type, value) {
+  if (type === "email") {
+    const [local, domain] = String(value || "").split("@");
+    if (!local || !domain) return "";
+    return `${local.slice(0, 2)}***@${domain}`;
+  }
+  if (type === "phone") {
+    const phone = String(value || "");
+    return phone.length >= 7 ? `${phone.slice(0, 4)}****${phone.slice(-3)}` : "***";
+  }
+  return String(value || "").slice(0, 32);
+}
+
+function identityDigest(type, value) {
+  const source = String(value || "").normalize("NFKC").trim();
+  const normalized =
+    type === "email"
+      ? source.toLowerCase()
+      : ["phone", "qq", "wechat"].includes(type)
+        ? source
+        : "";
+  const key = accountEncryptionKey();
+  if (!normalized || !key) return "";
+  return crypto
+    .createHmac("sha256", key)
+    .update(`identity|${type}|${normalized}`)
+    .digest("hex");
+}
+
+function accountIdentity(account, type) {
+  if (!ACCOUNT_IDENTITY_TYPES.has(type)) return null;
+  const value = account?.identities?.[type];
+  return value && typeof value === "object" ? value : null;
+}
+
+function identityAccountId(type, value) {
+  const digest = identityDigest(type, value);
+  if (!digest) return "";
+  const id = accountIndex.identities?.[type]?.[digest] || "";
+  return /^[a-f0-9]{16,40}$/i.test(id) ? id.toLowerCase() : "";
+}
+
+function updateAccountIdentityIndex(account) {
+  if (!account?.id) return;
+  for (const type of ACCOUNT_IDENTITY_TYPES) {
+    const map = accountIndex.identities[type] || (accountIndex.identities[type] = {});
+    for (const [digest, id] of Object.entries(map)) {
+      if (id === account.id) delete map[digest];
+    }
+    const identity = accountIdentity(account, type);
+    const identityValue =
+      type === "email" || type === "phone"
+        ? identity?.value
+        : identity?.openid;
+    const digest = identityDigest(type, identityValue);
+    if (digest) map[digest] = account.id;
+  }
+}
+
+function removeAccountIdentityIndex(accountId) {
+  const id = String(accountId || "");
+  if (!id) return;
+  for (const type of ACCOUNT_IDENTITY_TYPES) {
+    const map = accountIndex.identities?.[type];
+    if (!map) continue;
+    for (const [digest, mappedId] of Object.entries(map)) {
+      if (mappedId === id) delete map[digest];
+    }
+  }
 }
 
 function accountFile(id) {
@@ -261,6 +362,7 @@ function saveAccount(account, options = {}) {
   accountCache.set(account.id, { value: account, expires: Date.now() + ACCOUNT_CACHE_TTL_MS });
   if (account.nameKey && options.updateIndex !== false) {
     accountIndex.users[account.nameKey] = account.id;
+    updateAccountIdentityIndex(account);
     accountIndex.updatedAt = Date.now();
     accountIdSetCache = null;
     writeJsonFile(ACCOUNT_INDEX_FILE, accountIndex);
@@ -275,6 +377,7 @@ function rebuildAccountIndex() {
     users: {},
     updatedAt: Date.now(),
     fingerprints: previous.fingerprints || { device: {}, ip: {} },
+    identities: { email: {}, phone: {}, qq: {}, wechat: {} },
   };
   let names = [];
   try {
@@ -283,6 +386,14 @@ function rebuildAccountIndex() {
   for (const name of names) {
     const account = loadAccount(path.basename(name, ".json"));
     if (account?.nameKey) next.users[account.nameKey] = account.id;
+    if (account) {
+      for (const type of ACCOUNT_IDENTITY_TYPES) {
+        const identity = accountIdentity(account, type);
+        const value = type === "email" || type === "phone" ? identity?.value : identity?.openid;
+        const digest = identityDigest(type, value);
+        if (digest) next.identities[type][digest] = account.id;
+      }
+    }
   }
   accountIndex = next;
   accountIdSetCache = null;
@@ -417,6 +528,66 @@ function verifyRecoveryCode(code, record) {
 
 const DUMMY_RECOVERY_RECORD = makeRecoveryRecord(crypto.randomBytes(24).toString("base64"));
 
+function accountHasPassword(account) {
+  if (!account) return false;
+  return Boolean(
+    account.passwordSet !== false &&
+    account.password?.salt &&
+    account.password?.hash
+  );
+}
+
+function makeUniqueAccountName(preferred, excludeSid = "") {
+  const cleaned = normalizeAccountName(preferred)
+    .replace(/[^\p{L}\p{N}_\-\u4e00-\u9fff]/gu, "")
+    .slice(0, 20);
+  const base = validAccountName(cleaned) ? cleaned : `玩家${crypto.randomBytes(3).toString("hex")}`;
+  if (!nicknameInUse(base, excludeSid)) return base;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const suffix = crypto.randomBytes(2).toString("hex");
+    const candidate = `${base.slice(0, Math.max(2, 20 - suffix.length - 1))}_${suffix}`;
+    if (!nicknameInUse(candidate, excludeSid)) return candidate;
+  }
+  return `玩家_${crypto.randomBytes(6).toString("hex")}`;
+}
+
+function createAccountRecord({
+  id,
+  name,
+  password,
+  identities = {},
+  passwordSet = true,
+  pendingRecoveryCode = "",
+  req,
+  browserId,
+}) {
+  const recoveryCode = makeRecoveryCode();
+  const now = Date.now();
+  const account = {
+    version: 2,
+    id,
+    name,
+    nameKey: accountNameKey(name),
+    identities,
+    passwordSet,
+    recovery: makeRecoveryRecord(recoveryCode),
+    recoveryCreatedAt: now,
+    pendingRecoveryCode: pendingRecoveryCode ? recoveryCode : "",
+    devices: [],
+    securityLog: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+  if (passwordSet) account.password = makePasswordRecord(password);
+  appendAccountLog(account, "register", "账号注册", req);
+  registerRiskFingerprint(account, req, browserId);
+  accountIndex.users[account.nameKey] = account.id;
+  updateAccountIdentityIndex(account);
+  saveAccount(account);
+  const recoveryForResponse = pendingRecoveryCode ? "" : recoveryCode;
+  return { account, recoveryCode: recoveryForResponse };
+}
+
 function requestIpFingerprint(req) {
   return crypto
     .createHash("sha256")
@@ -524,11 +695,35 @@ function accountCookie(value, maxAge = 30 * 24 * 3600) {
 }
 
 function publicAccountView(account, currentDeviceId = "") {
+  const identities = {};
+  for (const type of ["email", "phone"]) {
+    const identity = accountIdentity(account, type);
+    identities[type] = identity
+      ? {
+          linked: true,
+          masked: maskedIdentity(type, identity.value),
+          verifiedAt: Number(identity.verifiedAt) || 0,
+        }
+      : { linked: false, masked: "", verifiedAt: 0 };
+  }
+  for (const type of ["qq", "wechat"]) {
+    const identity = accountIdentity(account, type);
+    identities[type] = identity
+      ? {
+          linked: true,
+          nickname: String(identity.nickname || "").slice(0, 40),
+          linkedAt: Number(identity.linkedAt) || 0,
+        }
+      : { linked: false, nickname: "", linkedAt: 0 };
+  }
   return {
     accountIdMasked: account.id.slice(0, 4) + "…" + account.id.slice(-4),
     name: account.name,
     createdAt: account.createdAt,
     updatedAt: account.updatedAt,
+    passwordEnabled: accountHasPassword(account),
+    recoveryPending: Boolean(account.pendingRecoveryCode),
+    identities,
     dailyFreeCalls: accountDailyFreeCalls,
     freeCallsUsed: account.usage?.date === todayKey() ? Number(account.usage.calls) || 0 : 0,
     devices: (account.devices || []).map((device) => ({
@@ -1803,6 +1998,456 @@ const ADMIN_SESSION_SECRET = crypto
   .digest();
 const ADMIN_TTL_MS = 30 * 24 * 3600 * 1000;
 
+const AUTH_VERIFICATION_TTL_MS = 10 * 60 * 1000;
+const AUTH_VERIFICATION_RESEND_MS = 60 * 1000;
+const AUTH_VERIFICATION_MAX_ATTEMPTS = 6;
+const AUTH_VERIFICATION_TARGET_HOURLY_MAX = 5;
+const AUTH_VERIFICATION_DEBUG_ENABLED = /^(?:1|true|yes|on)$/i.test(
+  String(process.env.AUTH_VERIFICATION_DEBUG || "")
+);
+const AUTH_PUBLIC_BASE = String(
+  process.env.PUBLIC_BASE_URL || engine.config.publicBase || "https://paotuan.onrender.com"
+).replace(/\/+$/, "");
+const EMAIL_DELIVERY_ENABLED = Boolean(
+  String(process.env.RESEND_API_KEY || "").trim() && String(process.env.EMAIL_FROM || "").trim()
+);
+const SMS_PROVIDER = (() => {
+  if (
+    process.env.ALIYUN_SMS_ACCESS_KEY_ID &&
+    process.env.ALIYUN_SMS_ACCESS_KEY_SECRET &&
+    process.env.ALIYUN_SMS_SIGN_NAME &&
+    process.env.ALIYUN_SMS_TEMPLATE_CODE
+  ) return "aliyun";
+  if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM_NUMBER) {
+    return "twilio";
+  }
+  if (process.env.SMS_WEBHOOK_URL) return "webhook";
+  return "";
+})();
+const QQ_OAUTH_ENABLED = Boolean(
+  String(process.env.QQ_OAUTH_CLIENT_ID || "").trim() &&
+  String(process.env.QQ_OAUTH_CLIENT_SECRET || "").trim()
+);
+const WECHAT_OAUTH_ENABLED = Boolean(
+  String(process.env.WECHAT_OAUTH_APP_ID || "").trim() &&
+  String(process.env.WECHAT_OAUTH_APP_SECRET || "").trim()
+);
+const verificationTargetSends = new Map();
+const verificationTargetWindows = new Map();
+const oauthLoginStates = new Map();
+
+function authProviderCapabilities() {
+  return {
+    email: { enabled: EMAIL_DELIVERY_ENABLED || AUTH_VERIFICATION_DEBUG_ENABLED, label: "邮箱验证码" },
+    phone: { enabled: Boolean(SMS_PROVIDER) || AUTH_VERIFICATION_DEBUG_ENABLED, label: "手机号验证码" },
+    qq: { enabled: QQ_OAUTH_ENABLED, label: "QQ" },
+    wechat: { enabled: WECHAT_OAUTH_ENABLED, label: "微信" },
+  };
+}
+
+function normalizeVerificationStore(value) {
+  const source = value && typeof value === "object" ? value : {};
+  return {
+    version: 1,
+    challenges:
+      source.challenges && typeof source.challenges === "object" ? source.challenges : {},
+  };
+}
+
+let accountVerificationStore = normalizeVerificationStore(
+  readAccountJsonFile(ACCOUNT_VERIFICATIONS_FILE, null)
+);
+
+function saveAccountVerifications() {
+  const now = Date.now();
+  for (const [id, challenge] of Object.entries(accountVerificationStore.challenges)) {
+    if (!challenge || Number(challenge.expiresAt) <= now || Number(challenge.attempts) >= AUTH_VERIFICATION_MAX_ATTEMPTS) {
+      delete accountVerificationStore.challenges[id];
+    }
+  }
+  const entries = Object.entries(accountVerificationStore.challenges)
+    .sort((a, b) => Number(b[1]?.createdAt || 0) - Number(a[1]?.createdAt || 0))
+    .slice(0, 5000);
+  accountVerificationStore.challenges = Object.fromEntries(entries);
+  writeAccountJsonFile(ACCOUNT_VERIFICATIONS_FILE, accountVerificationStore);
+}
+
+function verificationCodeHash(challengeId, code) {
+  return crypto
+    .createHmac("sha256", PLAYER_SESSION_SECRET)
+    .update(`verification|${challengeId}|${String(code || "").replace(/\D/g, "")}`)
+    .digest("hex");
+}
+
+function verificationPurposeLabel(purpose) {
+  return {
+    register: "注册",
+    login: "登录",
+    recover: "找回密码",
+    bind: "绑定账号",
+  }[purpose] || "身份验证";
+}
+
+function verificationDebugAllowed(req) {
+  return AUTH_VERIFICATION_DEBUG_ENABLED;
+}
+
+function authDeliveryError(message, status = 503) {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+}
+
+function escapeEmailHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+async function sendEmailVerificationCode(email, code, purpose) {
+  if (!EMAIL_DELIVERY_ENABLED) throw authDeliveryError("本站尚未配置邮箱验证码发件服务。");
+  const label = verificationPurposeLabel(purpose);
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${String(process.env.RESEND_API_KEY || "").trim()}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      from: String(process.env.EMAIL_FROM || "").trim(),
+      to: [email],
+      subject: `玩家自由创作游玩社区网站平台：${label}验证码`,
+      text: `你的${label}验证码是 ${code}，10 分钟内有效。请勿转发给任何人。`,
+      html: `<div style="font:15px/1.8 system-ui,sans-serif;color:#202124"><p>你的${escapeEmailHtml(label)}验证码是：</p><p style="font-size:28px;font-weight:700;letter-spacing:6px">${escapeEmailHtml(code)}</p><p>验证码 10 分钟内有效，请勿转发给任何人。</p></div>`,
+    }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) throw authDeliveryError("验证邮件发送失败，请稍后重试。");
+}
+
+function aliyunPercentEncode(value) {
+  return encodeURIComponent(String(value))
+    .replace(/[!'()*]/g, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`)
+    .replace(/%20/g, "%20");
+}
+
+async function sendAliyunSms(phone, code) {
+  const params = {
+    AccessKeyId: String(process.env.ALIYUN_SMS_ACCESS_KEY_ID || "").trim(),
+    Action: "SendSms",
+    Format: "JSON",
+    PhoneNumbers: phone.replace(/^\+/, ""),
+    RegionId: String(process.env.ALIYUN_SMS_REGION_ID || "cn-hangzhou").trim(),
+    SignName: String(process.env.ALIYUN_SMS_SIGN_NAME || "").trim(),
+    SignatureMethod: "HMAC-SHA1",
+    SignatureNonce: crypto.randomUUID(),
+    SignatureVersion: "1.0",
+    TemplateCode: String(process.env.ALIYUN_SMS_TEMPLATE_CODE || "").trim(),
+    TemplateParam: JSON.stringify({ code }),
+    Timestamp: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
+    Version: "2017-05-25",
+  };
+  const canonical = Object.keys(params)
+    .sort()
+    .map((key) => `${aliyunPercentEncode(key)}=${aliyunPercentEncode(params[key])}`)
+    .join("&");
+  const stringToSign = `GET&%2F&${aliyunPercentEncode(canonical)}`;
+  const signature = crypto
+    .createHmac("sha1", `${String(process.env.ALIYUN_SMS_ACCESS_KEY_SECRET || "").trim()}&`)
+    .update(stringToSign)
+    .digest("base64");
+  const response = await fetch(
+    `https://dysmsapi.aliyuncs.com/?${canonical}&Signature=${aliyunPercentEncode(signature)}`,
+    { signal: AbortSignal.timeout(15_000) }
+  );
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.Code !== "OK") throw authDeliveryError("短信发送失败，请稍后重试。");
+}
+
+async function sendTwilioSms(phone, code) {
+  const sid = String(process.env.TWILIO_ACCOUNT_SID || "").trim();
+  const body = new URLSearchParams({
+    To: phone,
+    From: String(process.env.TWILIO_FROM_NUMBER || "").trim(),
+    Body: `玩家自由创作游玩社区网站平台验证码：${code}，10 分钟内有效。`,
+  });
+  const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(sid)}/Messages.json`, {
+    method: "POST",
+    headers: {
+      authorization: `Basic ${Buffer.from(`${sid}:${String(process.env.TWILIO_AUTH_TOKEN || "").trim()}`).toString("base64")}`,
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body,
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) throw authDeliveryError("短信发送失败，请稍后重试。");
+}
+
+async function sendWebhookSms(phone, code, purpose) {
+  const headers = { "content-type": "application/json" };
+  if (process.env.SMS_WEBHOOK_TOKEN) {
+    headers.authorization = `Bearer ${String(process.env.SMS_WEBHOOK_TOKEN).trim()}`;
+  }
+  const response = await fetch(String(process.env.SMS_WEBHOOK_URL), {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ phone, code, purpose, expiresInSeconds: 600 }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) throw authDeliveryError("短信发送失败，请稍后重试。");
+}
+
+async function sendPhoneVerificationCode(phone, code, purpose) {
+  if (SMS_PROVIDER === "aliyun") return sendAliyunSms(phone, code);
+  if (SMS_PROVIDER === "twilio") return sendTwilioSms(phone, code);
+  if (SMS_PROVIDER === "webhook") return sendWebhookSms(phone, code, purpose);
+  throw authDeliveryError("本站尚未配置手机短信服务。");
+}
+
+async function issueVerificationChallenge(req, type, value, purpose, accountId = "") {
+  const capabilities = authProviderCapabilities();
+  if (!capabilities[type]?.enabled) throw authDeliveryError("该验证方式尚未配置。");
+  const now = Date.now();
+  const targetKey = identityDigest(type, value);
+  if (verificationTargetSends.size > 5000) {
+    for (const [key, sentAt] of verificationTargetSends) {
+      if (now - Number(sentAt || 0) > 60 * 60 * 1000) verificationTargetSends.delete(key);
+    }
+    if (verificationTargetSends.size > 5000) verificationTargetSends.clear();
+  }
+  if (verificationTargetWindows.size > 5000) {
+    for (const [key, window] of verificationTargetWindows) {
+      if (now - Number(window?.startedAt || 0) >= 60 * 60 * 1000) verificationTargetWindows.delete(key);
+    }
+    if (verificationTargetWindows.size > 5000) verificationTargetWindows.clear();
+  }
+  const previous = verificationTargetSends.get(targetKey) || 0;
+  if (now - previous < AUTH_VERIFICATION_RESEND_MS) {
+    throw authDeliveryError("验证码发送过于频繁，请稍后再试。", 429);
+  }
+  let targetWindow = verificationTargetWindows.get(targetKey);
+  if (!targetWindow || now - targetWindow.startedAt >= 60 * 60 * 1000) {
+    targetWindow = { startedAt: now, count: 0 };
+    verificationTargetWindows.set(targetKey, targetWindow);
+  }
+  if (targetWindow.count >= AUTH_VERIFICATION_TARGET_HOURLY_MAX) {
+    throw authDeliveryError("该邮箱或手机号接收验证码次数过多，请一小时后再试。", 429);
+  }
+  verificationTargetSends.set(targetKey, now);
+  targetWindow.count += 1;
+  const challengeId = crypto.randomBytes(24).toString("base64url");
+  const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
+  try {
+    if (verificationDebugAllowed(req)) {
+      // Explicit test mode bypasses delivery without exposing production codes.
+    } else if (type === "email") await sendEmailVerificationCode(value, code, purpose);
+    else if (type === "phone") await sendPhoneVerificationCode(value, code, purpose);
+    else throw authDeliveryError("不支持的验证方式。");
+  } catch (error) {
+    if (verificationTargetSends.get(targetKey) === now) verificationTargetSends.delete(targetKey);
+    targetWindow.count = Math.max(0, targetWindow.count - 1);
+    throw error;
+  }
+  accountVerificationStore.challenges[challengeId] = {
+    type,
+    value,
+    purpose,
+    accountId: purpose === "bind" ? String(accountId || "") : "",
+    codeHash: verificationCodeHash(challengeId, code),
+    createdAt: now,
+    expiresAt: now + AUTH_VERIFICATION_TTL_MS,
+    attempts: 0,
+  };
+  saveAccountVerifications();
+  return {
+    challengeId,
+    expiresIn: Math.floor(AUTH_VERIFICATION_TTL_MS / 1000),
+    debugCode: verificationDebugAllowed(req) ? code : undefined,
+  };
+}
+
+function consumeVerificationChallenge(challengeId, type, value, purpose, code, accountId = "") {
+  const id = String(challengeId || "");
+  const challenge = accountVerificationStore.challenges[id];
+  if (!challenge) throw authDeliveryError("验证码已失效，请重新发送。", 400);
+  const now = Date.now();
+  if (Number(challenge.expiresAt) <= now) {
+    delete accountVerificationStore.challenges[id];
+    saveAccountVerifications();
+    throw authDeliveryError("验证码已过期，请重新发送。", 400);
+  }
+  if (Number(challenge.attempts) >= AUTH_VERIFICATION_MAX_ATTEMPTS) {
+    delete accountVerificationStore.challenges[id];
+    saveAccountVerifications();
+    throw authDeliveryError("验证码尝试次数过多，请重新发送。", 429);
+  }
+  challenge.attempts = Number(challenge.attempts || 0) + 1;
+  const normalizedValue = normalizeContactValue(type, value);
+  const valid =
+    challenge.type === type &&
+    challenge.value === normalizedValue &&
+    challenge.purpose === purpose &&
+    String(challenge.accountId || "") === String(accountId || "") &&
+    safeEqualText(verificationCodeHash(id, code), challenge.codeHash);
+  if (!valid) {
+    saveAccountVerifications();
+    throw authDeliveryError("验证码不正确。", 400);
+  }
+  delete accountVerificationStore.challenges[id];
+  saveAccountVerifications();
+  return { type, value: normalizedValue };
+}
+
+function oauthProviderConfig(provider) {
+  if (provider === "qq" && QQ_OAUTH_ENABLED) {
+    return {
+      provider,
+      clientId: String(process.env.QQ_OAUTH_CLIENT_ID || "").trim(),
+      clientSecret: String(process.env.QQ_OAUTH_CLIENT_SECRET || "").trim(),
+      redirectUri:
+        String(process.env.QQ_OAUTH_REDIRECT_URI || "").trim() ||
+        `${AUTH_PUBLIC_BASE}/api/account/oauth/qq/callback`,
+    };
+  }
+  if (provider === "wechat" && WECHAT_OAUTH_ENABLED) {
+    return {
+      provider,
+      clientId: String(process.env.WECHAT_OAUTH_APP_ID || "").trim(),
+      clientSecret: String(process.env.WECHAT_OAUTH_APP_SECRET || "").trim(),
+      redirectUri:
+        String(process.env.WECHAT_OAUTH_REDIRECT_URI || "").trim() ||
+        `${AUTH_PUBLIC_BASE}/api/account/oauth/wechat/callback`,
+    };
+  }
+  return null;
+}
+
+function oauthStateSignature(state) {
+  return crypto.createHmac("sha256", PLAYER_SESSION_SECRET).update(`oauth|${state}`).digest("hex");
+}
+
+function oauthStateCookie(state) {
+  return clientCookie("pt_oauth_state", `${state}.${oauthStateSignature(state)}`, 10 * 60);
+}
+
+function verifiedOAuthStateCookie(value) {
+  const [state, signature, extra] = String(value || "").split(".");
+  if (extra !== undefined || !/^[A-Za-z0-9_-]{20,80}$/.test(state || "")) return "";
+  return safeEqualText(signature || "", oauthStateSignature(state)) ? state : "";
+}
+
+function createOAuthState(provider, intent, ctx, accountId = "") {
+  const now = Date.now();
+  for (const [state, record] of oauthLoginStates) {
+    if (now - Number(record.createdAt || 0) > 10 * 60 * 1000) oauthLoginStates.delete(state);
+  }
+  while (oauthLoginStates.size >= 5000) {
+    oauthLoginStates.delete(oauthLoginStates.keys().next().value);
+  }
+  const state = crypto.randomBytes(24).toString("base64url");
+  oauthLoginStates.set(state, {
+    provider,
+    intent,
+    accountId: intent === "bind" ? String(accountId || "") : "",
+    browserId: ctx.browserId,
+    createdAt: now,
+  });
+  return state;
+}
+
+function consumeOAuthState(provider, state, cookieValue, ctx) {
+  const signedState = verifiedOAuthStateCookie(cookieValue);
+  const record = oauthLoginStates.get(String(state || ""));
+  oauthLoginStates.delete(String(state || ""));
+  if (
+    !record ||
+    signedState !== state ||
+    record.provider !== provider ||
+    record.browserId !== ctx.browserId ||
+    Date.now() - Number(record.createdAt || 0) > 10 * 60 * 1000
+  ) {
+    throw authDeliveryError("第三方登录状态已失效，请重新发起。", 400);
+  }
+  return record;
+}
+
+async function fetchOAuthJson(url, options = {}) {
+  const response = await fetch(url, {
+    ...options,
+    signal: AbortSignal.timeout(15_000),
+  });
+  const text = await response.text();
+  if (!response.ok) throw authDeliveryError("第三方平台暂时无法完成登录。", 502);
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw authDeliveryError("第三方平台返回了无法识别的数据。", 502);
+  }
+}
+
+async function exchangeQQCode(config, code) {
+  const tokenParams = new URLSearchParams({
+    grant_type: "authorization_code",
+    client_id: config.clientId,
+    client_secret: config.clientSecret,
+    code,
+    redirect_uri: config.redirectUri,
+    fmt: "json",
+  });
+  const token = await fetchOAuthJson(`https://graph.qq.com/oauth2.0/token?${tokenParams}`);
+  const accessToken = String(token.access_token || "");
+  if (!accessToken) throw authDeliveryError("QQ 登录未能取得授权。", 502);
+  const me = await fetchOAuthJson(
+    `https://graph.qq.com/oauth2.0/me?${new URLSearchParams({ access_token: accessToken, fmt: "json" })}`
+  );
+  const openid = String(me.openid || "");
+  if (!openid) throw authDeliveryError("QQ 登录未能取得用户标识。", 502);
+  let nickname = "";
+  let avatar = "";
+  try {
+    const profile = await fetchOAuthJson(
+      `https://graph.qq.com/user/get_user_info?${new URLSearchParams({
+        access_token: accessToken,
+        oauth_consumer_key: config.clientId,
+        openid,
+      })}`
+    );
+    nickname = String(profile.nickname || "").slice(0, 20);
+    avatar = String(profile.figureurl_qq_2 || profile.figureurl_qq_1 || "").slice(0, 500);
+  } catch {}
+  return { openid, nickname, avatar };
+}
+
+async function exchangeWechatCode(config, code) {
+  const token = await fetchOAuthJson(
+    `https://api.weixin.qq.com/sns/oauth2/access_token?${new URLSearchParams({
+      appid: config.clientId,
+      secret: config.clientSecret,
+      code,
+      grant_type: "authorization_code",
+    })}`
+  );
+  const accessToken = String(token.access_token || "");
+  const openid = String(token.openid || "");
+  if (!accessToken || !openid) throw authDeliveryError("微信登录未能取得授权。", 502);
+  const profile = await fetchOAuthJson(
+    `https://api.weixin.qq.com/sns/userinfo?${new URLSearchParams({
+      access_token: accessToken,
+      openid,
+      lang: "zh_CN",
+    })}`
+  );
+  return {
+    openid,
+    unionid: String(profile.unionid || token.unionid || "").slice(0, 128),
+    nickname: String(profile.nickname || "").slice(0, 20),
+    avatar: String(profile.headimgurl || "").slice(0, 500),
+  };
+}
+
 function signToken(exp) {
   return crypto.createHmac("sha256", ADMIN_SESSION_SECRET).update(String(exp)).digest("hex");
 }
@@ -1943,6 +2588,15 @@ const accountMigration = migrateAccountFilesAtRest();
 if (accountMigration.encrypted || accountMigration.unreadable) {
   console.log(
     `账号数据加密迁移：已加密 ${accountMigration.encrypted} 个文件，无法读取 ${accountMigration.unreadable} 个文件。`
+  );
+}
+const accountIndexMigration = rebuildAccountIndex();
+if (
+  accountIndexMigration.before !== accountIndexMigration.after ||
+  accountMigration.encrypted
+) {
+  console.log(
+    `账号索引校验：账号 ${accountIndexMigration.before} → ${accountIndexMigration.after}`
   );
 }
 if (!Object.keys(accountIndex.users || {}).length) {
@@ -2417,6 +3071,23 @@ function requestRateLimit(req, pathname, sid, ip) {
     ipLimit = 10;
     windowMs = 60 * 60 * 1000;
     bucketName = "account-register";
+  } else if (pathname === "/api/account/verification/send") {
+    limit = 8;
+    ipLimit = 15;
+    windowMs = 60 * 60 * 1000;
+    bucketName = "account-verification-send";
+  } else if (
+    [
+      "/api/account/register/contact",
+      "/api/account/login/contact",
+      "/api/account/recover/contact",
+      "/api/account/identities/bind",
+    ].includes(pathname)
+  ) {
+    limit = 30;
+    ipLimit = 60;
+    windowMs = 60 * 60 * 1000;
+    bucketName = "account-contact-auth";
   } else if (pathname === "/api/account/login") {
     limit = 30;
     ipLimit = 60;
@@ -3957,11 +4628,13 @@ async function handleRequest(req, res) {
       return send(res, 200, {
         loggedIn: false,
         ownerMode: Boolean(entry.owner),
+        authProviders: authProviderCapabilities(),
         profile: publicProfileView(loadProfileFor(entry.sid)),
       });
     }
     return send(res, 200, {
       loggedIn: true,
+      authProviders: authProviderCapabilities(),
       account: publicAccountView(account, ctx.device?.id),
       profile: publicProfileView(loadProfileFor(account.id)),
     });
@@ -3993,6 +4666,8 @@ async function handleRequest(req, res) {
       id: baseId,
       name,
       nameKey: accountNameKey(name),
+      identities: {},
+      passwordSet: true,
       password: makePasswordRecord(password),
       recovery: makeRecoveryRecord(recoveryCode),
       recoveryCreatedAt: now,
@@ -4043,7 +4718,7 @@ async function handleRequest(req, res) {
     }
     const accountId = accountIdByName(name);
     const account = accountId ? loadAccount(accountId) : null;
-    const passwordOk = account
+    const passwordOk = account && accountHasPassword(account)
       ? verifyPassword(password, account.password)
       : (verifyPassword(password, DUMMY_PASSWORD_RECORD), false);
     if (!account || !passwordOk) {
@@ -4086,6 +4761,7 @@ async function handleRequest(req, res) {
     account.password = makePasswordRecord(password);
     account.recovery = makeRecoveryRecord(nextRecoveryCode);
     account.recoveryCreatedAt = Date.now();
+    delete account.pendingRecoveryCode;
     account.devices = [];
     appendAccountLog(account, "recovery", "使用恢复码重置密码并撤销全部旧设备", req);
     const issued = establishAccountSession(res, account, req, "recovery-login", "恢复后在新设备建立会话");
@@ -4096,6 +4772,452 @@ async function handleRequest(req, res) {
       recoveryCode: nextRecoveryCode,
       warning: "恢复码已更新，只显示这一次。",
     });
+  }
+
+  if (p === "/api/account/verification/send" && req.method === "POST") {
+    const body = await readBody(req);
+    const type = String(body.type || "");
+    const purpose = String(body.purpose || "");
+    if (!["email", "phone"].includes(type) || !["register", "login", "recover", "bind"].includes(purpose)) {
+      return accountError(res, "验证方式或用途无效。");
+    }
+    const value = normalizeContactValue(type, body.value);
+    if (!value) return accountError(res, type === "email" ? "请输入有效邮箱地址。" : "请输入带国家区号的有效手机号。");
+    const currentAccount = accountFromCtx(ctx);
+    if (purpose === "bind") {
+      if (!currentAccount) return accountError(res, "请先登录账号再绑定。", 401);
+      if (accountIdentity(currentAccount, type)?.value === value) {
+        return accountError(res, "当前账号已经绑定这个身份。", 409);
+      }
+    }
+    if (purpose === "register" && currentAccount) {
+      return accountError(res, "当前已经登录账号，请从账号管理页绑定新身份。", 409);
+    }
+    const existingId = identityAccountId(type, value);
+    if (purpose === "register" && existingId) {
+      return accountError(res, "该邮箱或手机号已经绑定账号，请直接登录或使用找回。", 409);
+    }
+    if (purpose === "bind" && existingId && existingId !== currentAccount?.id) {
+      return accountError(res, "该身份已绑定其他账号。", 409);
+    }
+    try {
+      const issued = await issueVerificationChallenge(
+        req,
+        type,
+        value,
+        purpose,
+        purpose === "bind" ? currentAccount?.id : ""
+      );
+      return send(res, 200, {
+        ok: true,
+        challengeId: issued.challengeId,
+        expiresIn: issued.expiresIn,
+        masked: maskedIdentity(type, value),
+        debugCode: issued.debugCode,
+      });
+    } catch (error) {
+      return accountError(res, String(error.message || error), Number(error.status) || 503);
+    }
+  }
+
+  if (p === "/api/account/register/contact" && req.method === "POST") {
+    if (entry.owner) return accountError(res, "房主身份不能通过玩家注册接口创建账号。", 403);
+    if (accountFromCtx(ctx)) return accountError(res, "当前已经登录账号，请先退出后再注册新账号。", 409);
+    const body = await readBody(req);
+    const type = String(body.type || "");
+    if (!["email", "phone"].includes(type)) return accountError(res, "注册方式无效。");
+    const value = normalizeContactValue(type, body.value);
+    const name = normalizeAccountName(body.name);
+    const password = String(body.password || "");
+    const confirmPassword = String(body.confirmPassword || password);
+    if (!value) return accountError(res, type === "email" ? "请输入有效邮箱地址。" : "请输入带国家区号的有效手机号。");
+    if (!validAccountName(name)) {
+      return accountError(res, "昵称需为 2–20 个汉字、字母、数字、下划线或短横线。");
+    }
+    if (password.length < 8 || password.length > 128) return accountError(res, "密码长度需为 8–128 个字符。");
+    if (password !== confirmPassword) return accountError(res, "两次输入的密码不一致。");
+    if (nicknameInUse(name, entry.sid)) return accountError(res, "这个昵称已经被使用。", 409);
+    if (identityAccountId(type, value)) {
+      return accountError(res, "该邮箱或手机号已经绑定账号。", 409);
+    }
+    let verified;
+    try {
+      verified = consumeVerificationChallenge(
+        body.challengeId,
+        type,
+        value,
+        "register",
+        body.code
+      );
+    } catch (error) {
+      return accountError(res, String(error.message || error), Number(error.status) || 400);
+    }
+    const baseId = /^[a-f0-9]{16,40}$/i.test(entry.sid) && !isAccountId(entry.sid)
+      ? entry.sid.toLowerCase()
+      : crypto.randomBytes(12).toString("hex");
+    if (loadAccount(baseId)) return accountError(res, "账号身份冲突，请刷新后重试。", 409);
+    const created = createAccountRecord({
+      id: baseId,
+      name,
+      password,
+      passwordSet: true,
+      identities: {
+        [verified.type]: {
+          value: verified.value,
+          verifiedAt: Date.now(),
+          addedAt: Date.now(),
+        },
+      },
+      req,
+      browserId: ctx.browserId,
+    });
+    try {
+      saveProfileFor(created.account.id, { name, privacyAccepted: true });
+    } catch (error) {
+      delete accountIndex.users[created.account.nameKey];
+      removeAccountIdentityIndex(created.account.id);
+      removeRiskFingerprint(created.account.id);
+      accountIdSetCache = null;
+      writeJsonFile(ACCOUNT_INDEX_FILE, accountIndex);
+      invalidateAccountCache(created.account.id);
+      try {
+        if (fs.existsSync(accountFile(created.account.id))) fs.unlinkSync(accountFile(created.account.id));
+      } catch {}
+      return accountError(res, String(error.message || error));
+    }
+    const issued = establishAccountSession(
+      res,
+      created.account,
+      req,
+      "register-contact",
+      `通过${type === "email" ? "邮箱" : "手机号"}注册并登录`
+    );
+    return send(res, 201, {
+      ok: true,
+      account: publicAccountView(created.account, issued.device.id),
+      profile: publicProfileView(loadProfileFor(created.account.id)),
+      recoveryCode: created.recoveryCode,
+      warning: "恢复码只显示这一次，请离线妥善保存。",
+    });
+  }
+
+  if (p === "/api/account/login/contact" && req.method === "POST") {
+    if (accountFromCtx(ctx)) return accountError(res, "当前已经登录账号，请先退出后再登录其他账号。", 409);
+    const body = await readBody(req);
+    const type = String(body.type || "");
+    if (!["email", "phone"].includes(type)) return accountError(res, "登录方式无效。");
+    const value = normalizeContactValue(type, body.value);
+    const code = String(body.code || "");
+    const password = String(body.password || "");
+    if (!value) return accountError(res, type === "email" ? "请输入有效邮箱地址。" : "请输入带国家区号的有效手机号。");
+    if (!code && !password) return accountError(res, "请输入密码或验证码。");
+    const loginKey = `${requestClientIp(req)}|${identityDigest(type, value)}`;
+    if (accountLoginBlocked(loginKey)) {
+      return accountError(res, "登录失败次数过多，请 15 分钟后再试。", 429);
+    }
+    let account = null;
+    if (code) {
+      try {
+        consumeVerificationChallenge(body.challengeId, type, value, "login", code);
+      } catch (error) {
+        recordAccountLoginFail(loginKey);
+        return accountError(res, String(error.message || error), Number(error.status) || 401);
+      }
+      account = loadAccount(identityAccountId(type, value));
+    } else {
+      account = loadAccount(identityAccountId(type, value));
+      const passwordOk = accountHasPassword(account)
+        ? verifyPassword(password, account.password)
+        : (verifyPassword(password, DUMMY_PASSWORD_RECORD), false);
+      if (!account || !passwordOk) {
+        recordAccountLoginFail(loginKey);
+        return accountError(res, "账号标识或密码错误。", 401);
+      }
+    }
+    if (!account) {
+      recordAccountLoginFail(loginKey);
+      return accountError(res, "该身份尚未绑定账号。", 401);
+    }
+    accountLoginFails.delete(loginKey);
+    const issued = establishAccountSession(
+      res,
+      account,
+      req,
+      "login-contact",
+      `通过${type === "email" ? "邮箱" : "手机号"}${code ? "验证码" : "密码"}登录`
+    );
+    return send(res, 200, {
+      ok: true,
+      account: publicAccountView(account, issued.device.id),
+      profile: publicProfileView(loadProfileFor(account.id)),
+    });
+  }
+
+  if (p === "/api/account/recover/contact" && req.method === "POST") {
+    const body = await readBody(req);
+    const type = String(body.type || "");
+    if (!["email", "phone"].includes(type)) return accountError(res, "找回方式无效。");
+    const value = normalizeContactValue(type, body.value);
+    const password = String(body.password || "");
+    const confirmPassword = String(body.confirmPassword || password);
+    if (!value) return accountError(res, type === "email" ? "请输入有效邮箱地址。" : "请输入带国家区号的有效手机号。");
+    if (password.length < 8 || password.length > 128) return accountError(res, "新密码长度需为 8–128 个字符。");
+    if (password !== confirmPassword) return accountError(res, "两次输入的新密码不一致。");
+    try {
+      consumeVerificationChallenge(body.challengeId, type, value, "recover", body.code);
+    } catch (error) {
+      return accountError(res, String(error.message || error), Number(error.status) || 400);
+    }
+    const account = loadAccount(identityAccountId(type, value));
+    if (!account) return accountError(res, "该身份尚未绑定账号。", 401);
+    const nextRecoveryCode = makeRecoveryCode();
+    account.password = makePasswordRecord(password);
+    account.passwordSet = true;
+    account.recovery = makeRecoveryRecord(nextRecoveryCode);
+    account.recoveryCreatedAt = Date.now();
+    delete account.pendingRecoveryCode;
+    account.devices = [];
+    appendAccountLog(
+      account,
+      "recovery-contact",
+      `通过${type === "email" ? "邮箱" : "手机号"}验证码重置密码并撤销全部旧设备`,
+      req
+    );
+    const issued = establishAccountSession(
+      res,
+      account,
+      req,
+      "recovery-contact-login",
+      "联系方式验证后建立新会话"
+    );
+    return send(res, 200, {
+      ok: true,
+      account: publicAccountView(account, issued.device.id),
+      profile: publicProfileView(loadProfileFor(account.id)),
+      recoveryCode: nextRecoveryCode,
+      warning: "恢复码已更新，只显示这一次。",
+    });
+  }
+
+  if (p === "/api/account/identities/bind" && req.method === "POST") {
+    const account = accountFromCtx(ctx);
+    if (!account) return accountError(res, "请先登录账号。", 401);
+    const body = await readBody(req);
+    const type = String(body.type || "");
+    if (!["email", "phone"].includes(type)) return accountError(res, "绑定方式无效。");
+    const value = normalizeContactValue(type, body.value);
+    if (!value) return accountError(res, type === "email" ? "请输入有效邮箱地址。" : "请输入带国家区号的有效手机号。");
+    const existingId = identityAccountId(type, value);
+    if (existingId && existingId !== account.id) {
+      return accountError(res, "该身份已经绑定其他账号。", 409);
+    }
+    try {
+      consumeVerificationChallenge(body.challengeId, type, value, "bind", body.code, account.id);
+    } catch (error) {
+      return accountError(res, String(error.message || error), Number(error.status) || 400);
+    }
+    account.identities = account.identities && typeof account.identities === "object"
+      ? account.identities
+      : {};
+    account.identities[type] = {
+      value,
+      verifiedAt: Date.now(),
+      addedAt: Date.now(),
+    };
+    appendAccountLog(account, `identity-bind-${type}`, `绑定${type === "email" ? "邮箱" : "手机号"}身份`, req, ctx.device?.id);
+    saveAccount(account);
+    return send(res, 200, {
+      ok: true,
+      account: publicAccountView(account, ctx.device?.id),
+    });
+  }
+
+  if (p === "/api/account/identities/unlink" && req.method === "POST") {
+    const account = accountFromCtx(ctx);
+    if (!account) return accountError(res, "请先登录账号。", 401);
+    const body = await readBody(req);
+    const type = String(body.type || "");
+    if (!ACCOUNT_IDENTITY_TYPES.has(type) || !accountIdentity(account, type)) {
+      return accountError(res, "该身份尚未绑定。", 404);
+    }
+    const linkedCount = [...ACCOUNT_IDENTITY_TYPES].filter((item) => accountIdentity(account, item)).length;
+    const remaining = (accountHasPassword(account) ? 1 : 0) + linkedCount - 1;
+    if (remaining < 1) {
+      return accountError(res, "这是账号最后的登录方式，请先设置密码或绑定其他身份。", 409);
+    }
+    delete account.identities[type];
+    appendAccountLog(account, `identity-unlink-${type}`, "解绑账号登录身份", req, ctx.device?.id);
+    saveAccount(account);
+    return send(res, 200, {
+      ok: true,
+      account: publicAccountView(account, ctx.device?.id),
+    });
+  }
+
+  if (p === "/api/account/recovery/reveal" && req.method === "GET") {
+    const account = accountFromCtx(ctx);
+    if (!account) return accountError(res, "请先登录账号。", 401);
+    const recoveryCode = String(account.pendingRecoveryCode || "");
+    if (!recoveryCode) return accountError(res, "没有待展示的恢复码。", 404);
+    delete account.pendingRecoveryCode;
+    appendAccountLog(account, "recovery-code-reveal", "首次展示一次性恢复码", req, ctx.device?.id);
+    saveAccount(account);
+    return send(res, 200, {
+      ok: true,
+      recoveryCode,
+      warning: "恢复码只显示这一次，请离线妥善保存。",
+    });
+  }
+
+  const oauthRoute = p.match(/^\/api\/account\/oauth\/(qq|wechat)\/(start|callback)$/);
+  if (oauthRoute) {
+    const provider = oauthRoute[1];
+    const action = oauthRoute[2];
+    if (entry.owner) return accountError(res, "房主模式不创建玩家第三方账号。", 403);
+    const limited = hitRateBucket(
+      `ip:${requestClientIp(req)}|oauth-${action}`,
+      action === "start" ? 30 : 60,
+      10 * 60 * 1000
+    );
+    if (limited) return accountError(res, `请求过于频繁，请在 ${limited.retry} 秒后重试。`, 429);
+    const config = oauthProviderConfig(provider);
+    if (!config) return accountError(res, "该第三方登录方式尚未由网站管理员配置。", 503);
+    if (action === "start") {
+      const currentAccount = accountFromCtx(ctx);
+      const requestedIntent = String(url.searchParams.get("intent") || "");
+      const intent = currentAccount || requestedIntent === "bind" ? "bind" : "login";
+      const state = createOAuthState(provider, intent, ctx, currentAccount?.id);
+      setCookie(res, oauthStateCookie(state));
+      const redirectUri = config.redirectUri;
+      let authorizeUrl = "";
+      if (provider === "qq") {
+        authorizeUrl = `https://graph.qq.com/oauth2.0/authorize?${new URLSearchParams({
+          response_type: "code",
+          client_id: config.clientId,
+          redirect_uri: redirectUri,
+          state,
+          scope: "get_user_info",
+        })}`;
+      } else {
+        authorizeUrl = `https://open.weixin.qq.com/connect/qrconnect?${new URLSearchParams({
+          appid: config.clientId,
+          redirect_uri: redirectUri,
+          response_type: "code",
+          scope: "snsapi_login",
+          state,
+        })}#wechat_redirect`;
+      }
+      res.setHeader("location", authorizeUrl);
+      return send(res, 302, "");
+    }
+    const cookieState = parseCookies(req.headers.cookie).pt_oauth_state;
+    let stateRecord;
+    try {
+      stateRecord = consumeOAuthState(provider, url.searchParams.get("state"), cookieState, ctx);
+    } catch (error) {
+      return accountError(res, String(error.message || error), Number(error.status) || 400);
+    }
+    setCookie(res, clientCookie("pt_oauth_state", "", 0));
+    if (url.searchParams.get("error")) {
+      res.setHeader("location", "/");
+      return send(res, 302, "");
+    }
+    const code = String(url.searchParams.get("code") || "");
+    if (!code || code.length > 512) return accountError(res, "第三方平台没有返回有效授权码。", 400);
+    let external;
+    try {
+      external =
+        provider === "qq"
+          ? await exchangeQQCode(config, code)
+          : await exchangeWechatCode(config, code);
+    } catch (error) {
+      return accountError(res, String(error.message || error), Number(error.status) || 502);
+    }
+    const mappedId = identityAccountId(provider, external.openid);
+    const currentAccount = accountFromCtx(ctx);
+    if (
+      stateRecord.intent === "bind" &&
+      (!currentAccount || currentAccount.id !== stateRecord.accountId)
+    ) {
+      return accountError(res, "发起绑定时的账号会话已变化，请重新开始绑定。", 409);
+    }
+    let account = mappedId ? loadAccount(mappedId) : null;
+    if (account && currentAccount && account.id !== currentAccount.id) {
+      return accountError(res, "该第三方账号已经绑定其他玩家账号。", 409);
+    }
+    if (!account) {
+      if (currentAccount) {
+        account = currentAccount;
+      } else {
+        const baseId = /^[a-f0-9]{16,40}$/i.test(entry.sid) && !isAccountId(entry.sid)
+          ? entry.sid.toLowerCase()
+          : crypto.randomBytes(12).toString("hex");
+        const preferred = external.nickname || `${provider === "qq" ? "QQ" : "微信"}玩家`;
+        const name = makeUniqueAccountName(preferred, entry.sid);
+        const identity = {
+          openid: external.openid,
+          unionid: external.unionid || "",
+          nickname: external.nickname || "",
+          avatar: external.avatar || "",
+          linkedAt: Date.now(),
+          lastLoginAt: Date.now(),
+        };
+        const created = createAccountRecord({
+          id: baseId,
+          name,
+          passwordSet: false,
+          identities: { [provider]: identity },
+          pendingRecoveryCode: true,
+          req,
+          browserId: ctx.browserId,
+        });
+        account = created.account;
+        try {
+          saveProfileFor(account.id, { name, privacyAccepted: true });
+        } catch (error) {
+          delete accountIndex.users[account.nameKey];
+          removeAccountIdentityIndex(account.id);
+          removeRiskFingerprint(account.id);
+          writeJsonFile(ACCOUNT_INDEX_FILE, accountIndex);
+          invalidateAccountCache(account.id);
+          try {
+            if (fs.existsSync(accountFile(account.id))) fs.unlinkSync(accountFile(account.id));
+          } catch {}
+          return accountError(res, String(error.message || error), 500);
+        }
+      }
+    }
+    account.identities = account.identities && typeof account.identities === "object"
+      ? account.identities
+      : {};
+    const existingIdentity = accountIdentity(account, provider);
+    if (existingIdentity && identityDigest(provider, existingIdentity.openid) !== identityDigest(provider, external.openid)) {
+      return accountError(res, `当前账号已经绑定另一个${provider === "qq" ? "QQ" : "微信"}账号。`, 409);
+    }
+    account.identities[provider] = {
+      ...(existingIdentity || {}),
+      openid: external.openid,
+      unionid: external.unionid || existingIdentity?.unionid || "",
+      nickname: external.nickname || existingIdentity?.nickname || "",
+      avatar: external.avatar || existingIdentity?.avatar || "",
+      linkedAt: Number(existingIdentity?.linkedAt) || Date.now(),
+      lastLoginAt: Date.now(),
+    };
+    appendAccountLog(
+      account,
+      existingIdentity ? "oauth-login" : "identity-bind-oauth",
+      `${provider === "qq" ? "QQ" : "微信"}${existingIdentity ? "登录" : "绑定"}`,
+      req
+    );
+    establishAccountSession(
+      res,
+      account,
+      req,
+      "oauth-login",
+      `${provider === "qq" ? "QQ" : "微信"}授权登录`
+    );
+    res.setHeader("location", "/");
+    return send(res, 302, "");
   }
 
   if (p === "/api/account/logout" && req.method === "POST") {
@@ -4115,7 +5237,17 @@ async function handleRequest(req, res) {
     const account = accountFromCtx(ctx);
     if (!account) return accountError(res, "请先登录账号。", 401);
     const body = await readBody(req);
-    if (!verifyPassword(String(body.currentPassword || ""), account.password)) {
+    const hadPassword = accountHasPassword(account);
+    if (
+      !hadPassword &&
+      Date.now() - Number(ctx.device?.createdAt || 0) > 15 * 60 * 1000
+    ) {
+      return accountError(res, "为保护账号，请退出后重新用 QQ、微信或已验证身份登录，再设置密码。", 401);
+    }
+    if (
+      hadPassword &&
+      !verifyPassword(String(body.currentPassword || ""), account.password)
+    ) {
       return accountError(res, "当前密码错误。", 401);
     }
     const password = String(body.password || "");
@@ -4126,8 +5258,15 @@ async function handleRequest(req, res) {
       return accountError(res, "两次输入的新密码不一致。");
     }
     account.password = makePasswordRecord(password);
+    account.passwordSet = true;
     account.devices = (account.devices || []).filter((device) => device.id === ctx.device?.id);
-    appendAccountLog(account, "password-change", "修改密码并退出其他设备", req, ctx.device?.id);
+    appendAccountLog(
+      account,
+      hadPassword ? "password-change" : "password-set",
+      "设置或修改密码并退出其他设备",
+      req,
+      ctx.device?.id
+    );
     saveAccount(account);
     return send(res, 200, { ok: true, account: publicAccountView(account, ctx.device?.id) });
   }
@@ -5042,8 +6181,12 @@ async function handleRequest(req, res) {
       return send(res, 400, { error: "请完整输入“删除我的数据”后再确认。" });
     }
     const deletingAccount = accountFromCtx(ctx);
-    if (deletingAccount && !verifyPassword(String(body.currentPassword || ""), deletingAccount.password)) {
-      return send(res, 400, { error: "删除已注册账号前必须输入当前密码。" });
+    if (deletingAccount && accountHasPassword(deletingAccount)) {
+      if (!verifyPassword(String(body.currentPassword || ""), deletingAccount.password)) {
+        return send(res, 400, { error: "删除已注册账号前必须输入当前密码。" });
+      }
+    } else if (deletingAccount && !verifyRecoveryCode(String(body.recoveryCode || ""), deletingAccount.recovery)) {
+      return send(res, 400, { error: "该账号尚未设置密码，请输入一次性恢复码确认注销。" });
     }
     const sid = entry.sid;
     const profile = loadProfileFor(sid);
@@ -5148,6 +6291,7 @@ async function handleRequest(req, res) {
     if (deletingAccount) {
       const key = deletingAccount.nameKey;
       if (key && accountIndex.users[key] === sid) delete accountIndex.users[key];
+      removeAccountIdentityIndex(sid);
       removeRiskFingerprint(sid);
       accountIdSetCache = null;
       writeJsonFile(ACCOUNT_INDEX_FILE, accountIndex);

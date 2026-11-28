@@ -2229,6 +2229,8 @@ async function saveMe() {
 let accountInfo = null;
 let accountAuthMode = "login";
 let accountSocialPeer = null;
+let accountVerificationChallenges = { login: "", register: "", recover: "", bind: "" };
+let accountRecoveryRevealAttemptedFor = "";
 
 function accountTime(value) {
   if (!value) return "未知时间";
@@ -2280,11 +2282,73 @@ function setAccountAuthMode(mode) {
   });
   $("account-confirm-wrap").classList.toggle("hidden", accountAuthMode === "login");
   $("account-recovery-wrap").classList.toggle("hidden", accountAuthMode !== "recover");
+  $("account-identifier-wrap").classList.toggle("hidden", false);
+  $("account-code-wrap").classList.toggle("hidden", false);
   $("account-submit").textContent =
     accountAuthMode === "register" ? "注册账号" : accountAuthMode === "recover" ? "重置密码并登录" : "登录";
   $("account-auth-status").textContent = "";
+  $("account-code-status").textContent = "";
+  accountVerificationChallenges[accountAuthMode] = "";
   $("account-auth-password").autocomplete =
     accountAuthMode === "login" ? "current-password" : "new-password";
+}
+
+function updateAccountProviders() {
+  const providers = accountInfo?.authProviders || {};
+  document.querySelectorAll("[data-oauth-provider]").forEach((button) => {
+    const provider = button.dataset.oauthProvider;
+    const enabled = Boolean(providers[provider]?.enabled);
+    button.disabled = !enabled;
+    button.title = enabled ? `使用${providers[provider].label}登录或注册` : "网站管理员尚未配置该平台";
+  });
+  document.querySelectorAll("[data-bind-oauth]").forEach((button) => {
+    const provider = button.dataset.bindOauth;
+    const enabled = Boolean(providers[provider]?.enabled);
+    button.disabled = !enabled;
+    button.title = enabled ? `绑定${providers[provider].label}` : "网站管理员尚未配置该平台";
+  });
+  if (accountInfo && !accountInfo.loggedIn) {
+    const unavailable = ["qq", "wechat"].filter((provider) => !providers[provider]?.enabled);
+    $("account-oauth-status").textContent = unavailable.length
+      ? "灰色按钮需要先在后台配置对应平台的 App ID 和密钥。"
+      : "";
+  }
+}
+
+function renderLinkedIdentities(account) {
+  const box = $("account-linked-identities");
+  box.innerHTML = "";
+  const labels = { email: "邮箱", phone: "手机号", qq: "QQ", wechat: "微信" };
+  let linked = 0;
+  for (const type of ["email", "phone", "qq", "wechat"]) {
+    const identity = account.identities?.[type];
+    if (!identity?.linked) continue;
+    linked += 1;
+    const row = el("div", "account-device");
+    const info = document.createElement("div");
+    const title = el("b", "", labels[type]);
+    const value = type === "email" || type === "phone"
+      ? identity.masked
+      : identity.nickname || "已授权";
+    info.append(title, el("div", "meta", value));
+    const unlink = el("button", "ghost", "解绑");
+    unlink.type = "button";
+    unlink.addEventListener("click", async () => {
+      if (!confirm(`确定解绑${labels[type]}？解绑后不能再使用它登录。`)) return;
+      const response = await fetch("/api/account/identities/unlink", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ type }),
+      });
+      const data = await response.json();
+      if (!response.ok) return alert(data.error || "解绑失败");
+      accountInfo.account = data.account;
+      renderAccountPanel();
+    });
+    row.append(info, unlink);
+    box.appendChild(row);
+  }
+  if (!linked) box.appendChild(el("div", "hint", "尚未绑定邮箱、手机号、QQ 或微信。"));
 }
 
 function renderAccountDevices(account) {
@@ -2343,6 +2407,20 @@ function renderAccountLogs(account) {
     "nickname-change": "昵称修改",
     "data-export": "数据导出",
     "report-submit": "举报提交",
+    "register-contact": "联系方式注册",
+    "login-contact": "联系方式登录",
+    "recovery-contact": "联系方式找回",
+    "recovery-contact-login": "找回后登录",
+    "recovery-code-reveal": "恢复码展示",
+    "password-set": "设置密码",
+    "identity-bind-email": "绑定邮箱",
+    "identity-bind-phone": "绑定手机号",
+    "identity-unlink-email": "解绑邮箱",
+    "identity-unlink-phone": "解绑手机号",
+    "identity-unlink-qq": "解绑 QQ",
+    "identity-unlink-wechat": "解绑微信",
+    "identity-bind-oauth": "绑定第三方账号",
+    "oauth-login": "第三方授权登录",
   };
   for (const log of account.securityLog || []) {
     const row = el("div", "account-row");
@@ -2364,31 +2442,72 @@ function renderAccountPanel() {
   if (!loggedIn) {
     setAccountAuthMode(accountAuthMode);
     updateAccountSummary();
+    updateAccountProviders();
     return;
   }
   const account = accountInfo.account;
   $("account-login-name").textContent = account.name;
   $("account-created").textContent =
     `注册于 ${accountTime(account.createdAt)} · 账号标识 ${account.accountIdMasked}` +
-    ` · 今日默认模型 ${account.freeCallsUsed || 0}/${account.dailyFreeCalls || "不限"}`;
+    ` · 今日默认模型 ${account.freeCallsUsed || 0}/${account.dailyFreeCalls || "不限"}` +
+    ` · ${account.passwordEnabled ? "已设置密码" : "当前使用第三方授权登录"}`;
   document.querySelector(".account-avatar").textContent = (account.name || "A").slice(0, 1);
+  $("account-current-password-wrap").classList.toggle("hidden", !account.passwordEnabled);
+  $("account-password-open").textContent = account.passwordEnabled ? "修改密码" : "设置密码";
+  renderLinkedIdentities(account);
   renderAccountDevices(account);
   renderAccountLogs(account);
+  updateAccountProviders();
   updateAccountSummary();
+  if (account.recoveryPending && accountRecoveryRevealAttemptedFor !== account.accountIdMasked) {
+    accountRecoveryRevealAttemptedFor = account.accountIdMasked;
+    fetch("/api/account/recovery/reveal", { cache: "no-store" })
+      .then(async (response) => ({ ok: response.ok, data: await response.json() }))
+      .then(({ ok, data }) => {
+        if (!ok) return;
+        prompt(data.warning || "请离线保存一次性恢复码", data.recoveryCode);
+        if (accountInfo?.account) accountInfo.account.recoveryPending = false;
+      })
+      .catch(() => {
+        accountRecoveryRevealAttemptedFor = "";
+      });
+  }
 }
 
 async function submitAccountAuth() {
+  const type = $("account-auth-identifier-type").value;
+  const identifier = $("account-auth-identifier").value.trim();
+  const code = $("account-auth-code").value.trim();
+  const challengeId = accountVerificationChallenges[accountAuthMode];
+  let endpoint = `/api/account/${accountAuthMode}`;
   const payload = {
     name: $("account-auth-name").value,
     password: $("account-auth-password").value,
     confirmPassword: $("account-auth-confirm").value,
   };
-  if (accountAuthMode === "recover") payload.recoveryCode = $("account-auth-recovery").value;
+  if (identifier) Object.assign(payload, { type, value: identifier });
+  if (code) Object.assign(payload, { code, challengeId });
+  if (accountAuthMode === "recover") {
+    payload.recoveryCode = $("account-auth-recovery").value;
+    if (identifier && code) endpoint = "/api/account/recover/contact";
+  } else if (accountAuthMode === "register" && identifier && code) {
+    endpoint = "/api/account/register/contact";
+  } else if (accountAuthMode === "login" && identifier) {
+    endpoint = "/api/account/login/contact";
+  }
+  if (identifier && !code && accountAuthMode !== "login") {
+    $("account-auth-status").textContent = "请先获取并填写验证码。";
+    return;
+  }
+  if (accountAuthMode === "login" && identifier && !code && !payload.password) {
+    $("account-auth-status").textContent = "请输入密码，或先获取并填写验证码。";
+    return;
+  }
   $("account-submit").disabled = true;
   $("account-auth-status").textContent =
     accountAuthMode === "register" ? "正在创建账号…" : accountAuthMode === "recover" ? "正在验证恢复码…" : "正在登录…";
   try {
-    const response = await fetch(`/api/account/${accountAuthMode}`, {
+    const response = await fetch(endpoint, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(payload),
@@ -2406,6 +2525,9 @@ async function submitAccountAuth() {
     $("account-auth-password").value = "";
     $("account-auth-confirm").value = "";
     $("account-auth-recovery").value = "";
+    $("account-auth-identifier").value = "";
+    $("account-auth-code").value = "";
+    accountVerificationChallenges[accountAuthMode] = "";
     await loadMe();
     await loadAccountState();
   } catch (error) {
@@ -2413,6 +2535,88 @@ async function submitAccountAuth() {
   } finally {
     $("account-submit").disabled = false;
   }
+}
+
+async function sendAccountVerificationCode(scope = accountAuthMode) {
+  const isBind = scope === "bind";
+  const type = isBind ? $("account-bind-type").value : $("account-auth-identifier-type").value;
+  const value = (isBind ? $("account-bind-value").value : $("account-auth-identifier").value).trim();
+  const button = isBind ? $("account-bind-send") : $("account-code-send");
+  const status = isBind ? $("account-bind-status") : $("account-code-status");
+  if (!value) {
+    status.textContent = type === "email" ? "请先填写邮箱。" : "请先填写带国家区号的手机号。";
+    return;
+  }
+  button.disabled = true;
+  status.textContent = "正在发送…";
+  try {
+    const response = await fetch("/api/account/verification/send", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ type, value, purpose: isBind ? "bind" : scope }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      status.textContent = data.error || "发送失败";
+      return;
+    }
+    if (isBind) {
+      $("account-bind-send").dataset.challengeId = data.challengeId;
+    } else {
+      accountVerificationChallenges[scope] = data.challengeId;
+    }
+    if (data.debugCode) {
+      if (isBind) $("account-bind-code").value = data.debugCode;
+      else $("account-auth-code").value = data.debugCode;
+    }
+    status.textContent = `验证码已发送至 ${data.masked}，10 分钟内有效。`;
+  } catch (error) {
+    status.textContent = "网络错误：" + (error.message || error);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function bindAccountIdentity() {
+  const type = $("account-bind-type").value;
+  const value = $("account-bind-value").value.trim();
+  const code = $("account-bind-code").value.trim();
+  const challengeId = $("account-bind-send").dataset.challengeId || "";
+  if (!value || !code || !challengeId) {
+    $("account-bind-status").textContent = "请先获取并填写验证码。";
+    return;
+  }
+  $("account-bind-save").disabled = true;
+  $("account-bind-status").textContent = "正在绑定…";
+  try {
+    const response = await fetch("/api/account/identities/bind", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ type, value, code, challengeId }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      $("account-bind-status").textContent = data.error || "绑定失败";
+      return;
+    }
+    $("account-bind-status").textContent = "绑定成功。";
+    $("account-bind-value").value = "";
+    $("account-bind-code").value = "";
+    delete $("account-bind-send").dataset.challengeId;
+    accountInfo.account = data.account;
+    renderAccountPanel();
+  } finally {
+    $("account-bind-save").disabled = false;
+  }
+}
+
+function syncContactInput(select, input) {
+  const phone = select.value === "phone";
+  input.type = phone ? "tel" : "email";
+  input.autocomplete = phone ? "tel" : "email";
+  input.placeholder = phone
+    ? "例如 13812345678 或 +8613812345678"
+    : "name@example.com";
 }
 
 $("account-open").addEventListener("click", () => {
@@ -2424,6 +2628,29 @@ document.querySelectorAll("[data-account-mode]").forEach((button) => {
   button.addEventListener("click", () => setAccountAuthMode(button.dataset.accountMode));
 });
 $("account-submit").addEventListener("click", submitAccountAuth);
+$("account-code-send").addEventListener("click", () => sendAccountVerificationCode(accountAuthMode));
+$("account-bind-send").addEventListener("click", () => sendAccountVerificationCode("bind"));
+$("account-bind-save").addEventListener("click", bindAccountIdentity);
+$("account-auth-identifier-type").addEventListener("change", () =>
+  syncContactInput($("account-auth-identifier-type"), $("account-auth-identifier")));
+$("account-bind-type").addEventListener("change", () =>
+  syncContactInput($("account-bind-type"), $("account-bind-value")));
+
+document.querySelectorAll("[data-oauth-provider]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const provider = button.dataset.oauthProvider;
+    if (button.disabled) return;
+    location.href = `/api/account/oauth/${provider}/start?intent=${accountInfo?.loggedIn ? "bind" : "login"}`;
+  });
+});
+
+document.querySelectorAll("[data-bind-oauth]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const provider = button.dataset.bindOauth;
+    if (button.disabled) return;
+    location.href = `/api/account/oauth/${provider}/start?intent=bind`;
+  });
+});
 
 $("account-logout").addEventListener("click", async () => {
   if (!confirm("退出当前设备的账号登录？账号资料仍会保留。")) return;
@@ -2480,6 +2707,7 @@ $("account-delete").addEventListener("click", async () => {
     body: JSON.stringify({
       confirm: confirmText,
       currentPassword: $("account-delete-password").value,
+      recoveryCode: $("account-delete-recovery").value,
     }),
   });
   const data = await response.json();
@@ -2740,16 +2968,20 @@ $("privacy-export").addEventListener("click", async () => {
 $("privacy-delete").addEventListener("click", async () => {
   const typed = prompt("此操作不可撤销。请输入“删除我的数据”以继续：");
   if (typed !== "删除我的数据") return;
-  const currentPassword = accountInfo?.loggedIn
+  const needsPassword = Boolean(accountInfo?.loggedIn && accountInfo.account?.passwordEnabled);
+  const currentPassword = needsPassword
     ? prompt("这是已注册账号，请输入当前密码以确认注销：")
     : "";
-  if (accountInfo?.loggedIn && !currentPassword) return;
+  const recoveryCode = accountInfo?.loggedIn && !needsPassword
+    ? prompt("该账号使用第三方登录且尚未设置密码，请输入一次性恢复码以确认注销：")
+    : "";
+  if (accountInfo?.loggedIn && !(needsPassword ? currentPassword : recoveryCode)) return;
   if (!confirm("最后确认：删除当前匿名身份下的资料、剧本、预设、存档和公开互动？")) return;
   $("privacy-status").textContent = "正在删除…";
   const r = await fetch("/api/privacy/delete", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ confirm: typed, currentPassword }),
+    body: JSON.stringify({ confirm: typed, currentPassword, recoveryCode }),
   });
   const data = await r.json();
   if (!r.ok) {

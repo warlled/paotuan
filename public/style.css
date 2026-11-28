@@ -2069,7 +2069,29 @@ body:has(.owner-closed-banner) #game { padding-top: 28px; }
 .account-auth-tabs button.on { color: var(--text); border-color: var(--accent); background: var(--soft); }
 .account-auth-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .account-auth-grid label { display: grid; gap: 5px; color: var(--muted); font-size: 12px; }
-.account-auth-grid input { width: 100%; box-sizing: border-box; }
+.account-auth-grid input,
+.account-auth-grid select,
+.account-input-row input,
+.account-input-row select { width: 100%; box-sizing: border-box; min-width: 0; }
+.account-input-row { display: flex; align-items: stretch; gap: 7px; }
+.account-input-row select { max-width: 104px; }
+.account-input-row button { flex: 0 0 auto; white-space: nowrap; }
+.account-oauth-box,
+.account-identity-bindings,
+.account-bind-box {
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--soft);
+}
+.account-identity-bindings h3 { margin-top: 0; }
+.account-oauth-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.account-oauth-actions button { min-width: 78px; }
+.oauth-qq:not(:disabled) { border-color: #2e8fe7; color: #74b9f3; }
+.oauth-wechat:not(:disabled) { border-color: #44b96b; color: #73d493; }
+.account-oauth-actions button:disabled { opacity: .45; cursor: not-allowed; }
+.account-bind-box { display: grid; gap: 8px; margin-top: 9px; background: transparent; }
 .account-actions { flex-wrap: wrap; margin: 11px 0; }
 .account-identity { padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--soft); }
 .account-identity > div { min-width: 0; }
@@ -2109,6 +2131,9 @@ body:has(.owner-closed-banner) #game { padding-top: 28px; }
 @media (max-width: 720px) {
   .account-auth-grid, .account-social-grid { grid-template-columns: 1fr; }
   .account-summary { align-items: flex-start; }
+  .account-input-row { flex-wrap: wrap; }
+  .account-input-row input { flex: 1 1 170px; }
+  .account-input-row select { flex: 1 1 92px; max-width: none; }
 }
 .suggestions-card {
   margin-top: 14px;
