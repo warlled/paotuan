@@ -4900,7 +4900,13 @@ async function handleRequest(req, res) {
     }
   }
 
-  if (!requestOriginAllowed(req)) {
+  /*
+   * 管理密码登录只凭密码和失败限流鉴权。部分浏览器或代理会把普通表单登录
+   * 标记成 cross-site，导致正确密码也拿不到一次校验机会。这里仅豁免这一条
+   * 登录提交；登录后的所有后台操作仍然经过完整的跨站来源检查。
+   */
+  const adminPasswordLogin = p === "/admin/login" && req.method === "POST";
+  if (!adminPasswordLogin && !requestOriginAllowed(req)) {
     return send(res, 403, { error: "跨站请求已被拒绝。" });
   }
 
@@ -4959,6 +4965,12 @@ async function handleRequest(req, res) {
       return;
     }
     res.setHeader("set-cookie", secureCookie("pt_admin", makeAdminToken(), 30 * 24 * 3600));
+    res.writeHead(302, { location: "/admin" });
+    res.end();
+    return;
+  }
+
+  if (p === "/admin/login" && req.method === "GET") {
     res.writeHead(302, { location: "/admin" });
     res.end();
     return;
