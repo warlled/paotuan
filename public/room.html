@@ -116,6 +116,8 @@
   .modal-head h2 { margin:0; }
   .modal-head button { margin-left:auto; border:0; background:transparent; color:var(--muted); font-size:17px; }
   .story-copy { white-space:pre-wrap; line-height:1.85; }
+  .opening-round { margin:12px 0; padding:11px 12px; border:1px solid var(--line); border-radius:11px; background:var(--panel2); }
+  .opening-round h3 { color:var(--accent); margin-bottom:5px; }
   .settings-grid { display:grid; grid-template-columns:1fr 1fr; gap:9px; }
   .settings-grid .span2 { grid-column:1/-1; }
   @media (max-width:1100px) { .layout { grid-template-columns:250px minmax(0,1fr); } .layout > .side-card { grid-column:1/-1; } .sticky { position:static; } }
@@ -173,7 +175,8 @@
             <label>每轮倒计时（秒）<input id="c-round" type="number" min="30" max="900" value="120"></label>
             <label class="check"><input id="c-spectators" type="checkbox" checked> 允许旁观</label>
             <label class="check"><input id="c-auto" type="checkbox"> 倒计时后自动推进</label>
-            <label class="span2">开局设定<textarea id="c-opening" rows="3" maxlength="500" placeholder="所有角色怎样聚到一起、当前冲突和开场画面"></textarea></label>
+            <label class="span2">剧本预置开场<select id="c-opening-preset"><option value="0">自动使用剧本默认开场</option></select></label>
+            <label class="span2">开局设定<textarea id="c-opening" rows="3" maxlength="2000" placeholder="所有角色怎样聚到一起、当前冲突和开场画面；留空则使用剧本预置开场"></textarea></label>
           </div>
           <div class="hint" id="scenario-detail">选择剧本后显示世界观简介和游玩标签。</div>
         </div>
@@ -497,6 +500,18 @@ function renderScenarioDetail() {
     ? `${scenario.genre || "原创"} · ${scenario.players || "2–6 人"} · ${scenario.blurb || "暂无简介"}`
     : "选择剧本后显示世界观简介和游玩标签。";
   $("c-difficulty-wrap").classList.toggle("hidden", $("c-mode").value !== "trpg");
+  const preset = $("c-opening-preset");
+  preset.innerHTML = "";
+  const auto = document.createElement("option");
+  auto.value = "0";
+  auto.textContent = "自动使用剧本默认开场";
+  preset.appendChild(auto);
+  for (const [index, text] of (scenario?.openings || []).entries()) {
+    const option = document.createElement("option");
+    option.value = String(index);
+    option.textContent = `${index + 1}. ${String(text).slice(0, 80)}`;
+    preset.appendChild(option);
+  }
 }
 
 async function loadRoomList() {
@@ -607,6 +622,7 @@ async function createRoom() {
       allowSpectators:$("c-spectators").checked,
       autoAdvance:$("c-auto").checked,
       opening:$("c-opening").value,
+      openingPresetIndex:Number($("c-opening-preset").value) || 0,
       language:window.PT_I18N?.getLanguage() || "zh-Hans",
       character:characterPayload("c"),
     });
@@ -1091,7 +1107,24 @@ function showOpening() {
   if (!room) return;
   const opening = room.opening || room.log.find((event) => event.type === "gm")?.text || room.scenario.blurb || "暂无开场";
   $("opening-title").textContent = `${room.scenario.title} · 开场`;
-  $("opening-body").innerHTML = `<div class="meta">${esc(room.scenario.genre || "")} · ${room.mode === "free" ? "自由叙事" : "跑团规则"} · ${esc(room.difficulty)}</div><p class="story-copy">${esc(opening)}</p><h3>玩家角色</h3>${room.players.map((player) => `<div class="history-item"><b>${esc(player.character.name)}</b> · ${esc(player.character.role || "")}<p>${esc(player.character.bio || "")}</p></div>`).join("")}`;
+  const openingRounds = Array.isArray(room.openingRounds) && room.openingRounds.length
+    ? room.openingRounds
+    : [{ title:"开场", text:opening, choices:[] }];
+  $("opening-body").innerHTML =
+    `<div class="meta">${esc(room.scenario.genre || "")} · ${room.mode === "free" ? "自由叙事" : "跑团规则"} · ${esc(room.difficulty)}</div>` +
+    openingRounds.map((round) => (
+      `<section class="opening-round"><h3>${esc(round.title)}</h3><p class="story-copy">${esc(round.text)}</p>` +
+      (round.choices?.length ? `<div class="suggestions">${round.choices.map((choice, index) => `<button type="button" data-opening-choice="${index}" data-opening-text="${esc(choice)}"><b>${index + 1}</b><span>${esc(choice)}</span></button>`).join("")}</div>` : "") +
+      `</section>`
+    )).join("") +
+    `<h3>玩家角色</h3>${room.players.map((player) => `<div class="history-item"><b>${esc(player.character.name)}</b> · ${esc(player.character.role || "")}<p>${esc(player.character.bio || "")}</p></div>`).join("")}`;
+  $("opening-body").querySelectorAll("[data-opening-choice]").forEach((button) => {
+    button.addEventListener("click", () => {
+      $("r-action").value = button.dataset.openingText || "";
+      $("openingModal").classList.add("hidden");
+      $("r-action").focus();
+    });
+  });
   $("openingModal").classList.remove("hidden");
 }
 

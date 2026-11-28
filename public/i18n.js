@@ -997,6 +997,8 @@
     "在主页快速创建联机房间": ["Quick-create a multiplayer room from Home", "ホームからマルチルームを自動作成", "Créer rapidement un salon depuis l'accueil", "Быстро создать комнату с главной"],
     "剧本与房间": ["Story and room", "シナリオとルーム", "Scénario et salon", "Сценарий и комната"],
     "创建并进入房间": ["Create and enter room", "作成して入室", "Créer et entrer", "Создать и войти"],
+    "剧本预置开场": ["Designed story opening", "シナリオのプリセット開始", "Ouverture scénarisée", "Подготовленное вступление"],
+    "自动使用剧本默认开场": ["Use the story's default opening automatically", "シナリオ標準の開始を使用", "Utiliser l'ouverture par défaut", "Использовать стандартное вступление"],
   };
 
   // Core Korean/German strings. Less common text is translated once through the server cache.
@@ -1287,6 +1289,8 @@
     "在主页快速创建联机房间": ["홈에서 빠르게 방 만들기", "Schnell von der Startseite erstellen"],
     "剧本与房间": ["시나리오와 방", "Szenario und Raum"],
     "创建并进入房间": ["방 만들고 입장", "Erstellen und beitreten"],
+    "剧本预置开场": ["시나리오 기본 오프닝", "Vorbereiteter Szenariostart"],
+    "自动使用剧本默认开场": ["시나리오 기본 오프닝 자동 사용", "Standard-Szenariostart verwenden"],
   };
 
   const PATTERNS = [

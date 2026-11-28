@@ -1284,6 +1284,18 @@ function ensureRoomSchema(room) {
   room.chat = Array.isArray(room.chat) ? room.chat.slice(-200) : [];
   room.rounds = Array.isArray(room.rounds) ? room.rounds.slice(-80) : [];
   room.log = Array.isArray(room.log) ? room.log.slice(-1000) : [];
+  room.opening = String(room.opening || "").slice(0, 4000);
+  room.openingPresetIndex = Math.max(0, Math.trunc(Number(room.openingPresetIndex) || 0));
+  room.openingRounds = Array.isArray(room.openingRounds)
+    ? room.openingRounds.slice(0, 8).map((item) => ({
+        id: String(item?.id || crypto.randomUUID()).slice(0, 40),
+        title: String(item?.title || "开场").slice(0, 80),
+        text: String(item?.text || "").slice(0, 2400),
+        choices: Array.isArray(item?.choices)
+          ? item.choices.map((choice) => String(choice).slice(0, 180)).slice(0, 8)
+          : [],
+      }))
+    : [];
   room.roundSeconds = Math.max(30, Math.min(900, Number(room.roundSeconds) || 120));
   room.autoAdvance = room.autoAdvance === true;
   room.roundDeadline = Math.max(0, Number(room.roundDeadline) || 0);
@@ -1339,6 +1351,70 @@ function newRoomState(scenario = {}) {
     npcs: [],
     growth: {},
   };
+}
+
+function buildRoomOpeningRounds(room) {
+  const scenario = room.scenario || {};
+  const players = room.players || [];
+  const publicNpcs = (scenario.npcs || [])
+    .slice(0, 4)
+    .map((npc) => `${npc.name}${npc.role ? `（${npc.role}）` : ""}${npc.desc ? `：${npc.desc}` : ""}`)
+    .filter(Boolean);
+  const location = String(room.openingLocation || scenario.startLocation || "当前场景");
+  const baseOpening =
+    String(room.opening || "").trim() ||
+    String(scenario.opening || "").trim() ||
+    String(scenario.fixedOpeningDesc || "").trim() ||
+    String(scenario.hook || "").trim() ||
+    String(scenario.blurb || "").trim() ||
+    `故事从“${scenario.title || "未知世界"}”的一个普通时刻开始。`;
+  const party = players
+    .map((player) => {
+      const character = player.character || {};
+      const identity = [
+        character.name || player.name || "旅人",
+        character.role,
+        character.background || character.bio,
+        character.goal ? `当前动机：${character.goal}` : "",
+      ].filter(Boolean);
+      return `${character.name || player.name || "旅人"}：${identity.slice(1).join("；") || "尚未说明来意"}`;
+    })
+    .join("\n");
+  const firstNpc = scenario.npcs?.[0];
+  const hook = String(scenario.hook || scenario.blurb || "").trim();
+  const choices = [
+    firstNpc
+      ? `先与${firstNpc.name}接触，询问这里最近发生的变化`
+      : "先与最近的在場人物接触，了解这里正在发生什么",
+    `检查${location === "当前场景" ? "眼前环境" : location}中最值得注意的细节与出口`,
+    "与同行角色交换已知信息，确认队伍状态与随身物品",
+    hook ? `顺着“${hook.slice(0, 42)}”所暗示的方向继续观察` : "沿着最明显的声响、光亮或人流方向探索",
+  ];
+  return [
+    {
+      id: "opening-scene",
+      title: `序章 · ${scenario.title || "故事起点"}`,
+      text: `${baseOpening}${scenario.background ? `\n\n${String(scenario.background).slice(0, 650)}` : ""}`,
+      choices: [],
+    },
+    {
+      id: "opening-party",
+      title: "队伍与在场人物",
+      text: [
+        `地点：${location}`,
+        party ? `队伍：\n${party}` : "队伍：尚无角色资料",
+        publicNpcs.length ? `已经可以注意到：\n${publicNpcs.join("\n")}` : "周围暂时没有明确可接触的人物。",
+        "当前没有任何强制任务或预设唯一主线。你们可以从眼前具体的人、物和地点开始行动。",
+      ].join("\n\n"),
+      choices: [],
+    },
+    {
+      id: "opening-turn",
+      title: "第一回合 · 选择从哪里开始",
+      text: "开场不会替你们决定立场。请每位玩家写下一个角色此刻真正会做的动作；不同角色的选择可以分开、并行，也可以先协商再行动。",
+      choices,
+    },
+  ];
 }
 
 function roomRevision(room) {
@@ -1450,6 +1526,8 @@ function publicRoom(room, sid) {
       blurb: room.scenario.blurb,
       playStyle: room.scenario.playStyle || "content",
       visual: room.scenario.visual || null,
+      openingOptions: (room.scenario.openingOptions || []).slice(0, 12),
+      recommendedPlayers: room.scenario.players || "",
     },
     language: engine.normalizeLanguage(room.language),
     players: room.players.map((p) => {
@@ -1529,6 +1607,8 @@ function publicRoom(room, sid) {
       clock: engine.clockText(room.state.time),
     },
     opening: room.opening || room.scenario.hook || "",
+    openingPresetIndex: Number(room.openingPresetIndex) || 0,
+    openingRounds: Array.isArray(room.openingRounds) ? room.openingRounds : [],
     research: researchSnapshot(room.research),
     myActionSubmitted: Boolean(room.actions[sid]),
     busy: Boolean(room.busy),
@@ -7150,6 +7230,16 @@ async function handleRequest(req, res) {
     if (visibility === "password" && (roomPassword.length < 4 || roomPassword.length > 64)) {
       return send(res, 400, { error: "密码房需要设置 4–64 个字符的房间密码。" });
     }
+    const openingOptions = Array.isArray(sc.openingOptions)
+      ? sc.openingOptions.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 12)
+      : [];
+    const requestedPresetIndex = Math.max(0, Math.trunc(Number(body.openingPresetIndex) || 0));
+    const selectedOpening = openingOptions[requestedPresetIndex] || "";
+    const customOpening = String(body.opening || "").trim().slice(0, 4000);
+    const openingText =
+      customOpening ||
+      selectedOpening ||
+      String(sc.opening || sc.fixedOpeningDesc || sc.hook || sc.blurb || "").trim();
     let prof = loadProfileFor(entry.sid);
     if (!prof.pid) prof = saveProfileFor(entry.sid, {});
     const cut = Date.now() - 24 * 3600 * 1000;
@@ -7174,7 +7264,9 @@ async function handleRequest(req, res) {
       allowSpectators: body.allowSpectators !== false,
       roundSeconds: Math.max(30, Math.min(900, Number(body.roundSeconds) || 120)),
       autoAdvance: body.autoAdvance === true,
-      opening: String(body.opening || "").slice(0, 500),
+      opening: openingText,
+      openingPresetIndex: selectedOpening ? requestedPresetIndex : 0,
+      openingRounds: [],
       inviteToken: crypto.randomBytes(18).toString("base64url"),
       language: engine.normalizeLanguage(body.language),
       promptProfile: loadPromptProfileFor(entry.sid),
@@ -7206,6 +7298,7 @@ async function handleRequest(req, res) {
       updatedAt: Date.now(),
     };
     room.state.status[room.players[0].pid] = initRoomStatus(room.players[0].character);
+    room.openingRounds = buildRoomOpeningRounds(room);
     rooms[code] = room;
     saveRooms();
     return send(res, 200, { ok: true, code, room: publicRoom(room, entry.sid) });
@@ -7400,6 +7493,7 @@ async function handleRequest(req, res) {
     if (!room) return send(res, 404, { error: "房间不存在" });
     if (room.hostSid !== entry.sid) return send(res, 403, { error: "只有房主可以开始" });
     ensureRoomSchema(room);
+    if (room.status !== "lobby") return send(res, 400, { error: "这局已经开始，不能重复执行开场。" });
     if (room.players.length < 2) return send(res, 400, { error: "至少需要 2 位玩家才能开始。" });
     if (!room.players.every((player) => roomReadyFor(room, player.sid))) {
       return send(res, 400, { error: "还有玩家没有点击准备。" });
@@ -7408,12 +7502,19 @@ async function handleRequest(req, res) {
     room.roundDeadline = Date.now() + room.roundSeconds * 1000;
     room.autoPilotedTurn = -1;
     room.opening = room.opening || room.scenario.hook || "";
-    if (room.opening) {
-      room.log.push({ type: "gm", text: room.opening, at: Date.now() });
+    room.openingRounds = buildRoomOpeningRounds(room);
+    for (const round of room.openingRounds) {
+      room.log.push({
+        type: "gm",
+        text: `【${round.title}】\n${round.text}`,
+        suggestions: round.choices || [],
+        at: Date.now(),
+        openingRound: true,
+      });
     }
     room.log.push({
       type: "sys",
-      text: `游戏开始，请每位玩家写下自己的行动。本轮倒计时 ${room.roundSeconds} 秒。`,
+      text: `预置开场完成。请每位玩家按照第一回合提示写下自己的行动。本轮倒计时 ${room.roundSeconds} 秒。`,
       at: Date.now(),
     });
     room.updatedAt = Date.now();

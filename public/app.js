@@ -750,6 +750,20 @@ function renderHomeMpSummary() {
   box.textContent = scenario
     ? `${scenario.genre || "原创"} · ${scenario.players || "2–6 人"} · ${scenario.blurb || "暂无简介"}`
     : "选择剧本后会显示类型、简介和推荐人数。";
+  const preset = $("home-mp-opening-preset");
+  if (preset) {
+    preset.innerHTML = "";
+    const auto = document.createElement("option");
+    auto.value = "0";
+    auto.textContent = "自动使用剧本默认开场";
+    preset.appendChild(auto);
+    for (const [index, text] of (scenario?.openings || []).entries()) {
+      const option = document.createElement("option");
+      option.value = String(index);
+      option.textContent = `${index + 1}. ${String(text).slice(0, 80)}`;
+      preset.appendChild(option);
+    }
+  }
 }
 
 function initHomeMultiplayer(data) {
@@ -790,6 +804,7 @@ function initHomeMultiplayer(data) {
           allowSpectators: $("home-mp-spectators").checked,
           autoAdvance: $("home-mp-auto").checked,
           opening: $("home-mp-opening").value,
+          openingPresetIndex: Number($("home-mp-opening-preset").value) || 0,
           language: window.PT_I18N?.getLanguage() || "zh-Hans",
           character: {
             name,
