@@ -34,6 +34,8 @@
   .color-row { display:flex; align-items:center; gap:10px; }
   .color-row .hint { line-height:1.4; }
   .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:12px; }
+  .social-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:12px; padding-top:11px; border-top:1px dashed #262b3a; }
+  .social-actions button { padding:6px 10px; font-size:12px; }
   button.primary { background:var(--accent); color:#1a1408; border:0; border-radius:9px; padding:8px 18px; font-weight:600; cursor:pointer; }
   .file { border:1px solid var(--line); border-radius:9px; padding:6px 12px; font-size:12.5px; color:var(--muted); cursor:pointer; }
   .hint { color:var(--muted); font-size:12px; }
@@ -116,7 +118,7 @@
         </div>
         <div id="owner-tools">
           <label>昵称</label>
-          <input id="in-name" maxlength="24" placeholder="你的昵称">
+          <input id="in-name" maxlength="20" placeholder="唯一昵称">
           <label>个人简介</label>
           <input id="in-bio" maxlength="200" placeholder="一句话介绍自己">
           <label>主题色</label>
@@ -129,6 +131,14 @@
             <button class="primary" id="save">保存资料</button>
           </div>
           <div class="hint" id="status" style="margin-top:8px"></div>
+        </div>
+        <div id="public-account-actions" class="social-actions hidden">
+          <button id="public-follow" class="ghost" type="button">关注</button>
+          <button id="public-friend" class="ghost" type="button">加好友</button>
+          <button id="public-message" class="ghost" type="button">私信</button>
+          <button id="public-block" class="ghost" type="button">拉黑</button>
+          <button id="public-report" class="ghost" type="button">举报</button>
+          <span id="public-social-status" class="hint"></span>
         </div>
       </div>
       <div class="card" id="notes-card" style="margin-top:16px">
@@ -156,6 +166,7 @@
 const $ = (id) => document.getElementById(id);
 let me = null;
 let avatarUrl = "";
+let publicProfileData = null;
 
 function applyTheme(color) {
   if (/^#[0-9a-f]{6}$/i.test(color || "")) document.documentElement.style.setProperty("--accent", color);
@@ -224,6 +235,7 @@ async function loadPublic(pid) {
     return;
   }
   const p = await r.json();
+  publicProfileData = p;
   document.querySelector(".top h1").textContent = (p.name || "匿名旅人") + " 的空间";
   $("name").textContent = p.name || "匿名旅人";
   $("bio").textContent = p.bio || "";
@@ -232,7 +244,113 @@ async function loadPublic(pid) {
     $("avatar").classList.add("on");
   }
   render(p.posts || []);
+  renderPublicAccountActions(p);
 }
+
+function renderPublicAccountActions(profile) {
+  const box = $("public-account-actions");
+  if (!profile?.accountRegistered || profile.isSelf) {
+    box.classList.add("hidden");
+    return;
+  }
+  box.classList.remove("hidden");
+  const relation = profile.relation || {};
+  $("public-follow").textContent = relation.following ? "取消关注" : "关注";
+  $("public-friend").textContent = relation.friend
+    ? "已是好友"
+    : relation.outgoingRequest
+      ? "好友请求已发送"
+      : relation.incomingRequest
+        ? "接受好友请求"
+        : "加好友";
+  $("public-message").classList.toggle("hidden", !relation.friend);
+  $("public-block").textContent = relation.blockedByMe ? "解除拉黑" : "拉黑";
+  $("public-social-status").textContent = profile.loggedIn ? "" : "登录账号后可以使用社交功能";
+}
+
+async function publicSocialAction(path, payload) {
+  if (!publicProfileData?.loggedIn) {
+    alert("请先在“我的 → 注册 / 登录”中登录账号。");
+    return null;
+  }
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    alert(data.error || "操作失败");
+    return null;
+  }
+  return data;
+}
+
+$("public-follow").addEventListener("click", async () => {
+  const following = !publicProfileData?.relation?.following;
+  const data = await publicSocialAction("/api/account/follow", {
+    pid: publicProfileData.pid,
+    action: following ? "follow" : "unfollow",
+  });
+  if (!data) return;
+  publicProfileData.relation = data.relation;
+  renderPublicAccountActions(publicProfileData);
+});
+
+$("public-friend").addEventListener("click", async () => {
+  const relation = publicProfileData?.relation || {};
+  if (relation.friend) return;
+  if (relation.incomingRequest) {
+    const data = await publicSocialAction("/api/account/friend/respond", {
+      requestId: relation.incomingRequest.id,
+      accept: true,
+    });
+    if (!data) return;
+    publicProfileData.relation.friend = true;
+    publicProfileData.relation.incomingRequest = null;
+  } else {
+    const data = await publicSocialAction("/api/account/friend/request", { pid: publicProfileData.pid });
+    if (!data) return;
+    publicProfileData.relation = data.relation;
+  }
+  renderPublicAccountActions(publicProfileData);
+});
+
+$("public-message").addEventListener("click", async () => {
+  if (!publicProfileData?.relation?.friend) return;
+  const text = prompt("输入私信内容：");
+  if (!text?.trim()) return;
+  const data = await publicSocialAction("/api/account/messages/send", {
+    pid: publicProfileData.pid,
+    text: text.trim(),
+  });
+  if (data) $("public-social-status").textContent = "私信已发送";
+});
+
+$("public-block").addEventListener("click", async () => {
+  const blocked = !publicProfileData?.relation?.blockedByMe;
+  if (blocked && !confirm("拉黑后将解除关注和好友关系，并阻止私信。继续吗？")) return;
+  const data = await publicSocialAction("/api/account/block", {
+    pid: publicProfileData.pid,
+    blocked,
+  });
+  if (!data) return;
+  publicProfileData.relation = data.relation;
+  renderPublicAccountActions(publicProfileData);
+});
+
+$("public-report").addEventListener("click", async () => {
+  const choice = prompt("举报原因：\n1 骚扰\n2 仇恨\n3 垃圾广告\n4 色情\n5 暴力\n6 隐私\n7 冒充\n8 其他", "1");
+  if (!choice) return;
+  const reasons = { 1: "harassment", 2: "hate", 3: "spam", 4: "sexual", 5: "violence", 6: "privacy", 7: "impersonation", 8: "other" };
+  const detail = prompt("补充说明（可不填，最多 500 字）：", "") || "";
+  const data = await publicSocialAction("/api/account/report", {
+    pid: publicProfileData.pid,
+    reason: reasons[choice] || "other",
+    detail,
+  });
+  if (data) $("public-social-status").textContent = "举报已提交，请等待管理员处理";
+});
 
 function render(posts) {
   const box = $("posts");

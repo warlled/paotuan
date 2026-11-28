@@ -27,9 +27,14 @@ const COMMUNITY_GROUPS_FILE = path.join(engine.WORK, "community-groups.json");
 const I18N_CACHE_FILE = path.join(engine.WORK, "i18n-cache.json");
 const RESEARCH_CACHE_FILE = path.join(engine.WORK, "research-cache.json");
 const SCENARIO_SOCIAL_FILE = path.join(engine.WORK, "scenario-social.json");
+const ACCOUNTS_DIR = path.join(engine.WORK, "accounts");
+const ACCOUNT_INDEX_FILE = path.join(ACCOUNTS_DIR, "index.json");
+const ACCOUNT_SOCIAL_FILE = path.join(ACCOUNTS_DIR, "social.json");
+const ACCOUNT_REPORTS_FILE = path.join(ACCOUNTS_DIR, "reports.json");
 fs.mkdirSync(SESS_DIR, { recursive: true });
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 fs.mkdirSync(USERS_DIR, { recursive: true });
+fs.mkdirSync(ACCOUNTS_DIR, { recursive: true });
 
 const UNSAFE_DYNAMIC_KEYS = new Set(["__proto__", "prototype", "constructor"]);
 
@@ -89,7 +94,7 @@ const communityLast = new Map();
 const i18nBusy = new Set();
 const SITE_THEMES = ["pink", "cream", "ink-green", "warm-brown", "night-blue", "violet-night", "pure-black"];
 const SCENARIO_VISIBILITIES = ["public", "contacts", "private"];
-const PRIVACY_VERSION = "2026-11-27-v1";
+const PRIVACY_VERSION = "2026-11-28-v2";
 const STATIC_IMAGE_MIMES = new Set(["image/png", "image/jpeg", "image/webp"]);
 
 function userFile(sid) {
@@ -197,6 +202,356 @@ function writeAccountJsonFile(file, data) {
   writeJsonFile(file, payload);
 }
 
+const ACCOUNT_NAME_RULE = /^[\p{L}\p{N}_\-\u4e00-\u9fff]{2,20}$/u;
+const ACCOUNT_DEVICE_TTL_MS = 30 * 24 * 3600 * 1000;
+const ACCOUNT_CACHE_TTL_MS = 15_000;
+const accountCache = new Map();
+let accountIndex = (() => {
+  try {
+    const data = JSON.parse(fs.readFileSync(ACCOUNT_INDEX_FILE, "utf8"));
+    return data && data.users && typeof data.users === "object"
+      ? data
+      : { version: 1, users: {}, fingerprints: { device: {}, ip: {} } };
+  } catch {
+    return { version: 1, users: {}, fingerprints: { device: {}, ip: {} } };
+  }
+})();
+if (!accountIndex.fingerprints || typeof accountIndex.fingerprints !== "object") {
+  accountIndex.fingerprints = { device: {}, ip: {} };
+}
+
+function normalizeAccountName(value) {
+  return String(value || "").normalize("NFKC").trim().replace(/\s+/g, " ");
+}
+
+function accountNameKey(value) {
+  return normalizeAccountName(value).toLocaleLowerCase("und");
+}
+
+function validAccountName(value) {
+  return ACCOUNT_NAME_RULE.test(normalizeAccountName(value));
+}
+
+function accountFile(id) {
+  const clean = String(id || "").replace(/[^a-f0-9]/gi, "");
+  return path.join(ACCOUNTS_DIR, `${clean}.json`);
+}
+
+function loadAccount(id) {
+  const key = String(id || "").replace(/[^a-f0-9]/gi, "");
+  if (!/^[a-f0-9]{16,40}$/i.test(key)) return null;
+  const cached = accountCache.get(key);
+  if (cached && Date.now() < cached.expires) return cached.value;
+  const account = readAccountJsonFile(accountFile(key), null);
+  if (!account || account.id !== key) return null;
+  accountCache.set(key, { value: account, expires: Date.now() + ACCOUNT_CACHE_TTL_MS });
+  return account;
+}
+
+function invalidateAccountCache(id) {
+  if (id) accountCache.delete(String(id));
+  else accountCache.clear();
+}
+
+function saveAccount(account, options = {}) {
+  account.updatedAt = Date.now();
+  account.securityLog = Array.isArray(account.securityLog) ? account.securityLog.slice(0, 200) : [];
+  writeAccountJsonFile(accountFile(account.id), account);
+  accountCache.set(account.id, { value: account, expires: Date.now() + ACCOUNT_CACHE_TTL_MS });
+  if (account.nameKey && options.updateIndex !== false) {
+    accountIndex.users[account.nameKey] = account.id;
+    accountIndex.updatedAt = Date.now();
+    writeJsonFile(ACCOUNT_INDEX_FILE, accountIndex);
+  }
+  return account;
+}
+
+function rebuildAccountIndex() {
+  const previous = accountIndex;
+  const next = {
+    version: 1,
+    users: {},
+    updatedAt: Date.now(),
+    fingerprints: previous.fingerprints || { device: {}, ip: {} },
+  };
+  let names = [];
+  try {
+    names = fs.readdirSync(ACCOUNTS_DIR).filter((name) => /^[a-f0-9]{16,40}\.json$/i.test(name));
+  } catch {}
+  for (const name of names) {
+    const account = loadAccount(path.basename(name, ".json"));
+    if (account?.nameKey) next.users[account.nameKey] = account.id;
+  }
+  accountIndex = next;
+  writeJsonFile(ACCOUNT_INDEX_FILE, accountIndex);
+  return { before: Object.keys(previous.users || {}).length, after: Object.keys(next.users).length };
+}
+
+function registrationRiskHashes(req, browserId) {
+  const userAgent = String(req.headers["user-agent"] || "").normalize("NFKC");
+  return {
+    deviceHash: crypto
+      .createHash("sha256")
+      .update(`device|${browserId || "missing"}|${userAgent}`)
+      .digest("hex")
+      .slice(0, 24),
+    ipHash: requestIpFingerprint(req),
+  };
+}
+
+function registerRiskFingerprint(account, req, browserId) {
+  const hashes = registrationRiskHashes(req, browserId);
+  const deviceMap = accountIndex.fingerprints.device;
+  const ipMap = accountIndex.fingerprints.ip;
+  const related = new Set([
+    ...(Array.isArray(deviceMap[hashes.deviceHash]) ? deviceMap[hashes.deviceHash] : []),
+    ...(Array.isArray(ipMap[hashes.ipHash]) ? ipMap[hashes.ipHash] : []),
+  ]);
+  related.delete(account.id);
+  deviceMap[hashes.deviceHash] = [...new Set([...(deviceMap[hashes.deviceHash] || []), account.id])].slice(-50);
+  ipMap[hashes.ipHash] = [...new Set([...(ipMap[hashes.ipHash] || []), account.id])].slice(-100);
+  account.risk = {
+    registrationDeviceHash: hashes.deviceHash,
+    registrationIpHash: hashes.ipHash,
+    relatedAccountsAtCreation: related.size,
+  };
+  return account.risk;
+}
+
+function removeRiskFingerprint(accountId) {
+  for (const map of [accountIndex.fingerprints.device, accountIndex.fingerprints.ip]) {
+    for (const key of Object.keys(map)) {
+      if (!Array.isArray(map[key])) continue;
+      map[key] = map[key].filter((id) => id !== accountId);
+      if (!map[key].length) delete map[key];
+    }
+  }
+}
+
+function riskyAccountIds() {
+  const risky = new Set();
+  for (const [hash, ids] of Object.entries(accountIndex.fingerprints.device || {})) {
+    if (!hash || !Array.isArray(ids) || ids.length < 2) continue;
+    ids.forEach((id) => risky.add(id));
+  }
+  for (const [hash, ids] of Object.entries(accountIndex.fingerprints.ip || {})) {
+    if (!hash || !Array.isArray(ids) || ids.length < 4) continue;
+    ids.forEach((id) => risky.add(id));
+  }
+  return risky;
+}
+
+function accountIdByName(name) {
+  return accountIndex.users[accountNameKey(name)] || "";
+}
+
+function isAccountId(sid) {
+  const id = String(sid || "");
+  if (!/^[a-f0-9]{16,40}$/i.test(id)) return false;
+  return Boolean(loadAccount(id));
+}
+
+const PASSWORD_HASH_OPTIONS = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
+
+function derivePassword(secret, salt) {
+  return crypto.scryptSync(String(secret), salt, 64, PASSWORD_HASH_OPTIONS);
+}
+
+function makePasswordRecord(password) {
+  const salt = crypto.randomBytes(16);
+  return {
+    algorithm: "scrypt",
+    salt: salt.toString("base64"),
+    hash: derivePassword(password, salt).toString("base64"),
+    updatedAt: Date.now(),
+  };
+}
+
+function verifyPassword(password, record) {
+  if (!record?.salt || !record?.hash) return false;
+  try {
+    const actual = derivePassword(password, Buffer.from(record.salt, "base64"));
+    const expected = Buffer.from(record.hash, "base64");
+    return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+  } catch {
+    return false;
+  }
+}
+
+const DUMMY_PASSWORD_RECORD = makePasswordRecord(crypto.randomBytes(24).toString("base64"));
+
+function makeRecoveryCode() {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let raw = "";
+  for (let i = 0; i < 24; i += 1) raw += alphabet[crypto.randomInt(0, alphabet.length)];
+  return raw.match(/.{1,4}/g).join("-");
+}
+
+function normalizeRecoveryCode(value) {
+  return String(value || "").toUpperCase().replace(/[^A-Z2-9]/g, "");
+}
+
+function makeRecoveryRecord(code) {
+  const salt = crypto.randomBytes(16);
+  return {
+    salt: salt.toString("base64"),
+    hash: derivePassword(normalizeRecoveryCode(code), salt).toString("base64"),
+    updatedAt: Date.now(),
+  };
+}
+
+function verifyRecoveryCode(code, record) {
+  if (!record?.salt || !record?.hash) return false;
+  try {
+    const actual = derivePassword(normalizeRecoveryCode(code), Buffer.from(record.salt, "base64"));
+    const expected = Buffer.from(record.hash, "base64");
+    return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+  } catch {
+    return false;
+  }
+}
+
+const DUMMY_RECOVERY_RECORD = makeRecoveryRecord(crypto.randomBytes(24).toString("base64"));
+
+function requestIpFingerprint(req) {
+  return crypto
+    .createHash("sha256")
+    .update("ip|" + requestClientIp(req) + "|" + PLAYER_SESSION_SECRET.toString("hex"))
+    .digest("hex")
+    .slice(0, 16);
+}
+
+function deviceLabelFromRequest(req) {
+  const ua = String(req.headers["user-agent"] || "");
+  const browser = /Edg\//.test(ua)
+    ? "Edge"
+    : /Chrome\//.test(ua)
+      ? "Chrome"
+      : /Firefox\//.test(ua)
+        ? "Firefox"
+        : /Safari\//.test(ua)
+          ? "Safari"
+          : "浏览器";
+  const system = /iPhone|iPad/.test(ua)
+    ? "iOS"
+    : /Android/.test(ua)
+      ? "Android"
+      : /Windows/.test(ua)
+        ? "Windows"
+        : /Mac OS X/.test(ua)
+          ? "macOS"
+          : /Linux/.test(ua)
+            ? "Linux"
+            : "设备";
+  return `${browser} · ${system}`;
+}
+
+function appendAccountLog(account, type, summary, req, deviceId = "") {
+  account.securityLog = Array.isArray(account.securityLog) ? account.securityLog : [];
+  account.securityLog.unshift({
+    id: crypto.randomUUID(),
+    at: new Date().toISOString(),
+    type: String(type || "security").slice(0, 40),
+    summary: String(summary || "").slice(0, 200),
+    deviceId: String(deviceId || "").slice(0, 32),
+    ipHash: req ? requestIpFingerprint(req) : "",
+  });
+  account.securityLog = account.securityLog.slice(0, 200);
+}
+
+function accountDeviceToken(accountId, deviceId, secret, exp) {
+  const body = `${accountId}.${deviceId}.${secret}.${exp}`;
+  const signature = crypto.createHmac("sha256", PLAYER_SESSION_SECRET).update("device|" + body).digest("hex");
+  return `${body}.${signature}`;
+}
+
+function issueAccountDevice(account, req) {
+  const now = Date.now();
+  account.devices = Array.isArray(account.devices) ? account.devices : [];
+  if (account.devices.length >= 20) {
+    account.devices = account.devices
+      .sort((a, b) => Number(b.lastSeenAt || 0) - Number(a.lastSeenAt || 0))
+      .slice(0, 19);
+  }
+  const deviceId = crypto.randomBytes(8).toString("hex");
+  const secret = crypto.randomBytes(32).toString("base64url");
+  const exp = now + ACCOUNT_DEVICE_TTL_MS;
+  const device = {
+    id: deviceId,
+    label: deviceLabelFromRequest(req),
+    secretHash: crypto.createHash("sha256").update(secret).digest("hex"),
+    createdAt: now,
+    lastSeenAt: now,
+    expiresAt: exp,
+  };
+  account.devices.push(device);
+  return { device, cookie: accountDeviceToken(account.id, deviceId, secret, exp) };
+}
+
+function verifyAccountDeviceToken(value) {
+  const parts = String(value || "").split(".");
+  if (parts.length !== 5) return null;
+  const [accountId, deviceId, secret, expText, signature] = parts;
+  const exp = Number(expText);
+  if (!/^[a-f0-9]{16,40}$/i.test(accountId) || !/^[a-f0-9]{16,32}$/i.test(deviceId)) return null;
+  if (!secret || secret.length > 100 || signature.length !== 64) return null;
+  if (!Number.isFinite(exp) || exp <= Date.now()) return null;
+  const expected = crypto
+    .createHmac("sha256", PLAYER_SESSION_SECRET)
+    .update(`device|${accountId}.${deviceId}.${secret}.${expText}`)
+    .digest("hex");
+  if (!safeEqualText(signature, expected)) return null;
+  const account = loadAccount(accountId);
+  if (!account) return null;
+  const device = (account.devices || []).find((item) => item.id === deviceId);
+  if (!device || Number(device.expiresAt || 0) <= Date.now()) return null;
+  const actualHash = crypto.createHash("sha256").update(secret).digest("hex");
+  if (!safeEqualText(actualHash, device.secretHash)) return null;
+  const now = Date.now();
+  if (now - Number(device.lastSeenAt || 0) > 60 * 60 * 1000) {
+    device.lastSeenAt = now;
+    saveAccount(account);
+  }
+  return { account, device };
+}
+
+function accountCookie(value, maxAge = 30 * 24 * 3600) {
+  return clientCookie("pt_account", value, maxAge);
+}
+
+function publicAccountView(account, currentDeviceId = "") {
+  return {
+    accountIdMasked: account.id.slice(0, 4) + "…" + account.id.slice(-4),
+    name: account.name,
+    createdAt: account.createdAt,
+    updatedAt: account.updatedAt,
+    dailyFreeCalls: accountDailyFreeCalls,
+    freeCallsUsed: account.usage?.date === todayKey() ? Number(account.usage.calls) || 0 : 0,
+    devices: (account.devices || []).map((device) => ({
+      id: device.id,
+      label: device.label,
+      createdAt: device.createdAt,
+      lastSeenAt: device.lastSeenAt,
+      expiresAt: device.expiresAt,
+      current: device.id === currentDeviceId,
+    })),
+    securityLog: (account.securityLog || []).slice(0, 100),
+  };
+}
+
+function establishAccountSession(res, account, req, logType = "login", logSummary = "账号在该设备登录") {
+  const issued = issueAccountDevice(account, req);
+  appendAccountLog(account, logType, logSummary, req, issued.device.id);
+  saveAccount(account);
+  setCookie(res, clientCookie("tg_sid", signedSidValue(account.id), 2592000));
+  setCookie(res, accountCookie(issued.cookie, Math.floor(ACCOUNT_DEVICE_TTL_MS / 1000)));
+  return issued;
+}
+
+function accountError(res, message, status = 400) {
+  return send(res, status, { error: message });
+}
+
 function loadProfileFor(sid) {
   const cacheKey = String(sid || "");
   const cached = profileCache.get(cacheKey);
@@ -234,6 +589,10 @@ function saveProfileFor(sid, patch) {
   const current = loadProfileFor(sid);
   const pid = current.pid || crypto.randomBytes(12).toString("hex");
   const name = String(patch.name ?? current.name).trim().slice(0, 24);
+  if (Object.prototype.hasOwnProperty.call(patch, "name") && name) {
+    if (!validAccountName(name)) throw new Error("昵称需为 2–20 个汉字、字母、数字、下划线或短横线。");
+    if (nicknameInUse(name, sid)) throw new Error("这个昵称已经被其他玩家使用。");
+  }
   const bio = String(patch.bio ?? current.bio).trim().slice(0, 200);
   const theme = /^#[0-9a-f]{6}$/i.test(String(patch.theme || "")) ? String(patch.theme) : current.theme;
   const siteTheme = SITE_THEMES.includes(patch.siteTheme) ? patch.siteTheme : current.siteTheme;
@@ -592,11 +951,14 @@ function communityReplyView(reply, sid) {
 }
 
 function communityCommentView(comment, sid) {
+  const viewerAccount = loadAccount(sid);
   const identity = displayIdentityForSid(comment.sid, sid, {
     name: comment.who,
     avatar: comment.avatar,
   });
-  const replies = (comment.replies || []).map((reply) => communityReplyView(reply, sid));
+  const replies = (comment.replies || [])
+    .filter((reply) => !isSidBlockedForViewer(viewerAccount, reply.sid))
+    .map((reply) => communityReplyView(reply, sid));
   return {
     id: comment.id,
     author: identity.name,
@@ -678,6 +1040,7 @@ function feedbackReplyView(reply, sid) {
 
 function feedbackView(message, sid) {
   ensureFeedbackMessage(message);
+  const viewerAccount = loadAccount(sid);
   const identity = displayIdentityForSid(message.sid, sid, {
     name: message.name,
     avatar: message.avatar,
@@ -692,7 +1055,9 @@ function feedbackView(message, sid) {
     mine: Boolean(message.sid && message.sid === sid),
     likes: message.likes.length,
     liked: message.likes.includes(sid),
-    replies: message.replies.map((reply) => feedbackReplyView(reply, sid)),
+    replies: message.replies
+      .filter((reply) => !isSidBlockedForViewer(viewerAccount, reply.sid))
+      .map((reply) => feedbackReplyView(reply, sid)),
   };
 }
 
@@ -990,6 +1355,7 @@ function initRoomStatus(character) {
 
 function communityView(post, sid) {
   ensureCommunityComments(post);
+  const viewerAccount = loadAccount(sid);
   const identity = displayIdentityForSid(post.sid, sid, {
     pid: post.pid,
     name: post.author,
@@ -1014,7 +1380,10 @@ function communityView(post, sid) {
     scenarioId: post.scenario?.id || "",
     communityId: group?.id || "",
     communityName: group?.name || "",
-    comments: post.comments.slice(-50).map((comment) => communityCommentView(comment, sid)),
+    comments: post.comments
+      .filter((comment) => !isSidBlockedForViewer(viewerAccount, comment.sid))
+      .slice(-50)
+      .map((comment) => communityCommentView(comment, sid)),
     commentCount: post.comments.reduce((sum, comment) => sum + 1 + (comment.replies || []).length, 0),
     media: post.media || null,
     at: post.at,
@@ -1077,6 +1446,19 @@ function allProfiles() {
     .filter((f) => PROFILE_FILE_RULE.test(f))
     .map((f) => loadProfileFor(path.basename(f, ".json")))
     .filter((p) => p && p.pid && p.sid);
+}
+
+function nicknameInUse(name, excludeSid = "") {
+  const key = accountNameKey(name);
+  if (!key) return false;
+  const indexed = accountIdByName(name);
+  if (indexed && indexed !== excludeSid) return true;
+  return allProfiles().some(
+    (profile) =>
+      profile.sid !== excludeSid &&
+      profile.name &&
+      accountNameKey(profile.name) === key
+  );
 }
 
 function migrateAccountFilesAtRest() {
@@ -1142,6 +1524,7 @@ function collectUploadUrls(value, out) {
 function privacyExportData(entry) {
   const sid = entry.sid;
   const ownPostIds = new Set(community.filter((post) => post.sid === sid).map((post) => post.id));
+  const account = loadAccount(sid);
   return {
     format: "paotuan-privacy-export",
     version: 1,
@@ -1191,6 +1574,31 @@ function privacyExportData(entry) {
       .filter(([, value]) => value?.favorites?.includes(sid))
       .map(([id]) => id),
     model: publicModel(loadModelFor(sid)),
+    account: account ? publicAccountView(account) : null,
+    social: account
+      ? {
+          following: (accountSocial.follows[account.id] || []).map(accountSocialCard).filter(Boolean),
+          friends: (accountSocial.friends[account.id] || []).map(accountSocialCard).filter(Boolean),
+          blocked: (accountSocial.blocks[account.id] || []).map(accountSocialCard).filter(Boolean),
+          friendRequests: accountSocial.friendRequests.filter(
+            (item) => item.from === account.id || item.to === account.id
+          ).map((item) => ({
+            direction: item.from === account.id ? "outgoing" : "incoming",
+            status: item.status,
+            other: accountSocialCard(item.from === account.id ? item.to : item.from),
+            at: item.at,
+          })),
+          messages: accountSocial.messages.filter(
+            (message) => message.from === account.id || message.to === account.id
+          ).map((message) => ({
+            direction: message.from === account.id ? "outgoing" : "incoming",
+            other: accountSocialCard(message.from === account.id ? message.to : message.from),
+            text: message.text,
+            at: message.at,
+            readAt: message.readAt || "",
+          })),
+        }
+      : null,
   };
 }
 
@@ -1354,6 +1762,7 @@ const numOr = (value, fallback) => (Number.isFinite(Number(value)) ? Number(valu
 const guestTurnLimit = numOr(engine.config.guestTurnLimit, 60);
 const guestDailyCalls = numOr(engine.config.guestDailyCalls, 150);
 const guestHardDailyCalls = Math.max(0, numOr(process.env.GUEST_HARD_DAILY_CALLS, 1200));
+const accountDailyFreeCalls = Math.max(0, numOr(process.env.ACCOUNT_DAILY_FREE_CALLS, 200));
 const maxConcurrentModels = numOr(engine.config.maxConcurrentModels, 2);
 const TRUST_PROXY_HEADERS = /^(?:1|true|yes|on)$/i.test(
   String(process.env.TRUST_PROXY_HEADERS || process.env.RENDER || "")
@@ -1435,6 +1844,20 @@ function verifiedSid(value) {
   return safeEqualText(signature || "", sidSignature(sid)) ? sid.toLowerCase() : "";
 }
 
+function browserSignature(browserId) {
+  return crypto.createHmac("sha256", PLAYER_SESSION_SECRET).update("browser|" + browserId).digest("hex");
+}
+
+function signedBrowserValue(browserId) {
+  return `${browserId}.${browserSignature(browserId)}`;
+}
+
+function verifiedBrowserId(value) {
+  const [id, signature, extra] = String(value || "").split(".");
+  if (extra !== undefined || !/^[a-f0-9]{16,40}$/i.test(id || "")) return "";
+  return safeEqualText(signature || "", browserSignature(id)) ? id.toLowerCase() : "";
+}
+
 function isAdminReq(req) {
   return validAdminToken(parseCookies(req.headers.cookie).pt_admin);
 }
@@ -1445,6 +1868,7 @@ function isOwnerReq(req) {
 
 /* 登录失败限流：同一 IP 10 分钟内最多 8 次 */
 const loginFails = new Map();
+const accountLoginFails = new Map();
 
 function loginBlocked(ip) {
   const rec = loginFails.get(ip);
@@ -1471,6 +1895,31 @@ function recordLoginFail(ip) {
   rec.count += 1;
 }
 
+function accountLoginBlocked(key) {
+  const rec = accountLoginFails.get(key);
+  if (!rec) return false;
+  if (Date.now() > rec.reset) {
+    accountLoginFails.delete(key);
+    return false;
+  }
+  return rec.count >= 8;
+}
+
+function recordAccountLoginFail(key) {
+  if (accountLoginFails.size >= 5000 && !accountLoginFails.has(key)) {
+    const oldest = [...accountLoginFails.entries()]
+      .sort((a, b) => Number(a[1]?.reset || 0) - Number(b[1]?.reset || 0))
+      .slice(0, 500);
+    oldest.forEach(([item]) => accountLoginFails.delete(item));
+  }
+  const rec = accountLoginFails.get(key);
+  if (!rec || Date.now() > rec.reset) {
+    accountLoginFails.set(key, { count: 1, reset: Date.now() + 15 * 60 * 1000 });
+    return;
+  }
+  rec.count += 1;
+}
+
 function secureCookie(name, value, maxAge) {
   const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
   return `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${secure}`;
@@ -1491,6 +1940,36 @@ if (accountMigration.encrypted || accountMigration.unreadable) {
   console.log(
     `账号数据加密迁移：已加密 ${accountMigration.encrypted} 个文件，无法读取 ${accountMigration.unreadable} 个文件。`
   );
+}
+if (!Object.keys(accountIndex.users || {}).length) {
+  const rebuilt = rebuildAccountIndex();
+  if (rebuilt.after) console.log(`账号索引重建：${rebuilt.after} 个账号。`);
+}
+
+function normalizeAccountSocial(value) {
+  const source = value && typeof value === "object" ? value : {};
+  return {
+    version: 1,
+    updatedAt: Number(source.updatedAt) || 0,
+    follows: source.follows && typeof source.follows === "object" ? source.follows : {},
+    friends: source.friends && typeof source.friends === "object" ? source.friends : {},
+    friendRequests: Array.isArray(source.friendRequests) ? source.friendRequests.slice(0, 5000) : [],
+    blocks: source.blocks && typeof source.blocks === "object" ? source.blocks : {},
+    messages: Array.isArray(source.messages) ? source.messages.slice(-10000) : [],
+  };
+}
+
+let accountSocial = normalizeAccountSocial(readAccountJsonFile(ACCOUNT_SOCIAL_FILE, null));
+let accountReports = readAccountJsonFile(ACCOUNT_REPORTS_FILE, []);
+if (!Array.isArray(accountReports)) accountReports = [];
+
+function saveAccountSocial() {
+  accountSocial.updatedAt = Date.now();
+  writeAccountJsonFile(ACCOUNT_SOCIAL_FILE, accountSocial);
+}
+
+function saveAccountReports() {
+  writeAccountJsonFile(ACCOUNT_REPORTS_FILE, accountReports.slice(-5000));
 }
 
 function loadShareState() {
@@ -1929,6 +2408,53 @@ function requestRateLimit(req, pathname, sid, ip) {
     ipLimit = 400;
     windowMs = 60 * 60 * 1000;
     bucketName = "model-turns";
+  } else if (pathname === "/api/account/register") {
+    limit = 5;
+    ipLimit = 10;
+    windowMs = 60 * 60 * 1000;
+    bucketName = "account-register";
+  } else if (pathname === "/api/account/login") {
+    limit = 30;
+    ipLimit = 60;
+    windowMs = 60 * 60 * 1000;
+    bucketName = "account-login";
+  } else if (pathname === "/api/account/recover") {
+    limit = 8;
+    ipLimit = 12;
+    windowMs = 60 * 60 * 1000;
+    bucketName = "account-recover";
+  } else if (
+    ["/api/account/password", "/api/account/devices/revoke", "/api/account/devices/revoke-others"].includes(
+      pathname
+    )
+  ) {
+    limit = 20;
+    ipLimit = 40;
+    windowMs = 60 * 60 * 1000;
+    bucketName = "account-security";
+  } else if (pathname === "/api/account/report") {
+    limit = 20;
+    ipLimit = 30;
+    windowMs = 60 * 60 * 1000;
+    bucketName = "account-report";
+  } else if (
+    [
+      "/api/account/follow",
+      "/api/account/friend/request",
+      "/api/account/friend/respond",
+      "/api/account/friend/remove",
+      "/api/account/block",
+    ].includes(pathname)
+  ) {
+    limit = 120;
+    ipLimit = 240;
+    windowMs = 60 * 60 * 1000;
+    bucketName = "account-social";
+  } else if (pathname === "/api/account/messages/send") {
+    limit = 60;
+    ipLimit = 120;
+    windowMs = 60 * 1000;
+    bucketName = "account-message";
   } else if (pathname === "/api/research/sync") {
     limit = 30;
     ipLimit = 60;
@@ -2109,6 +2635,9 @@ function dataStats() {
     persistent: process.env.PERSISTENT === "1" || !process.env.RENDER,
     accountEncryption: Boolean(accountEncryptionKey()),
     accountKeyVersions: accountEncryptionKeys().length,
+    accounts: Object.keys(accountIndex.users || {}).length,
+    riskyAccounts: riskyAccountIds().size,
+    reports: accountReports.length,
   };
 }
 
@@ -2178,6 +2707,10 @@ function buildBackup(opts = {}) {
     for (const f of readJsonDirFiles(path.join(USERS_DIR, dir))) presets.push({ scope: "guest", sid, ...f });
   }
 
+  const accounts = readJsonDirFiles(ACCOUNTS_DIR).filter((item) =>
+    /^[a-f0-9]{16,40}\.json$/i.test(item.name)
+  );
+
   let uploadNames = [];
   try {
     uploadNames = fs.readdirSync(UPLOAD_DIR).filter((n) => UPLOAD_NAME_RULE.test(n));
@@ -2238,6 +2771,7 @@ function buildBackup(opts = {}) {
       uploads: uploads.length,
       uploadsBytes: uploadBytes,
       translations: Object.keys(i18nCache).length,
+      accounts: accounts.length,
     },
     feedback,
     votes,
@@ -2246,6 +2780,10 @@ function buildBackup(opts = {}) {
     scenarioSocial,
     rooms,
     users: readJsonDirFiles(USERS_DIR),
+    accounts,
+    accountRiskIndex: accountIndex.fingerprints,
+    accountSocial,
+    accountReports,
     sessions: readSessionFiles(SESS_DIR),
     ownerSession: engine.loadSession(path.join(engine.WORK, "session.json")),
     scenarios,
@@ -2343,6 +2881,40 @@ function restoreBackup(b) {
     else out.skipped += 1;
   }
   invalidateProfileCache();
+  for (const item of Array.isArray(b.accounts) ? b.accounts : []) {
+    const name = String(item?.name || "");
+    if (!/^[a-f0-9]{16,40}\.json$/i.test(name) || !item?.data || typeof item.data !== "object") {
+      out.skipped += 1;
+      continue;
+    }
+    const data = decryptAccountData(item.data);
+    if (!data) {
+      out.skipped += 1;
+      continue;
+    }
+    writeAccountJsonFile(path.join(ACCOUNTS_DIR, name), data);
+    out.accounts = (out.accounts || 0) + 1;
+  }
+  if (b.accountSocial && typeof b.accountSocial === "object") {
+    accountSocial = normalizeAccountSocial(b.accountSocial);
+    writeAccountJsonFile(ACCOUNT_SOCIAL_FILE, accountSocial);
+    out.accountSocial = accountSocial.messages.length;
+  }
+  if (Array.isArray(b.accountReports)) {
+    accountReports = b.accountReports.slice(-5000);
+    writeAccountJsonFile(ACCOUNT_REPORTS_FILE, accountReports);
+    out.accountReports = accountReports.length;
+  }
+  if (out.accounts) {
+    if (b.accountRiskIndex && typeof b.accountRiskIndex === "object") {
+      accountIndex.fingerprints = {
+        device: b.accountRiskIndex.device && typeof b.accountRiskIndex.device === "object" ? b.accountRiskIndex.device : {},
+        ip: b.accountRiskIndex.ip && typeof b.accountRiskIndex.ip === "object" ? b.accountRiskIndex.ip : {},
+      };
+    }
+    invalidateAccountCache();
+    rebuildAccountIndex();
+  }
   for (const s of Array.isArray(b.sessions) ? b.sessions : []) {
     const name = String(s?.name || "");
     if (!jsonName.test(name) || !s?.data || typeof s.data !== "object") {
@@ -2524,13 +3096,15 @@ function adminPage() {
     '<div class="note" style="margin-top:16px;border-top:1px solid #262b3a;padding-top:14px">',
     "<b>数据总览</b><br>在线 <b id=\"d-online\">-</b> · 游玩中 <b id=\"d-playing\">-</b> 局 / <b id=\"d-players\">-</b> 人<br>留言 <b id=\"d-fb\">-</b> · 好评 <b id=\"d-up\">-</b> · 差评 <b id=\"d-down\">-</b> · 用户 <b id=\"d-users\">-</b><br>",
     "作品 <b id=\"d-cm\">-</b> · 玩家社区 <b id=\"d-cg\">-</b> · 房间 <b id=\"d-rooms\">-</b> · 存档 <b id=\"d-sessions\">-</b> · 上传 <b id=\"d-uploads\">-</b> · 翻译缓存 <b id=\"d-tr\">-</b><br>",
+    "账号 <b id=\"d-accounts\">-</b> · 风险账号 <b id=\"d-risk-accounts\">-</b> · 举报 <b id=\"d-reports\">-</b><br>",
     '<span id="d-persist"></span>',
     '<div class="row" style="margin-top:10px">',
     '<button id="btn-backup">下载完整备份</button>',
+    '<button id="btn-reports" type="button">查看举报</button>',
     '<label style="display:inline-flex;align-items:center;gap:6px;color:#8b90a0;font-size:12.5px;cursor:pointer"><input id="backup-files" type="checkbox" checked>含上传文件</label>',
     '<label style="display:inline-block;border:1px solid #262b3a;border-radius:9px;padding:6px 12px;color:#8b90a0;font-size:12.5px;cursor:pointer">从备份恢复<input id="restore-file" type="file" accept="application/json,.json" hidden></label>',
     '<span id="d-status" style="color:#8b90a0;font-size:12px"></span>',
-    "</div></div>",
+    "</div><div id=\"admin-report-list\" style=\"margin-top:10px;color:#9fa6b8;font-size:12px;line-height:1.7\"></div></div>",
     '<div class="row" style="margin-top:18px">',
     '<form method="post" action="/admin/owner"><button class="primary" type="submit">进入房主模式</button></form>',
     '<form method="post" action="/admin/owner/off"><button type="submit">退出房主模式</button></form>',
@@ -2638,6 +3212,9 @@ function adminPage() {
     '  document.getElementById("d-up").textContent = s.up;',
     '  document.getElementById("d-down").textContent = s.down;',
     '  document.getElementById("d-users").textContent = s.users;',
+    '  document.getElementById("d-accounts").textContent = s.accounts;',
+    '  document.getElementById("d-risk-accounts").textContent = s.riskyAccounts;',
+    '  document.getElementById("d-reports").textContent = s.reports;',
     '  document.getElementById("d-cm").textContent = s.community;',
     '  document.getElementById("d-cg").textContent = s.communityGroups;',
     '  document.getElementById("d-rooms").textContent = s.rooms;',
@@ -2704,6 +3281,37 @@ function adminPage() {
     "  refresh();",
     "};",
     "refreshStats();",
+    'document.getElementById("btn-reports").onclick = async () => {',
+    '  const box = document.getElementById("admin-report-list");',
+    '  box.textContent = "正在读取举报…";',
+    '  const r = await fetch("/api/admin/reports");',
+    '  const data = await r.json();',
+    "  box.textContent = '';",
+    '  if (!r.ok) { box.textContent = data.error || "读取失败"; return; }',
+    "  if (!data.reports.length) { box.textContent = '暂无举报记录。'; return; }",
+    "  for (const item of data.reports) {",
+    "    const row = document.createElement('div');",
+    "    row.style.cssText = 'padding:9px 0;border-top:1px solid #262b3a';",
+    "    const title = document.createElement('div');",
+    "    const targetName = item.targetName || '已注销账号';",
+    "    const reporterName = item.reporterName || '已注销账号';",
+    '    title.textContent = `${targetName} · ${item.reason} · ${item.status}`;',
+    "    const detail = document.createElement('div');",
+    "    detail.textContent = `${item.detail || '无补充说明'} · 举报人 ${reporterName} · ${new Date(item.at).toLocaleString('zh-CN')}`;",
+    "    const actions = document.createElement('div');",
+    "    actions.style.cssText = 'display:flex;gap:7px;margin-top:6px';",
+    '    for (const status of ["reviewing", "resolved", "dismissed"]) {',
+    "      const button = document.createElement('button');",
+    "      button.type = 'button'; button.textContent = status;",
+    "      button.onclick = async () => {",
+    '        await fetch("/api/admin/reports", { method: "POST", headers: {"content-type":"application/json"}, body: JSON.stringify({ id: item.id, status }) });',
+    "        document.getElementById('btn-reports').click();",
+    "      };",
+    "      actions.appendChild(button);",
+    "    }",
+    "    row.append(title, detail, actions); box.appendChild(row);",
+    "  }",
+    "};",
     'document.getElementById("close").onclick = () => { if (confirm("立即关闭并锁定入口？之后只有你手动持续开放或到达定时开放时间才会恢复。")) setState(false); };',
     'document.getElementById("open0").onclick = () => setState(true);',
     'document.getElementById("save-schedule").onclick = () => saveSchedule(false);',
@@ -2723,8 +3331,16 @@ function ctxFor(req, res) {
   }
   const url = new URL(req.url, "http://x");
   const cookies = parseCookies(req.headers.cookie);
+  let browserId = verifiedBrowserId(cookies.pt_browser);
+  if (!browserId) {
+    const browserLimit = hitRateBucket(`ip-browser-id:${ip}`, 300, 10 * 60 * 1000);
+    if (!browserLimit) {
+      browserId = crypto.randomBytes(12).toString("hex");
+      setCookie(res, clientCookie("pt_browser", signedBrowserValue(browserId), 365 * 24 * 3600));
+    }
+  }
   if (isOwnerReq(req)) {
-    return { entry: getEntry("owner", true), local: false, ownerCookie: true, ip };
+    return { entry: getEntry("owner", true), local: false, ownerCookie: true, ip, browserId };
   }
   const adminPath = url.pathname === "/admin" || url.pathname.startsWith("/admin/") || url.pathname.startsWith("/api/admin/");
   if (shareKey && !adminPath) {
@@ -2732,9 +3348,29 @@ function ctxFor(req, res) {
     if (!safeEqualText(provided, shareKey)) return { denied: true, ip };
     if (!safeEqualText(cookies.rk || "", shareKey)) setCookie(res, shareCookie(shareKey, 2592000));
   }
+  const accountSession = verifyAccountDeviceToken(cookies.pt_account);
+  if (accountSession) {
+    const sid = accountSession.account.id;
+    if (verifiedSid(cookies.tg_sid) !== sid) {
+      setCookie(res, clientCookie("tg_sid", signedSidValue(sid), 2592000));
+    }
+    return {
+      entry: getEntry(sid, false),
+      local: false,
+      freshCookie: false,
+      ip,
+      account: accountSession.account,
+      device: accountSession.device,
+      browserId,
+    };
+  }
   const rawSid = String(cookies.tg_sid || "");
   let sid = verifiedSid(rawSid);
   let freshCookie = false;
+  if (sid && isAccountId(sid)) {
+    sid = "";
+    setCookie(res, clientCookie("pt_account", "", 0));
+  }
   if (!sid) {
     const limited = hitRateBucket(`ip-new-sid:${ip}`, 180, 10 * 60 * 1000);
     if (limited) return { rateLimited: limited, ip };
@@ -2744,7 +3380,15 @@ function ctxFor(req, res) {
     setCookie(res, clientCookie("tg_sid", signedSidValue(sid), 2592000));
     freshCookie = true;
   }
-  return { entry: getEntry(sid, false), local: false, freshCookie, ip };
+  return {
+    entry: getEntry(sid, false),
+    local: false,
+    freshCookie,
+    ip,
+    account: null,
+    device: null,
+    browserId,
+  };
 }
 
 /* ---------- 访客配额 ---------- */
@@ -2776,6 +3420,23 @@ function guestQuotaLeft() {
   const effective = Math.min(configured, safetyCap);
   if (!Number.isFinite(effective)) return Infinity;
   return Math.max(0, effective - readStats().calls);
+}
+
+function accountQuotaLeft(account) {
+  if (!account || accountDailyFreeCalls <= 0) return Infinity;
+  const date = todayKey();
+  const usage = account.usage?.date === date ? Number(account.usage.calls) || 0 : 0;
+  return Math.max(0, accountDailyFreeCalls - usage);
+}
+
+function recordAccountModelCall(account, count = 1) {
+  if (!account || accountDailyFreeCalls <= 0) return;
+  const date = todayKey();
+  account.usage = {
+    date,
+    calls: (account.usage?.date === date ? Number(account.usage.calls) || 0 : 0) + Math.max(1, count),
+  };
+  saveAccount(account, { updateIndex: false });
 }
 
 function translationCacheKey(language, text) {
@@ -2873,6 +3534,151 @@ function publicSession(entry, options = {}) {
     settings: engine.getSettings(),
     research: researchSnapshot(session.scenarioResearch),
   };
+}
+
+function accountFromCtx(ctx) {
+  return ctx?.account && Array.isArray(ctx.account.devices) ? ctx.account : null;
+}
+
+function profileByPid(pid) {
+  const target = String(pid || "").trim();
+  if (!/^[a-f0-9]{8,40}$/i.test(target)) return null;
+  return allProfiles().find((profile) => profile?.pid === target) || null;
+}
+
+function targetAccountByPid(pid) {
+  const profile = profileByPid(pid);
+  if (!profile) return null;
+  return { profile, account: loadAccount(profile.sid) };
+}
+
+function socialPairKey(left, right) {
+  return [left, right].sort().join(":");
+}
+
+function listHas(container, accountId, targetId) {
+  return Array.isArray(container?.[accountId]) && container[accountId].includes(targetId);
+}
+
+function isEitherBlocked(left, right) {
+  return (
+    listHas(accountSocial.blocks, left, right) ||
+    listHas(accountSocial.blocks, right, left)
+  );
+}
+
+function isSidBlockedForViewer(viewerAccount, targetSid) {
+  if (!viewerAccount || !targetSid || viewerAccount.id === targetSid) return false;
+  return isAccountId(targetSid) && isEitherBlocked(viewerAccount.id, targetSid);
+}
+
+function areFriends(left, right) {
+  return listHas(accountSocial.friends, left, right) && listHas(accountSocial.friends, right, left);
+}
+
+function relationshipView(account, targetAccount) {
+  if (!account || !targetAccount || account.id === targetAccount.id) {
+    return {
+      following: false,
+      followedBy: false,
+      friend: false,
+      blockedByMe: false,
+      blockedMe: false,
+      incomingRequest: null,
+      outgoingRequest: null,
+    };
+  }
+  const incoming = accountSocial.friendRequests.find(
+    (item) => item.status === "pending" && item.from === targetAccount.id && item.to === account.id
+  );
+  const outgoing = accountSocial.friendRequests.find(
+    (item) => item.status === "pending" && item.from === account.id && item.to === targetAccount.id
+  );
+  return {
+    following: listHas(accountSocial.follows, account.id, targetAccount.id),
+    followedBy: listHas(accountSocial.follows, targetAccount.id, account.id),
+    friend: areFriends(account.id, targetAccount.id),
+    blockedByMe: listHas(accountSocial.blocks, account.id, targetAccount.id),
+    blockedMe: listHas(accountSocial.blocks, targetAccount.id, account.id),
+    incomingRequest: incoming ? { id: incoming.id, at: incoming.at } : null,
+    outgoingRequest: outgoing ? { id: outgoing.id, at: outgoing.at } : null,
+  };
+}
+
+function removeOneWay(container, from, to) {
+  if (!Array.isArray(container?.[from])) return;
+  container[from] = container[from].filter((value) => value !== to);
+}
+
+function removeFriendRelation(left, right) {
+  removeOneWay(accountSocial.friends, left, right);
+  removeOneWay(accountSocial.friends, right, left);
+  accountSocial.friendRequests = accountSocial.friendRequests.filter(
+    (item) =>
+      !(
+        item.status === "pending" &&
+        ((item.from === left && item.to === right) || (item.from === right && item.to === left))
+      )
+  );
+}
+
+function removeAccountSocialData(accountId) {
+  if (!accountId) return;
+  for (const container of [accountSocial.follows, accountSocial.friends, accountSocial.blocks]) {
+    delete container[accountId];
+    for (const key of Object.keys(container)) {
+      if (Array.isArray(container[key])) {
+        container[key] = container[key].filter((value) => value !== accountId);
+      }
+    }
+  }
+  accountSocial.friendRequests = accountSocial.friendRequests.filter(
+    (item) => item.from !== accountId && item.to !== accountId
+  );
+  accountSocial.messages = accountSocial.messages.filter(
+    (message) => message.from !== accountId && message.to !== accountId
+  );
+  for (const report of accountReports) {
+    if (report.reporterId === accountId) {
+      report.reporterId = "";
+      report.reporterName = "已注销账号";
+    }
+    if (report.targetId === accountId) {
+      report.targetId = "";
+      report.targetName = "已注销账号";
+    }
+  }
+  saveAccountSocial();
+  saveAccountReports();
+}
+
+function accountPublicByPid(pid) {
+  const found = targetAccountByPid(pid);
+  if (!found?.account) return null;
+  return {
+    pid: found.profile.pid,
+    name: found.account.name,
+    accountId: found.account.id,
+  };
+}
+
+function accountSocialCard(accountId) {
+  const account = loadAccount(accountId);
+  if (!account) return null;
+  const profile = loadProfileFor(account.id);
+  if (!profile.pid) return null;
+  return {
+    pid: profile.pid,
+    name: account.name,
+    avatar: profile.avatar || "",
+    bio: profile.bio || "",
+  };
+}
+
+function socialListForAccount(account, container) {
+  return (Array.isArray(container?.[account.id]) ? container[account.id] : [])
+    .map((id) => accountSocialCard(id))
+    .filter(Boolean);
 }
 
 /* ---------- 请求处理 ---------- */
@@ -3069,6 +3875,51 @@ async function handleRequest(req, res) {
     return send(res, 200, dataStats());
   }
 
+  if (p === "/api/admin/reports") {
+    if (!adminOk) return send(res, 403, { error: "没有管理权限" });
+    if (req.method === "GET") {
+      return send(res, 200, {
+        reports: accountReports.slice(-500).reverse().map((report) => ({
+          ...report,
+          reporterName: loadAccount(report.reporterId)?.name || "已注销账号",
+        })),
+      });
+    }
+    if (req.method === "POST") {
+      const body = await readBody(req);
+      const report = accountReports.find((item) => item.id === String(body.id || ""));
+      if (!report) return send(res, 404, { error: "举报记录不存在。" });
+      if (!["open", "reviewing", "resolved", "dismissed"].includes(body.status)) {
+        return send(res, 400, { error: "举报状态无效。" });
+      }
+      report.status = body.status;
+      report.updatedAt = new Date().toISOString();
+      saveAccountReports();
+      return send(res, 200, { ok: true, report });
+    }
+    return send(res, 405, { error: "只允许 GET 或 POST" });
+  }
+
+  if (p === "/api/admin/accounts" && req.method === "GET") {
+    if (!adminOk) return send(res, 403, { error: "没有管理权限" });
+    const risky = riskyAccountIds();
+    const accounts = [...new Set(Object.values(accountIndex.users || {}))]
+      .map((id) => loadAccount(id))
+      .filter(Boolean)
+      .map((account) => ({
+        accountIdMasked: account.id.slice(0, 4) + "…" + account.id.slice(-4),
+        name: account.name,
+        createdAt: account.createdAt,
+        lastSeenAt: Math.max(0, ...(account.devices || []).map((device) => Number(device.lastSeenAt) || 0)),
+        devices: (account.devices || []).length,
+        riskSignals: Number(account.risk?.relatedAccountsAtCreation) || 0,
+        flagged: risky.has(account.id),
+        usage: account.usage || null,
+      }))
+      .sort((a, b) => Number(b.flagged) - Number(a.flagged) || Number(b.riskSignals) - Number(a.riskSignals));
+    return send(res, 200, { accounts });
+  }
+
   if (p === "/api/admin/backup") {
     if (!adminOk) return send(res, 403, { error: "没有管理权限" });
     const files = url.searchParams.get("files");
@@ -3094,6 +3945,513 @@ async function handleRequest(req, res) {
 
   if (!entry.owner && !siteOpen()) {
     return send(res, 503, closedPage(), "text/html; charset=utf-8");
+  }
+
+  if (p === "/api/account" && req.method === "GET") {
+    const account = accountFromCtx(ctx);
+    if (!account) {
+      return send(res, 200, {
+        loggedIn: false,
+        ownerMode: Boolean(entry.owner),
+        profile: publicProfileView(loadProfileFor(entry.sid)),
+      });
+    }
+    return send(res, 200, {
+      loggedIn: true,
+      account: publicAccountView(account, ctx.device?.id),
+      profile: publicProfileView(loadProfileFor(account.id)),
+    });
+  }
+
+  if (p === "/api/account/register" && req.method === "POST") {
+    if (entry.owner) return accountError(res, "房主身份不能通过玩家注册接口创建账号。", 403);
+    if (accountFromCtx(ctx)) return accountError(res, "当前已经登录账号，请先退出后再注册新账号。", 409);
+    const body = await readBody(req);
+    const name = normalizeAccountName(body.name);
+    const password = String(body.password || "");
+    const confirmPassword = String(body.confirmPassword || password);
+    if (!validAccountName(name)) {
+      return accountError(res, "昵称需为 2–20 个汉字、字母、数字、下划线或短横线。");
+    }
+    if (password.length < 8 || password.length > 128) {
+      return accountError(res, "密码长度需为 8–128 个字符。");
+    }
+    if (password !== confirmPassword) return accountError(res, "两次输入的密码不一致。");
+    if (nicknameInUse(name, entry.sid)) return accountError(res, "这个昵称已经被使用。", 409);
+    const baseId = /^[a-f0-9]{16,40}$/i.test(entry.sid) && !isAccountId(entry.sid)
+      ? entry.sid.toLowerCase()
+      : crypto.randomBytes(12).toString("hex");
+    if (loadAccount(baseId)) return accountError(res, "账号身份冲突，请刷新后重试。", 409);
+    const recoveryCode = makeRecoveryCode();
+    const now = Date.now();
+    const account = {
+      version: 1,
+      id: baseId,
+      name,
+      nameKey: accountNameKey(name),
+      password: makePasswordRecord(password),
+      recovery: makeRecoveryRecord(recoveryCode),
+      recoveryCreatedAt: now,
+      devices: [],
+      securityLog: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+    appendAccountLog(account, "register", "账号注册", req);
+    registerRiskFingerprint(account, req, ctx.browserId);
+    accountIndex.users[account.nameKey] = account.id;
+    saveAccount(account);
+    try {
+      saveProfileFor(account.id, { name, privacyAccepted: true });
+    } catch (error) {
+      delete accountIndex.users[account.nameKey];
+      removeRiskFingerprint(account.id);
+      writeJsonFile(ACCOUNT_INDEX_FILE, accountIndex);
+      invalidateAccountCache(account.id);
+      try {
+        if (fs.existsSync(accountFile(account.id))) fs.unlinkSync(accountFile(account.id));
+      } catch {}
+      return accountError(res, String(error.message || error));
+    }
+    const issued = establishAccountSession(res, account, req, "register", "账号注册并在当前设备登录");
+    return send(res, 201, {
+      ok: true,
+      account: publicAccountView(account, issued.device.id),
+      profile: publicProfileView(loadProfileFor(account.id)),
+      recoveryCode,
+      warning: "恢复码只显示这一次，请离线妥善保存。",
+    });
+  }
+
+  if (p === "/api/account/login" && req.method === "POST") {
+    if (accountFromCtx(ctx)) return accountError(res, "当前已经登录账号，请先退出后再登录其他账号。", 409);
+    const body = await readBody(req);
+    const name = normalizeAccountName(body.name);
+    const password = String(body.password || "");
+    const loginKey = `${requestClientIp(req)}|${accountNameKey(name)}`;
+    if (accountLoginBlocked(loginKey)) {
+      return accountError(res, "登录失败次数过多，请 15 分钟后再试。", 429);
+    }
+    if (!name || name.length > 40 || password.length < 1 || password.length > 128) {
+      recordAccountLoginFail(loginKey);
+      return accountError(res, "昵称或密码错误。", 401);
+    }
+    const accountId = accountIdByName(name);
+    const account = accountId ? loadAccount(accountId) : null;
+    const passwordOk = account
+      ? verifyPassword(password, account.password)
+      : (verifyPassword(password, DUMMY_PASSWORD_RECORD), false);
+    if (!account || !passwordOk) {
+      recordAccountLoginFail(loginKey);
+      return accountError(res, "昵称或密码错误。", 401);
+    }
+    accountLoginFails.delete(loginKey);
+    const issued = establishAccountSession(res, account, req);
+    return send(res, 200, {
+      ok: true,
+      account: publicAccountView(account, issued.device.id),
+      profile: publicProfileView(loadProfileFor(account.id)),
+    });
+  }
+
+  if (p === "/api/account/recover" && req.method === "POST") {
+    const body = await readBody(req);
+    const name = normalizeAccountName(body.name);
+    const code = String(body.recoveryCode || "");
+    const password = String(body.password || "");
+    const confirmPassword = String(body.confirmPassword || password);
+    if (password.length < 8 || password.length > 128) {
+      return accountError(res, "新密码长度需为 8–128 个字符。");
+    }
+    if (password !== confirmPassword) return accountError(res, "两次输入的密码不一致。");
+    if (!name || name.length > 40 || code.length > 100) {
+      recordAccountLoginFail(`${requestClientIp(req)}|${accountNameKey(name)}`);
+      return accountError(res, "昵称或恢复码错误。", 401);
+    }
+    const accountId = accountIdByName(name);
+    const account = accountId ? loadAccount(accountId) : null;
+    const recoveryOk = account
+      ? verifyRecoveryCode(code, account.recovery)
+      : (verifyRecoveryCode(code, DUMMY_RECOVERY_RECORD), false);
+    if (!account || !recoveryOk) {
+      recordAccountLoginFail(`${requestClientIp(req)}|${accountNameKey(name)}`);
+      return accountError(res, "昵称或恢复码错误。", 401);
+    }
+    const nextRecoveryCode = makeRecoveryCode();
+    account.password = makePasswordRecord(password);
+    account.recovery = makeRecoveryRecord(nextRecoveryCode);
+    account.recoveryCreatedAt = Date.now();
+    account.devices = [];
+    appendAccountLog(account, "recovery", "使用恢复码重置密码并撤销全部旧设备", req);
+    const issued = establishAccountSession(res, account, req, "recovery-login", "恢复后在新设备建立会话");
+    return send(res, 200, {
+      ok: true,
+      account: publicAccountView(account, issued.device.id),
+      profile: publicProfileView(loadProfileFor(account.id)),
+      recoveryCode: nextRecoveryCode,
+      warning: "恢复码已更新，只显示这一次。",
+    });
+  }
+
+  if (p === "/api/account/logout" && req.method === "POST") {
+    const account = accountFromCtx(ctx);
+    if (account && ctx.device) {
+      account.devices = (account.devices || []).filter((device) => device.id !== ctx.device.id);
+      appendAccountLog(account, "logout", "当前设备退出账号", req, ctx.device.id);
+      saveAccount(account);
+    }
+    const nextSid = crypto.randomBytes(12).toString("hex");
+    setCookie(res, clientCookie("pt_account", "", 0));
+    setCookie(res, clientCookie("tg_sid", signedSidValue(nextSid), 2592000));
+    return send(res, 200, { ok: true, loggedIn: false });
+  }
+
+  if (p === "/api/account/password" && req.method === "POST") {
+    const account = accountFromCtx(ctx);
+    if (!account) return accountError(res, "请先登录账号。", 401);
+    const body = await readBody(req);
+    if (!verifyPassword(String(body.currentPassword || ""), account.password)) {
+      return accountError(res, "当前密码错误。", 401);
+    }
+    const password = String(body.password || "");
+    if (password.length < 8 || password.length > 128) {
+      return accountError(res, "新密码长度需为 8–128 个字符。");
+    }
+    if (password !== String(body.confirmPassword || password)) {
+      return accountError(res, "两次输入的新密码不一致。");
+    }
+    account.password = makePasswordRecord(password);
+    account.devices = (account.devices || []).filter((device) => device.id === ctx.device?.id);
+    appendAccountLog(account, "password-change", "修改密码并退出其他设备", req, ctx.device?.id);
+    saveAccount(account);
+    return send(res, 200, { ok: true, account: publicAccountView(account, ctx.device?.id) });
+  }
+
+  if (p === "/api/account/devices/revoke" && req.method === "POST") {
+    const account = accountFromCtx(ctx);
+    if (!account) return accountError(res, "请先登录账号。", 401);
+    const body = await readBody(req);
+    const deviceId = String(body.deviceId || "");
+    const target = (account.devices || []).find((device) => device.id === deviceId);
+    if (!target) return accountError(res, "找不到这个设备。", 404);
+    account.devices = account.devices.filter((device) => device.id !== deviceId);
+    appendAccountLog(account, "device-revoke", `撤销设备：${target.label}`, req, deviceId);
+    saveAccount(account);
+    if (ctx.device?.id === deviceId) {
+      const nextSid = crypto.randomBytes(12).toString("hex");
+      setCookie(res, clientCookie("pt_account", "", 0));
+      setCookie(res, clientCookie("tg_sid", signedSidValue(nextSid), 2592000));
+      return send(res, 200, { ok: true, currentDeviceRevoked: true, loggedIn: false });
+    }
+    return send(res, 200, {
+      ok: true,
+      account: publicAccountView(account, ctx.device?.id),
+    });
+  }
+
+  if (p === "/api/account/devices/revoke-others" && req.method === "POST") {
+    const account = accountFromCtx(ctx);
+    if (!account) return accountError(res, "请先登录账号。", 401);
+    const before = (account.devices || []).length;
+    account.devices = (account.devices || []).filter((device) => device.id === ctx.device?.id);
+    appendAccountLog(account, "device-revoke-all", `撤销其他设备 ${Math.max(0, before - account.devices.length)} 台`, req, ctx.device?.id);
+    saveAccount(account);
+    return send(res, 200, { ok: true, account: publicAccountView(account, ctx.device?.id) });
+  }
+
+  if (p === "/api/account/security-log" && req.method === "GET") {
+    const account = accountFromCtx(ctx);
+    if (!account) return accountError(res, "请先登录账号。", 401);
+    return send(res, 200, {
+      logs: (account.securityLog || []).slice(0, 100),
+      devices: publicAccountView(account, ctx.device?.id).devices,
+    });
+  }
+
+  if (p === "/api/account/social" && req.method === "GET") {
+    const account = accountFromCtx(ctx);
+    if (!account) return accountError(res, "请先登录账号。", 401);
+    const incoming = accountSocial.friendRequests
+      .filter((item) => item.status === "pending" && item.to === account.id)
+      .map((item) => ({
+        id: item.id,
+        at: item.at,
+        from: accountSocialCard(item.from),
+      }))
+      .filter((item) => item.from);
+    const outgoing = accountSocial.friendRequests
+      .filter((item) => item.status === "pending" && item.from === account.id)
+      .map((item) => ({
+        id: item.id,
+        at: item.at,
+        to: accountSocialCard(item.to),
+      }))
+      .filter((item) => item.to);
+    return send(res, 200, {
+      following: socialListForAccount(account, accountSocial.follows),
+      friends: socialListForAccount(account, accountSocial.friends).filter((item) => {
+        const target = targetAccountByPid(item.pid)?.account;
+        return target && areFriends(account.id, target.id);
+      }),
+      blocked: socialListForAccount(account, accountSocial.blocks),
+      incoming,
+      outgoing,
+    });
+  }
+
+  if (p === "/api/account/relation" && req.method === "GET") {
+    const account = accountFromCtx(ctx);
+    if (!account) return send(res, 200, { loggedIn: false, relation: relationshipView(null, null) });
+    const target = targetAccountByPid(url.searchParams.get("pid") || "")?.account || null;
+    if (!target) return accountError(res, "找不到对方账号。", 404);
+    return send(res, 200, {
+      loggedIn: true,
+      isSelf: account.id === target.id,
+      relation: relationshipView(account, target),
+    });
+  }
+
+  if (p === "/api/account/follow" && req.method === "POST") {
+    const account = accountFromCtx(ctx);
+    if (!account) return accountError(res, "请先登录账号。", 401);
+    const body = await readBody(req);
+    const target = targetAccountByPid(String(body.pid || ""))?.account;
+    if (!target || target.id === account.id) return accountError(res, "找不到可以关注的账号。", 404);
+    if (isEitherBlocked(account.id, target.id)) return accountError(res, "当前无法关注对方。", 403);
+    accountSocial.follows[account.id] = Array.isArray(accountSocial.follows[account.id])
+      ? accountSocial.follows[account.id]
+      : [];
+    const following = body.action !== "unfollow";
+    accountSocial.follows[account.id] = accountSocial.follows[account.id].filter((id) => id !== target.id);
+    if (following) accountSocial.follows[account.id].push(target.id);
+    saveAccountSocial();
+    return send(res, 200, {
+      ok: true,
+      following,
+      relation: relationshipView(account, target),
+    });
+  }
+
+  if (p === "/api/account/friend/request" && req.method === "POST") {
+    const account = accountFromCtx(ctx);
+    if (!account) return accountError(res, "请先登录账号。", 401);
+    const body = await readBody(req);
+    const target = targetAccountByPid(String(body.pid || ""))?.account;
+    if (!target || target.id === account.id) return accountError(res, "找不到可以添加的账号。", 404);
+    if (isEitherBlocked(account.id, target.id)) return accountError(res, "当前无法添加对方为好友。", 403);
+    if (areFriends(account.id, target.id)) {
+      return send(res, 200, { ok: true, friend: true, relation: relationshipView(account, target) });
+    }
+    const reverse = accountSocial.friendRequests.find(
+      (item) => item.status === "pending" && item.from === target.id && item.to === account.id
+    );
+    if (reverse) {
+      reverse.status = "accepted";
+      reverse.respondedAt = new Date().toISOString();
+      accountSocial.friends[account.id] = Array.isArray(accountSocial.friends[account.id])
+        ? accountSocial.friends[account.id]
+        : [];
+      accountSocial.friends[target.id] = Array.isArray(accountSocial.friends[target.id])
+        ? accountSocial.friends[target.id]
+        : [];
+      if (!accountSocial.friends[account.id].includes(target.id)) accountSocial.friends[account.id].push(target.id);
+      if (!accountSocial.friends[target.id].includes(account.id)) accountSocial.friends[target.id].push(account.id);
+      saveAccountSocial();
+      return send(res, 200, { ok: true, friend: true, relation: relationshipView(account, target) });
+    }
+    const existing = accountSocial.friendRequests.find(
+      (item) => item.status === "pending" && item.from === account.id && item.to === target.id
+    );
+    if (!existing) {
+      accountSocial.friendRequests.push({
+        id: crypto.randomUUID(),
+        from: account.id,
+        to: target.id,
+        status: "pending",
+        at: new Date().toISOString(),
+      });
+      saveAccountSocial();
+    }
+    return send(res, 200, { ok: true, friend: false, relation: relationshipView(account, target) });
+  }
+
+  if (p === "/api/account/friend/respond" && req.method === "POST") {
+    const account = accountFromCtx(ctx);
+    if (!account) return accountError(res, "请先登录账号。", 401);
+    const body = await readBody(req);
+    const request = accountSocial.friendRequests.find(
+      (item) => item.id === String(body.requestId || "") && item.to === account.id && item.status === "pending"
+    );
+    if (!request) return accountError(res, "好友请求不存在或已处理。", 404);
+    const target = loadAccount(request.from);
+    if (!target) return accountError(res, "对方账号已不存在。", 404);
+    if (isEitherBlocked(account.id, target.id)) return accountError(res, "当前无法处理这条好友请求。", 403);
+    if (body.accept === true) {
+      request.status = "accepted";
+      request.respondedAt = new Date().toISOString();
+      accountSocial.friends[account.id] = Array.isArray(accountSocial.friends[account.id])
+        ? accountSocial.friends[account.id]
+        : [];
+      accountSocial.friends[target.id] = Array.isArray(accountSocial.friends[target.id])
+        ? accountSocial.friends[target.id]
+        : [];
+      if (!accountSocial.friends[account.id].includes(target.id)) accountSocial.friends[account.id].push(target.id);
+      if (!accountSocial.friends[target.id].includes(account.id)) accountSocial.friends[target.id].push(account.id);
+    } else {
+      request.status = "rejected";
+      request.respondedAt = new Date().toISOString();
+    }
+    saveAccountSocial();
+    return send(res, 200, { ok: true, friend: body.accept === true });
+  }
+
+  if (p === "/api/account/friend/remove" && req.method === "POST") {
+    const account = accountFromCtx(ctx);
+    if (!account) return accountError(res, "请先登录账号。", 401);
+    const body = await readBody(req);
+    const target = targetAccountByPid(String(body.pid || ""))?.account;
+    if (!target) return accountError(res, "找不到对方账号。", 404);
+    removeFriendRelation(account.id, target.id);
+    saveAccountSocial();
+    return send(res, 200, { ok: true });
+  }
+
+  if (p === "/api/account/block" && req.method === "POST") {
+    const account = accountFromCtx(ctx);
+    if (!account) return accountError(res, "请先登录账号。", 401);
+    const body = await readBody(req);
+    const target = targetAccountByPid(String(body.pid || ""))?.account;
+    if (!target || target.id === account.id) return accountError(res, "找不到可以拉黑的账号。", 404);
+    accountSocial.blocks[account.id] = Array.isArray(accountSocial.blocks[account.id])
+      ? accountSocial.blocks[account.id]
+      : [];
+    const blocked = body.blocked !== false;
+    accountSocial.blocks[account.id] = accountSocial.blocks[account.id].filter((id) => id !== target.id);
+    if (blocked) {
+      accountSocial.blocks[account.id].push(target.id);
+      removeOneWay(accountSocial.follows, account.id, target.id);
+      removeOneWay(accountSocial.follows, target.id, account.id);
+      removeFriendRelation(account.id, target.id);
+    }
+    saveAccountSocial();
+    return send(res, 200, {
+      ok: true,
+      blocked,
+      relation: relationshipView(account, target),
+    });
+  }
+
+  if (p === "/api/account/report" && req.method === "POST") {
+    const account = accountFromCtx(ctx);
+    if (!account) return accountError(res, "请先登录账号。", 401);
+    const body = await readBody(req);
+    const found = targetAccountByPid(String(body.pid || ""));
+    if (!found?.account || found.account.id === account.id) {
+      return accountError(res, "找不到可以举报的账号。", 404);
+    }
+    const reasons = new Set(["harassment", "hate", "spam", "sexual", "violence", "privacy", "impersonation", "other"]);
+    const reason = reasons.has(body.reason) ? body.reason : "other";
+    const detail = String(body.detail || "").trim().slice(0, 500);
+    accountReports.push({
+      id: crypto.randomUUID(),
+      reporterId: account.id,
+      targetId: found.account.id,
+      targetName: found.account.name,
+      reason,
+      detail,
+      status: "open",
+      at: new Date().toISOString(),
+    });
+    saveAccountReports();
+    appendAccountLog(account, "report-submit", `举报账号：${found.account.name}`, req, ctx.device?.id);
+    saveAccount(account);
+    return send(res, 200, { ok: true });
+  }
+
+  if (p === "/api/account/messages/conversations" && req.method === "GET") {
+    const account = accountFromCtx(ctx);
+    if (!account) return accountError(res, "请先登录账号。", 401);
+    const latest = new Map();
+    for (const message of accountSocial.messages) {
+      if (message.from !== account.id && message.to !== account.id) continue;
+      const otherId = message.from === account.id ? message.to : message.from;
+      if (!areFriends(account.id, otherId) || isEitherBlocked(account.id, otherId)) continue;
+      const current = latest.get(otherId);
+      if (!current || message.at > current.at) latest.set(otherId, message);
+    }
+    const conversations = [...latest.entries()]
+      .map(([otherId, message]) => {
+        const card = accountSocialCard(otherId);
+        if (!card) return null;
+        return {
+          ...card,
+          lastText: message.text.slice(0, 100),
+          lastAt: message.at,
+          unread: accountSocial.messages.filter(
+            (item) => item.from === otherId && item.to === account.id && !item.readAt
+          ).length,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => String(b.lastAt).localeCompare(String(a.lastAt)))
+      .slice(0, 50);
+    return send(res, 200, { conversations });
+  }
+
+  if (p === "/api/account/messages" && req.method === "GET") {
+    const account = accountFromCtx(ctx);
+    if (!account) return accountError(res, "请先登录账号。", 401);
+    const target = targetAccountByPid(url.searchParams.get("pid") || "")?.account;
+    if (!target) return accountError(res, "找不到对方账号。", 404);
+    if (!areFriends(account.id, target.id)) return accountError(res, "只有好友之间可以私信。", 403);
+    if (isEitherBlocked(account.id, target.id)) return accountError(res, "当前无法发送私信。", 403);
+    const messages = accountSocial.messages
+      .filter(
+        (message) =>
+          (message.from === account.id && message.to === target.id) ||
+          (message.from === target.id && message.to === account.id)
+      )
+      .slice(-100)
+      .map((message) => ({
+        id: message.id,
+        mine: message.from === account.id,
+        text: message.text,
+        at: message.at,
+        readAt: message.readAt || "",
+      }));
+    let changed = false;
+    for (const message of accountSocial.messages) {
+      if (message.from === target.id && message.to === account.id && !message.readAt) {
+        message.readAt = new Date().toISOString();
+        changed = true;
+      }
+    }
+    if (changed) saveAccountSocial();
+    return send(res, 200, { messages, peer: accountSocialCard(target.id) });
+  }
+
+  if (p === "/api/account/messages/send" && req.method === "POST") {
+    const account = accountFromCtx(ctx);
+    if (!account) return accountError(res, "请先登录账号。", 401);
+    const body = await readBody(req);
+    const target = targetAccountByPid(String(body.pid || ""))?.account;
+    if (!target) return accountError(res, "找不到对方账号。", 404);
+    if (!areFriends(account.id, target.id)) return accountError(res, "只有好友之间可以私信。", 403);
+    if (isEitherBlocked(account.id, target.id)) return accountError(res, "当前无法发送私信。", 403);
+    const text = String(body.text || "").trim().slice(0, 1000);
+    if (!text) return accountError(res, "私信内容不能为空。");
+    const message = {
+      id: crypto.randomUUID(),
+      from: account.id,
+      to: target.id,
+      text,
+      at: new Date().toISOString(),
+      readAt: "",
+    };
+    accountSocial.messages.push(message);
+    accountSocial.messages = accountSocial.messages.slice(-10000);
+    saveAccountSocial();
+    return send(res, 200, { ok: true, message });
   }
 
   if (req.method === "GET" && (p === "/" || p === "/index.html")) {
@@ -3502,6 +4860,9 @@ async function handleRequest(req, res) {
   }
 
   if (req.method === "POST" && p === "/api/vote") {
+    if (!accountFromCtx(ctx)) {
+      return send(res, 401, { error: "登录账号后才能提交好评或差评，避免匿名批量刷票。" });
+    }
     const body = await readBody(req);
     const value = body.value === "down" ? "down" : body.value === "up" ? "up" : "";
     if (!value) return send(res, 400, { error: "投票类型无效" });
@@ -3522,10 +4883,14 @@ async function handleRequest(req, res) {
     if (req.method === "GET") {
       const size = Math.min(20, Math.max(4, Number(url.searchParams.get("size")) || 8));
       const sort = url.searchParams.get("sort") === "hot" ? "hot" : "time";
-      const total = feedback.length;
+      const viewerAccount = accountFromCtx(ctx);
+      const visibleFeedback = feedback.filter(
+        (message) => !isSidBlockedForViewer(viewerAccount, message.sid)
+      );
+      const total = visibleFeedback.length;
       const pages = Math.max(1, Math.ceil(total / size));
       const page = Math.min(pages, Math.max(1, Number(url.searchParams.get("page")) || 1));
-      const ordered = feedback.slice().sort((a, b) => {
+      const ordered = visibleFeedback.slice().sort((a, b) => {
         if (sort === "hot") {
           ensureFeedbackMessage(a);
           ensureFeedbackMessage(b);
@@ -3638,10 +5003,30 @@ async function handleRequest(req, res) {
   if (p === "/api/me") {
     if (req.method === "GET") return send(res, 200, publicProfileView(loadProfileFor(entry.sid)));
     const body = await readBody(req);
-    return send(res, 200, publicProfileView(saveProfileFor(entry.sid, body)));
+    try {
+      const previous = loadProfileFor(entry.sid);
+      const profile = saveProfileFor(entry.sid, body);
+      const account = accountFromCtx(ctx);
+      if (account && profile.name && profile.name !== previous.name) {
+        const oldKey = account.nameKey;
+        if (oldKey && accountIndex.users[oldKey] === account.id) delete accountIndex.users[oldKey];
+        account.name = profile.name;
+        account.nameKey = accountNameKey(profile.name);
+        appendAccountLog(account, "nickname-change", `昵称修改为：${profile.name}`, req, ctx.device?.id);
+        saveAccount(account);
+      }
+      return send(res, 200, publicProfileView(profile));
+    } catch (error) {
+      return accountError(res, String(error.message || error), 409);
+    }
   }
 
   if (p === "/api/privacy/export" && req.method === "GET") {
+    const account = accountFromCtx(ctx);
+    if (account) {
+      appendAccountLog(account, "data-export", "导出当前账号个人数据", req, ctx.device?.id);
+      saveAccount(account);
+    }
     return send(res, 200, privacyExportData(entry));
   }
 
@@ -3650,6 +5035,10 @@ async function handleRequest(req, res) {
     const body = await readBody(req);
     if (String(body.confirm || "") !== "删除我的数据") {
       return send(res, 400, { error: "请完整输入“删除我的数据”后再确认。" });
+    }
+    const deletingAccount = accountFromCtx(ctx);
+    if (deletingAccount && !verifyPassword(String(body.currentPassword || ""), deletingAccount.password)) {
+      return send(res, 400, { error: "删除已注册账号前必须输入当前密码。" });
     }
     const sid = entry.sid;
     const profile = loadProfileFor(sid);
@@ -3751,9 +5140,23 @@ async function handleRequest(req, res) {
       } catch {}
     }
     const nextSid = crypto.randomBytes(12).toString("hex");
+    if (deletingAccount) {
+      const key = deletingAccount.nameKey;
+      if (key && accountIndex.users[key] === sid) delete accountIndex.users[key];
+      removeRiskFingerprint(sid);
+      writeJsonFile(ACCOUNT_INDEX_FILE, accountIndex);
+      removeAccountSocialData(sid);
+      invalidateAccountCache(sid);
+      try {
+        const file = accountFile(sid);
+        if (fs.existsSync(file)) fs.unlinkSync(file);
+      } catch {}
+      setCookie(res, clientCookie("pt_account", "", 0));
+    }
     setCookie(res, clientCookie("tg_sid", signedSidValue(nextSid), 2592000));
     return send(res, 200, {
       ok: true,
+      accountDeleted: Boolean(deletingAccount),
       removed: {
         scenarios: ownScenarios.length,
         presets: ownPresets.length,
@@ -3856,7 +5259,9 @@ async function handleRequest(req, res) {
   if (p === "/api/community") {
     if (req.method === "GET") {
       const mine = url.searchParams.get("mine") === "1";
-      const source = mine ? community.filter((x) => x.sid === entry.sid) : community;
+      const viewerAccount = accountFromCtx(ctx);
+      const source = (mine ? community.filter((x) => x.sid === entry.sid) : community)
+        .filter((post) => !isSidBlockedForViewer(viewerAccount, post.sid));
       return send(res, 200, {
         posts: source.slice(-200).reverse().map((x) => communityView(x, entry.sid)),
         groups: communityGroups.map((group) => communityGroupView(group, entry.sid)),
@@ -4072,8 +5477,10 @@ async function handleRequest(req, res) {
 
   if (p === "/api/players") {
     const q = String(url.searchParams.get("q") || "").trim().toLowerCase();
+    const viewerAccount = accountFromCtx(ctx);
     const list = allProfiles()
       .filter((x) => x.discoverable !== false && x.showProfile !== false)
+      .filter((x) => !viewerAccount || x.sid === viewerAccount.id || !isEitherBlocked(viewerAccount.id, x.sid))
       .filter((x) => !q || String(x.name || "").toLowerCase().includes(q) || String(x.bio || "").toLowerCase().includes(q))
       .slice(0, 30)
       .map((x) => ({
@@ -4093,6 +5500,16 @@ async function handleRequest(req, res) {
     if (prof.sid !== entry.sid && prof.showProfile === false) {
       return send(res, 404, { error: "这位玩家没有公开个人空间" });
     }
+    const targetAccount = loadAccount(prof.sid);
+    const viewerAccount = accountFromCtx(ctx);
+    if (
+      targetAccount &&
+      viewerAccount &&
+      targetAccount.id !== viewerAccount.id &&
+      isEitherBlocked(targetAccount.id, viewerAccount.id)
+    ) {
+      return send(res, 404, { error: "这位玩家没有公开个人空间" });
+    }
     const posts = community
       .filter((c) => c.sid === prof.sid)
       .slice(-50)
@@ -4104,14 +5521,23 @@ async function handleRequest(req, res) {
       avatar: prof.avatar || "",
       bio: prof.bio || "",
       posts,
+      accountRegistered: Boolean(targetAccount),
+      loggedIn: Boolean(viewerAccount),
+      isSelf: Boolean(viewerAccount && targetAccount && viewerAccount.id === targetAccount.id),
+      relation:
+        targetAccount && viewerAccount
+          ? relationshipView(viewerAccount, targetAccount)
+          : relationshipView(null, null),
     });
   }
 
   if (p === "/api/search") {
     const q = String(url.searchParams.get("q") || "").trim().toLowerCase();
     if (!q) return send(res, 200, { players: [], scenarios: [] });
+    const viewerAccount = accountFromCtx(ctx);
     const players = allProfiles()
       .filter((x) => x.discoverable !== false && x.showProfile !== false)
+      .filter((x) => !viewerAccount || x.sid === viewerAccount.id || !isEitherBlocked(viewerAccount.id, x.sid))
       .filter((x) => String(x.name || "").toLowerCase().includes(q) || String(x.bio || "").toLowerCase().includes(q))
       .slice(0, 10)
       .map((x) => ({ pid: x.pid, name: x.name || "匿名旅人", avatar: x.avatar || "", bio: x.bio || "" }));
@@ -4259,8 +5685,12 @@ async function handleRequest(req, res) {
     if (room.status !== "playing") return send(res, 400, { error: "游戏还没开始" });
     if (room.busy) return send(res, 429, { error: "正在推演，稍等" });
     const roomUsesByok = hasUsableByok(room.hostSid);
+    const roomHostAccount = loadAccount(room.hostSid);
     if (!entry.owner && !roomUsesByok && guestQuotaLeft() <= 0) {
       return send(res, 429, { error: "今天网站默认模型的公用额度已经达到安全上限，明天再试或使用自己的模型 Key。" });
+    }
+    if (!entry.owner && !roomUsesByok && roomHostAccount && accountQuotaLeft(roomHostAccount) <= 0) {
+      return send(res, 429, { error: "这个账号今天的网站默认模型额度已经用完，可使用自己的模型 Key。" });
     }
     if (body.language != null) room.language = engine.normalizeLanguage(body.language);
     room.promptProfile = loadPromptProfileFor(room.hostSid);
@@ -4279,7 +5709,10 @@ async function handleRequest(req, res) {
     try {
       room.research = scenarioResearchForTurn(room.scenario);
       const result = await withModelSlot(async () => {
-        if (!entry.owner && !roomUsesByok) addGuestCalls(1);
+        if (!entry.owner && !roomUsesByok) {
+          addGuestCalls(1);
+          if (roomHostAccount) recordAccountModelCall(roomHostAccount, 1);
+        }
         return engine.askModel(roomPrompt(room), { reasoningEffort: "low" }, usableModelFor(entry, room.hostSid));
       });
       const parsed = engine.parseModelTurn(result.text);
@@ -4363,12 +5796,29 @@ async function handleRequest(req, res) {
       try {
         if (fs.existsSync(modelFile(entry.sid))) fs.unlinkSync(modelFile(entry.sid));
       } catch {}
+      const account = accountFromCtx(ctx);
+      if (account) {
+        appendAccountLog(account, "api-key-deleted", "删除自带的 AI API Key 配置", req, ctx.device?.id);
+        saveAccount(account);
+      }
       return send(res, 200, { ok: true });
     }
     const body = await readBody(req);
     try {
       await validateModelDestination(entry, body.baseUrl || loadModelFor(entry.sid)?.baseUrl || "");
-      return send(res, 200, publicModel(saveModelFor(entry.sid, body)));
+      const saved = saveModelFor(entry.sid, body);
+      const account = accountFromCtx(ctx);
+      if (account) {
+        appendAccountLog(
+          account,
+          "api-key-updated",
+          `更新自带 AI 配置：${saved.provider || "custom"} / ${saved.model || "未命名模型"}`,
+          req,
+          ctx.device?.id
+        );
+        saveAccount(account);
+      }
+      return send(res, 200, publicModel(saved));
     } catch (err) {
       return send(res, 400, { error: String(err.message || err) });
     }
@@ -4413,8 +5863,12 @@ async function handleRequest(req, res) {
   if (req.method === "POST" && p === "/api/new") {
     if (entry.busy) return send(res, 429, { error: "上一回合还在进行中，稍等。" });
     const usesByok = hasUsableByok(entry.sid);
+    const account = accountFromCtx(ctx);
     if (!entry.owner && !usesByok && guestQuotaLeft() <= 0) {
       return send(res, 429, { error: "今天大家的试玩额度已经用完了，明天再来吧。" });
+    }
+    if (!entry.owner && !usesByok && account && accountQuotaLeft(account) <= 0) {
+      return send(res, 429, { error: "这个账号今天的网站默认模型额度已经用完，可使用自己的模型 Key。" });
     }
     const body = await readBody(req);
     if (!scenarioMeta(entry, String(body.scenarioId || ""))) {
@@ -4443,7 +5897,10 @@ async function handleRequest(req, res) {
     entry.session = fresh;
     try {
       const opening = await withModelSlot(async () => {
-        if (!entry.owner && !usesByok) addGuestCalls(1);
+        if (!entry.owner && !usesByok) {
+          addGuestCalls(1);
+          if (account) recordAccountModelCall(account, 1);
+        }
         return engine.runOpening(entry.session, scenario, usableModelFor(entry));
       });
       const firstGm = entry.session.log.find((e) => e.type === "gm");
@@ -4476,8 +5933,12 @@ async function handleRequest(req, res) {
       return send(res, 403, { error: `试玩到这里啦：每位访客最多 ${guestTurnLimit} 回合。` });
     }
     const usesByok = hasUsableByok(entry.sid);
+    const account = accountFromCtx(ctx);
     if (!entry.owner && !usesByok && guestQuotaLeft() <= 0) {
       return send(res, 429, { error: "今天大家的试玩额度已经用完了，明天再来吧。" });
+    }
+    if (!entry.owner && !usesByok && account && accountQuotaLeft(account) <= 0) {
+      return send(res, 429, { error: "这个账号今天的网站默认模型额度已经用完，可使用自己的模型 Key。" });
     }
     const body = await readBody(req);
     const text = String(body.text || "").trim().slice(0, 500);
@@ -4493,10 +5954,16 @@ async function handleRequest(req, res) {
     entry.session.scenarioResearch = scenarioResearchForTurn(scenario);
     try {
       const out = await withModelSlot(async () => {
-        if (!entry.owner && !usesByok) addGuestCalls(1);
+        if (!entry.owner && !usesByok) {
+          addGuestCalls(1);
+          if (account) recordAccountModelCall(account, 1);
+        }
         return engine.runTurn(entry.session, scenario, text, usableModelFor(entry));
       });
-      if (!entry.owner && !usesByok && out.segments.some((s) => s.type === "dice")) addGuestCalls(1);
+      if (!entry.owner && !usesByok && out.segments.some((s) => s.type === "dice")) {
+        addGuestCalls(1);
+        if (account) recordAccountModelCall(account, 1);
+      }
       saveEntry(entry);
       const actionAt = entry.session.turnTimes?.[String(entry.session.turns)] || engine.clockText(entry.session.time);
       return send(res, 200, {
@@ -4614,6 +6081,9 @@ setInterval(() => {
   }
   for (const [ip, record] of loginFails) {
     if (!record || now >= record.reset) loginFails.delete(ip);
+  }
+  for (const [key, record] of accountLoginFails) {
+    if (!record || now >= record.reset) accountLoginFails.delete(key);
   }
   for (const [sid, cached] of profileCache) {
     if (!cached || now >= cached.expires) profileCache.delete(sid);

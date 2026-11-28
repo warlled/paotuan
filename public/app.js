@@ -1774,9 +1774,10 @@ function updateHud(data) {
 }
 
 let heartbeatBusy = false;
+const heartbeatDisabled = new URLSearchParams(location.search).get("no-heartbeat") === "1";
 
 async function beat() {
-  if (heartbeatBusy || document.hidden) return;
+  if (heartbeatDisabled || heartbeatBusy || document.hidden) return;
   heartbeatBusy = true;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
@@ -1802,6 +1803,7 @@ function queueHeartbeat(immediate = false) {
 }
 
 document.addEventListener("visibilitychange", () => {
+  if (heartbeatDisabled) return;
   if (document.hidden) {
     clearTimeout(heartbeatTimer);
     heartbeatTimer = 0;
@@ -1817,7 +1819,9 @@ async function castVote(value) {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ value }),
     });
-    if (r.ok) updateHud(await r.json());
+    const data = await r.json();
+    if (r.ok) updateHud(data);
+    else alert(data.error || "投票失败");
   } catch {}
 }
 
@@ -2170,7 +2174,7 @@ document.querySelectorAll("[data-site-theme]").forEach((btn) => {
   });
 });
 
-queueHeartbeat(true);
+if (!heartbeatDisabled) queueHeartbeat(true);
 loadFeedback();
 
 /* ---------- 我的资料 ---------- */
@@ -2211,17 +2215,452 @@ async function saveMe() {
     headers: { "content-type": "application/json" },
     body: JSON.stringify(payload),
   });
+  const data = await r.json();
   if (r.ok) {
-    me = await r.json();
+    me = data;
+    loadAccountState();
     $("me-status").textContent = "已保存";
     setTimeout(() => ($("me-status").textContent = ""), 2000);
+  } else {
+    $("me-status").textContent = data.error || "保存失败";
   }
 }
+
+let accountInfo = null;
+let accountAuthMode = "login";
+let accountSocialPeer = null;
+
+function accountTime(value) {
+  if (!value) return "未知时间";
+  try {
+    return new Date(value).toLocaleString("zh-CN", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return "未知时间";
+  }
+}
+
+function updateAccountSummary() {
+  const loggedIn = Boolean(accountInfo?.loggedIn);
+  if (!loggedIn && accountInfo?.ownerMode) {
+    $("account-state").textContent = "当前为房主模式";
+    $("account-state-hint").textContent = "房主身份由后台密码和设备会话保护，无需创建玩家账号。";
+    $("account-open").classList.add("hidden");
+    return;
+  }
+  $("account-open").classList.remove("hidden");
+  $("account-state").textContent = loggedIn
+    ? `已登录：${accountInfo.account.name}`
+    : "当前为匿名浏览器身份";
+  $("account-state-hint").textContent = loggedIn
+    ? `账号已连接 ${accountInfo.account.devices.length} 台设备；资料和存档会同步。`
+    : "注册后可跨设备同步资料、剧本和存档；匿名试玩仍可使用。";
+  $("account-open").textContent = loggedIn ? "管理账号" : "注册 / 登录";
+}
+
+async function loadAccountState() {
+  try {
+    const response = await fetch("/api/account", { cache: "no-store" });
+    if (!response.ok) return;
+    accountInfo = await response.json();
+    updateAccountSummary();
+    renderAccountPanel();
+  } catch {}
+}
+
+function setAccountAuthMode(mode) {
+  accountAuthMode = ["login", "register", "recover"].includes(mode) ? mode : "login";
+  document.querySelectorAll("[data-account-mode]").forEach((button) => {
+    button.classList.toggle("on", button.dataset.accountMode === accountAuthMode);
+  });
+  $("account-confirm-wrap").classList.toggle("hidden", accountAuthMode === "login");
+  $("account-recovery-wrap").classList.toggle("hidden", accountAuthMode !== "recover");
+  $("account-submit").textContent =
+    accountAuthMode === "register" ? "注册账号" : accountAuthMode === "recover" ? "重置密码并登录" : "登录";
+  $("account-auth-status").textContent = "";
+  $("account-auth-password").autocomplete =
+    accountAuthMode === "login" ? "current-password" : "new-password";
+}
+
+function renderAccountDevices(account) {
+  const box = $("account-devices");
+  box.innerHTML = "";
+  for (const device of account.devices || []) {
+    const row = el("div", "account-device");
+    const info = document.createElement("div");
+    const title = document.createElement("b");
+    title.textContent = device.label || "浏览器设备";
+    const meta = el(
+      "div",
+      "meta",
+      `${device.current ? "当前设备 · " : ""}最近使用 ${accountTime(device.lastSeenAt)}`
+    );
+    info.append(title, meta);
+    const revoke = el("button", "ghost", device.current ? "退出此设备" : "撤销");
+    revoke.type = "button";
+    revoke.addEventListener("click", async () => {
+      if (!confirm(device.current ? "退出当前设备后需要重新登录。继续吗？" : "撤销这台设备的登录状态？")) return;
+      const response = await fetch("/api/account/devices/revoke", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ deviceId: device.id }),
+      });
+      const data = await response.json();
+      if (!response.ok) return alert(data.error || "撤销失败");
+      if (data.loggedIn === false) {
+        alert("当前设备已退出账号。");
+        await loadAccountState();
+        await loadMe();
+      } else {
+        accountInfo.account = data.account;
+        renderAccountPanel();
+      }
+    });
+    row.append(info, revoke);
+    box.appendChild(row);
+  }
+}
+
+function renderAccountLogs(account) {
+  const box = $("account-log-list");
+  box.innerHTML = "";
+  const labels = {
+    register: "注册",
+    login: "登录",
+    logout: "退出",
+    recovery: "账号找回",
+    "recovery-login": "找回后登录",
+    "password-change": "密码修改",
+    "device-revoke": "设备撤销",
+    "device-revoke-all": "其他设备撤销",
+    "api-key-updated": "API Key 更新",
+    "api-key-deleted": "API Key 删除",
+    "nickname-change": "昵称修改",
+    "data-export": "数据导出",
+    "report-submit": "举报提交",
+  };
+  for (const log of account.securityLog || []) {
+    const row = el("div", "account-row");
+    const text = document.createElement("div");
+    const title = el("b", "", labels[log.type] || log.type || "安全事件");
+    const summary = el("div", "meta", log.summary || "");
+    const time = el("div", "meta", `${accountTime(log.at)}${log.ipHash ? ` · 来源指纹 ${log.ipHash.slice(0, 6)}…` : ""}`);
+    text.append(title, summary, time);
+    row.appendChild(text);
+    box.appendChild(row);
+  }
+  if (!box.children.length) box.appendChild(el("div", "hint", "暂无安全日志。"));
+}
+
+function renderAccountPanel() {
+  const loggedIn = Boolean(accountInfo?.loggedIn);
+  $("account-anon").classList.toggle("hidden", loggedIn);
+  $("account-logged").classList.toggle("hidden", !loggedIn);
+  if (!loggedIn) {
+    setAccountAuthMode(accountAuthMode);
+    updateAccountSummary();
+    return;
+  }
+  const account = accountInfo.account;
+  $("account-login-name").textContent = account.name;
+  $("account-created").textContent =
+    `注册于 ${accountTime(account.createdAt)} · 账号标识 ${account.accountIdMasked}` +
+    ` · 今日默认模型 ${account.freeCallsUsed || 0}/${account.dailyFreeCalls || "不限"}`;
+  document.querySelector(".account-avatar").textContent = (account.name || "A").slice(0, 1);
+  renderAccountDevices(account);
+  renderAccountLogs(account);
+  updateAccountSummary();
+}
+
+async function submitAccountAuth() {
+  const payload = {
+    name: $("account-auth-name").value,
+    password: $("account-auth-password").value,
+    confirmPassword: $("account-auth-confirm").value,
+  };
+  if (accountAuthMode === "recover") payload.recoveryCode = $("account-auth-recovery").value;
+  $("account-submit").disabled = true;
+  $("account-auth-status").textContent =
+    accountAuthMode === "register" ? "正在创建账号…" : accountAuthMode === "recover" ? "正在验证恢复码…" : "正在登录…";
+  try {
+    const response = await fetch(`/api/account/${accountAuthMode}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      $("account-auth-status").textContent = data.error || "操作失败";
+      return;
+    }
+    $("account-auth-status").textContent = "成功";
+    if (data.recoveryCode) {
+      prompt(`${data.warning || "请保存恢复码"}`, data.recoveryCode);
+    }
+    $("account-auth-name").value = "";
+    $("account-auth-password").value = "";
+    $("account-auth-confirm").value = "";
+    $("account-auth-recovery").value = "";
+    await loadMe();
+    await loadAccountState();
+  } catch (error) {
+    $("account-auth-status").textContent = "网络错误：" + (error.message || error);
+  } finally {
+    $("account-submit").disabled = false;
+  }
+}
+
+$("account-open").addEventListener("click", () => {
+  $("account-modal").classList.remove("hidden");
+  loadAccountState();
+});
+
+document.querySelectorAll("[data-account-mode]").forEach((button) => {
+  button.addEventListener("click", () => setAccountAuthMode(button.dataset.accountMode));
+});
+$("account-submit").addEventListener("click", submitAccountAuth);
+
+$("account-logout").addEventListener("click", async () => {
+  if (!confirm("退出当前设备的账号登录？账号资料仍会保留。")) return;
+  await fetch("/api/account/logout", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+  await loadAccountState();
+  await loadMe();
+});
+
+$("account-password-open").addEventListener("click", () => {
+  $("account-password-box").classList.toggle("hidden");
+});
+
+$("account-password-save").addEventListener("click", async () => {
+  const response = await fetch("/api/account/password", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      currentPassword: $("account-current-password").value,
+      password: $("account-new-password").value,
+      confirmPassword: $("account-new-password-confirm").value,
+    }),
+  });
+  const data = await response.json();
+  $("account-security-status").textContent = response.ok ? "密码已更新，其他设备已退出。" : data.error || "修改失败";
+  if (response.ok) {
+    $("account-current-password").value = "";
+    $("account-new-password").value = "";
+    $("account-new-password-confirm").value = "";
+    accountInfo.account = data.account;
+    renderAccountPanel();
+  }
+});
+
+$("account-revoke-others").addEventListener("click", async () => {
+  if (!confirm("退出当前账号在所有其他设备上的登录？")) return;
+  const response = await fetch("/api/account/devices/revoke-others", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{}",
+  });
+  const data = await response.json();
+  if (!response.ok) return alert(data.error || "操作失败");
+  accountInfo.account = data.account;
+  renderAccountPanel();
+});
+
+$("account-delete").addEventListener("click", async () => {
+  const confirmText = $("account-delete-confirm").value;
+  if (confirmText !== "删除我的数据") return alert("请完整输入“删除我的数据”。");
+  if (!confirm("这会永久注销账号并删除全部资料、剧本、存档、社交关系和私信，确定继续吗？")) return;
+  const response = await fetch("/api/privacy/delete", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      confirm: confirmText,
+      currentPassword: $("account-delete-password").value,
+    }),
+  });
+  const data = await response.json();
+  if (!response.ok) return alert(data.error || "注销失败");
+  alert("账号和个人数据已注销。");
+  $("account-modal").classList.add("hidden");
+  await loadAccountState();
+  await loadMe();
+  location.reload();
+});
+
+function accountSocialRow(card, buttons = []) {
+  const row = el("div", "account-social-item");
+  const info = document.createElement("div");
+  const name = el("b", "", card.name || "匿名旅人");
+  const meta = el("div", "meta", card.bio || `玩家 ID ${card.pid}`);
+  info.append(name, meta);
+  row.appendChild(info);
+  for (const item of buttons) {
+    const button = el("button", "ghost", item.label);
+    button.type = "button";
+    button.addEventListener("click", item.action);
+    row.appendChild(button);
+  }
+  return row;
+}
+
+async function socialAction(path, payload) {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || "操作失败");
+  return data;
+}
+
+async function loadAccountSocial() {
+  const response = await fetch("/api/account/social", { cache: "no-store" });
+  if (!response.ok) return;
+  const data = await response.json();
+  const requests = $("account-friend-requests");
+  const friends = $("account-friends");
+  const following = $("account-following");
+  const blocked = $("account-blocked");
+  requests.innerHTML = "";
+  friends.innerHTML = "";
+  following.innerHTML = "";
+  blocked.innerHTML = "";
+  for (const item of data.incoming || []) {
+    requests.appendChild(
+      accountSocialRow(item.from, [
+        {
+          label: "接受",
+          action: async () => {
+            await socialAction("/api/account/friend/respond", { requestId: item.id, accept: true });
+            loadAccountSocial();
+          },
+        },
+        {
+          label: "拒绝",
+          action: async () => {
+            await socialAction("/api/account/friend/respond", { requestId: item.id, accept: false });
+            loadAccountSocial();
+          },
+        },
+      ])
+    );
+  }
+  if (!requests.children.length) requests.appendChild(el("div", "hint", "没有待处理的好友请求。"));
+  for (const card of data.friends || []) {
+    friends.appendChild(
+      accountSocialRow(card, [
+        { label: "私信", action: () => openAccountMessages(card) },
+        {
+          label: "解除",
+          action: async () => {
+            if (!confirm(`解除与 ${card.name} 的好友关系？`)) return;
+            await socialAction("/api/account/friend/remove", { pid: card.pid });
+            loadAccountSocial();
+          },
+        },
+      ])
+    );
+  }
+  if (!friends.children.length) friends.appendChild(el("div", "hint", "还没有好友。"));
+  for (const card of data.following || []) {
+    following.appendChild(
+      accountSocialRow(card, [
+        {
+          label: "取消关注",
+          action: async () => {
+            await socialAction("/api/account/follow", { pid: card.pid, action: "unfollow" });
+            loadAccountSocial();
+          },
+        },
+      ])
+    );
+  }
+  if (!following.children.length) following.appendChild(el("div", "hint", "还没有关注其他玩家。"));
+  for (const card of data.blocked || []) {
+    blocked.appendChild(
+      accountSocialRow(card, [
+        {
+          label: "解除拉黑",
+          action: async () => {
+            await socialAction("/api/account/block", { pid: card.pid, blocked: false });
+            loadAccountSocial();
+          },
+        },
+      ])
+    );
+  }
+  if (!blocked.children.length) blocked.appendChild(el("div", "hint", "没有拉黑任何玩家。"));
+  await loadAccountConversations();
+}
+
+async function loadAccountConversations() {
+  const response = await fetch("/api/account/messages/conversations", { cache: "no-store" });
+  if (!response.ok) return;
+  const data = await response.json();
+  const box = $("account-conversations");
+  box.innerHTML = "";
+  for (const item of data.conversations || []) {
+    box.appendChild(
+      accountSocialRow(
+        { ...item, bio: item.lastText || "" },
+        [{ label: item.unread ? `私信（${item.unread}）` : "打开私信", action: () => openAccountMessages(item) }]
+      )
+    );
+  }
+  if (!box.children.length) box.appendChild(el("div", "hint", "还没有好友私信。"));
+}
+
+async function openAccountMessages(peer) {
+  accountSocialPeer = peer;
+  $("account-message-view").classList.remove("hidden");
+  $("account-message-title").textContent = `与 ${peer.name} 的私信`;
+  const response = await fetch(`/api/account/messages?pid=${encodeURIComponent(peer.pid)}`, { cache: "no-store" });
+  const data = await response.json();
+  if (!response.ok) return alert(data.error || "读取私信失败");
+  const list = $("account-message-list");
+  list.innerHTML = "";
+  for (const message of data.messages || []) {
+    const item = el("div", `account-message${message.mine ? " mine" : ""}`);
+    item.appendChild(document.createTextNode(message.text));
+    item.appendChild(el("span", "meta", accountTime(message.at)));
+    list.appendChild(item);
+  }
+  if (!list.children.length) list.appendChild(el("div", "hint", "还没有消息，打个招呼吧。"));
+  list.scrollTop = list.scrollHeight;
+}
+
+$("account-social-open").addEventListener("click", async () => {
+  $("account-social-modal").classList.remove("hidden");
+  $("account-message-view").classList.add("hidden");
+  await loadAccountSocial();
+});
+
+$("account-message-send").addEventListener("click", async () => {
+  const input = $("account-message-input");
+  const text = input.value.trim();
+  if (!text || !accountSocialPeer) return;
+  const response = await fetch("/api/account/messages/send", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ pid: accountSocialPeer.pid, text }),
+  });
+  const data = await response.json();
+  if (!response.ok) return alert(data.error || "发送失败");
+  input.value = "";
+  await openAccountMessages(accountSocialPeer);
+  await loadAccountConversations();
+});
 
 $("me-open").addEventListener("click", () => {
   $("me-modal").classList.remove("hidden");
   setBottomNavActive("profile");
   loadMe();
+  loadAccountState();
   loadModelInfo();
 });
 
@@ -2301,19 +2740,23 @@ $("privacy-export").addEventListener("click", async () => {
 $("privacy-delete").addEventListener("click", async () => {
   const typed = prompt("此操作不可撤销。请输入“删除我的数据”以继续：");
   if (typed !== "删除我的数据") return;
+  const currentPassword = accountInfo?.loggedIn
+    ? prompt("这是已注册账号，请输入当前密码以确认注销：")
+    : "";
+  if (accountInfo?.loggedIn && !currentPassword) return;
   if (!confirm("最后确认：删除当前匿名身份下的资料、剧本、预设、存档和公开互动？")) return;
   $("privacy-status").textContent = "正在删除…";
   const r = await fetch("/api/privacy/delete", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ confirm: typed }),
+    body: JSON.stringify({ confirm: typed, currentPassword }),
   });
   const data = await r.json();
   if (!r.ok) {
     $("privacy-status").textContent = data.error || "删除失败";
     return;
   }
-  alert(`删除完成。剧本 ${data.removed?.scenarios || 0} 个、帖子 ${data.removed?.posts || 0} 条、留言 ${data.removed?.feedback || 0} 条。`);
+  alert(`${data.accountDeleted ? "账号注销" : "删除"}完成。剧本 ${data.removed?.scenarios || 0} 个、帖子 ${data.removed?.posts || 0} 条、留言 ${data.removed?.feedback || 0} 条。`);
   location.reload();
 });
 
@@ -3695,6 +4138,7 @@ try {
 
 buildModelPicker();
 loadMe();
+loadAccountState();
 loadMeta();
 const landingSection = new URLSearchParams(location.search).get("section");
 if (["home", "create", "community", "notice", "profile"].includes(landingSection)) {
