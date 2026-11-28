@@ -206,6 +206,7 @@ const ACCOUNT_NAME_RULE = /^[\p{L}\p{N}_\-\u4e00-\u9fff]{2,20}$/u;
 const ACCOUNT_DEVICE_TTL_MS = 30 * 24 * 3600 * 1000;
 const ACCOUNT_CACHE_TTL_MS = 15_000;
 const accountCache = new Map();
+let accountIdSetCache = null;
 let accountIndex = (() => {
   try {
     const data = JSON.parse(fs.readFileSync(ACCOUNT_INDEX_FILE, "utf8"));
@@ -261,6 +262,7 @@ function saveAccount(account, options = {}) {
   if (account.nameKey && options.updateIndex !== false) {
     accountIndex.users[account.nameKey] = account.id;
     accountIndex.updatedAt = Date.now();
+    accountIdSetCache = null;
     writeJsonFile(ACCOUNT_INDEX_FILE, accountIndex);
   }
   return account;
@@ -283,6 +285,7 @@ function rebuildAccountIndex() {
     if (account?.nameKey) next.users[account.nameKey] = account.id;
   }
   accountIndex = next;
+  accountIdSetCache = null;
   writeJsonFile(ACCOUNT_INDEX_FILE, accountIndex);
   return { before: Object.keys(previous.users || {}).length, after: Object.keys(next.users).length };
 }
@@ -348,7 +351,8 @@ function accountIdByName(name) {
 function isAccountId(sid) {
   const id = String(sid || "");
   if (!/^[a-f0-9]{16,40}$/i.test(id)) return false;
-  return Boolean(loadAccount(id));
+  if (!accountIdSetCache) accountIdSetCache = new Set(Object.values(accountIndex.users || {}));
+  return accountIdSetCache.has(id.toLowerCase());
 }
 
 const PASSWORD_HASH_OPTIONS = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
@@ -4006,6 +4010,7 @@ async function handleRequest(req, res) {
     } catch (error) {
       delete accountIndex.users[account.nameKey];
       removeRiskFingerprint(account.id);
+      accountIdSetCache = null;
       writeJsonFile(ACCOUNT_INDEX_FILE, accountIndex);
       invalidateAccountCache(account.id);
       try {
@@ -5144,6 +5149,7 @@ async function handleRequest(req, res) {
       const key = deletingAccount.nameKey;
       if (key && accountIndex.users[key] === sid) delete accountIndex.users[key];
       removeRiskFingerprint(sid);
+      accountIdSetCache = null;
       writeJsonFile(ACCOUNT_INDEX_FILE, accountIndex);
       removeAccountSocialData(sid);
       invalidateAccountCache(sid);
