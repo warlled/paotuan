@@ -1,7 +1,7 @@
-{
-  "name": "玩家自由创作游玩社区网站平台",
-  "short_name": "创作游玩",
-  "description": "跑团推演、自由探索与剧本创作的社区平台",
+﻿{
+  "name": "万达维 wonderweb",
+  "short_name": "万达维",
+  "description": "wonderweb，用热爱与用心，为玩家打造的免费 AI 角色扮演平台",
   "lang": "zh-Hans",
   "start_url": "/",
   "scope": "/",
@@ -14,3 +14,5 @@
     { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }
+
+

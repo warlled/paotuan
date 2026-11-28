@@ -1,4 +1,4 @@
-{
+﻿{
   "model": "deepseek-v4-flash",
   "port": 8890,
   "guestTurnLimit": 800,
@@ -6,7 +6,8 @@
   "maxConcurrentModels": 4,
   "bindHost": "0.0.0.0",
   "requireInvite": false,
-  "publicBase": "https://paotuan.onrender.com",
+  "publicBase": "https://wonderweb.com",
   "reasoningEffort": "low",
   "shareKey": "gmv1f7"
 }
+

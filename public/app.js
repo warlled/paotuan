@@ -871,11 +871,11 @@ function applyMetaData(data, cached = false) {
     $("settings-sect")?.classList.add("hidden");
     document.querySelector('#side-tabs button[data-side-tab="settings"]')?.classList.add("hidden");
     if (activeSideTab === "settings") applySideTab("player");
-    const sub = document.querySelector(".setup-sub");
+    const sub = $("guest-hint") || document.querySelector(".setup-sub");
     if (sub && !$("guest-limit-hint")) {
       sub.insertAdjacentHTML(
         "beforeend",
-        `<div id="guest-limit-hint" style="margin-top:8px;color:#c8a06a">你是访客：这一局最多 ${meta.guestTurnLimit || 60} 回合，进度只保存在你自己的浏览器里。</div>`
+        `<div id="guest-limit-hint">你是访客：这一局最多 ${meta.guestTurnLimit || 60} 回合，进度只保存在你自己的浏览器里。</div>`
       );
     }
   }
@@ -4130,7 +4130,7 @@ function isLocalHostName(host) {
 }
 
 function shareOrigin() {
-  const fallback = (meta && meta.publicBase) || "https://paotuan.onrender.com";
+  const fallback = (meta && meta.publicBase) || "https://wonderweb.com";
   return isLocalHostName(location.hostname) ? String(fallback).replace(/\/+$/, "") : location.origin;
 }
 
@@ -6369,3 +6369,4 @@ $("scd-comment-send")?.addEventListener("click", async () => {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !$("sc-detail-modal")?.classList.contains("hidden")) closeScenarioDetail();
 });
+

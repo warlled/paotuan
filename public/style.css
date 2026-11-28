@@ -2644,17 +2644,21 @@ body:has(.owner-closed-banner) #game { padding-top: 28px; }
   #fb-modal .fb-panel { padding-left: 14px; padding-right: 14px; }
 }
 
-/* ---------- 主页品牌图标：页面右上角，跟随页面滚动 ---------- */
-#setup { position: relative; }
+/* ---------- 主页品牌区：图标在站名左侧 ---------- */
+.home-hero {
+  display: flex;
+  align-items: center;
+  gap: clamp(12px, 1.6vw, 26px);
+  margin-bottom: 2px;
+}
+.hero-copy { min-width: 0; flex: 1 1 auto; }
 .brand-mark {
-  position: absolute;
-  top: clamp(56px, 4vw, 74px);
-  right: clamp(14px, 2vw, 38px);
-  width: clamp(112px, 10.5vw, 162px);
+  position: relative;
+  flex: 0 0 auto;
+  width: clamp(76px, 7vw, 112px);
   aspect-ratio: 1;
   line-height: 0;
   pointer-events: none;
-  z-index: 1;
   display: grid;
   place-items: center;
   animation: brand-float 9s ease-in-out infinite;
@@ -2662,9 +2666,9 @@ body:has(.owner-closed-banner) #game { padding-top: 28px; }
 .brand-mark::before {
   content: "";
   position: absolute;
-  inset: -14%;
+  inset: -12%;
   border-radius: 50%;
-  background: radial-gradient(circle, rgb(150 160 214 / .20), rgb(214 178 196 / .10) 55%, transparent 72%);
+  background: radial-gradient(circle, rgb(150 160 214 / .18), rgb(214 178 196 / .09) 55%, transparent 72%);
   filter: blur(2px);
 }
 .brand-mark picture {
@@ -2677,24 +2681,50 @@ body:has(.owner-closed-banner) #game { padding-top: 28px; }
   width: 100%;
   height: 100%;
   object-fit: contain;
-  filter: saturate(1.25) contrast(1.06) drop-shadow(0 6px 16px rgb(92 96 140 / .22));
+  filter: saturate(1.25) contrast(1.06) drop-shadow(0 5px 14px rgb(92 96 140 / .18));
 }
+.hero-guest {
+  color: #c8a06a;
+  font-size: 12.5px;
+  line-height: 1.7;
+  margin-top: 6px;
+}
+.hero-guest #guest-limit-hint { margin: 0; }
 @keyframes brand-float {
   0%, 100% { transform: translateY(0) rotate(0deg); }
-  50% { transform: translateY(-6px) rotate(1.2deg); }
+  50% { transform: translateY(-5px) rotate(1deg); }
 }
 @media (prefers-reduced-motion: reduce) {
   .brand-mark { animation: none; }
 }
 
-@media (max-width: 1320px) {
-  .brand-mark { width: clamp(96px, 9.5vw, 140px); top: 30px; right: 24px; }
-}
 @media (max-width: 1080px) {
-  .brand-mark { width: clamp(84px, 8vw, 108px); top: 18px; right: 16px; opacity: .9; }
+  .brand-mark { width: clamp(64px, 7.5vw, 92px); }
 }
-/* 窄屏上品牌由图标题和标签图标承担，避免和左上角状态栏叠在一起 */
+/* 手机上让出左上角状态栏的高度，图标排在站名左边 */
 @media (max-width: 900px) {
-  .brand-mark { display: none; }
+  #setup { padding-top: 122px; }
+  .home-hero { gap: 10px; }
+  .brand-mark { width: 58px; }
+  .brand-mark::before { inset: -8%; }
+  .hero-guest { font-size: 12px; }
 }
 
+
+/* 站名作为品牌主标题，字号略放大 */
+.home-hero h1 {
+  font-size: clamp(26px, 2.5vw, 34px);
+  letter-spacing: 3px;
+  margin: 0 0 4px;
+}
+.home-hero .setup-sub {
+  margin-bottom: 0;
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+
+/* 品牌区与下方联机卡片的间距 */
+.home-hero { margin-bottom: 18px; }
+@media (max-width: 900px) {
+  .home-hero { margin-bottom: 14px; }
+}

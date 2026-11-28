@@ -2111,7 +2111,7 @@ function ownScenario(entry, id) {
 }
 
 function scenarioShareUrl(id) {
-  const base = String(engine.config.publicBase || "https://paotuan.onrender.com").replace(/\/+$/, "");
+  const base = String(engine.config.publicBase || "https://wonderweb.com").replace(/\/+$/, "");
   const url = new URL(`${base}/scenario/${encodeURIComponent(id)}`);
   if (shareKey) url.searchParams.set("k", shareKey);
   return url.toString();
@@ -2490,7 +2490,7 @@ const AUTH_VERIFICATION_DEBUG_ENABLED = /^(?:1|true|yes|on)$/i.test(
   String(process.env.AUTH_VERIFICATION_DEBUG || "")
 );
 const AUTH_PUBLIC_BASE = String(
-  process.env.PUBLIC_BASE_URL || engine.config.publicBase || "https://paotuan.onrender.com"
+  process.env.PUBLIC_BASE_URL || engine.config.publicBase || "https://wonderweb.com"
 ).replace(/\/+$/, "");
 const EMAIL_DELIVERY_ENABLED = Boolean(
   String(process.env.RESEND_API_KEY || "").trim() && String(process.env.EMAIL_FROM || "").trim()
@@ -2603,7 +2603,7 @@ async function sendEmailVerificationCode(email, code, purpose) {
     body: JSON.stringify({
       from: String(process.env.EMAIL_FROM || "").trim(),
       to: [email],
-      subject: `玩家自由创作游玩社区网站平台：${label}验证码`,
+      subject: `万达维 wonderweb：${label}验证码`,
       text: `你的${label}验证码是 ${code}，10 分钟内有效。请勿转发给任何人。`,
       html: `<div style="font:15px/1.8 system-ui,sans-serif;color:#202124"><p>你的${escapeEmailHtml(label)}验证码是：</p><p style="font-size:28px;font-weight:700;letter-spacing:6px">${escapeEmailHtml(code)}</p><p>验证码 10 分钟内有效，请勿转发给任何人。</p></div>`,
     }),
@@ -2656,7 +2656,7 @@ async function sendTwilioSms(phone, code) {
   const body = new URLSearchParams({
     To: phone,
     From: String(process.env.TWILIO_FROM_NUMBER || "").trim(),
-    Body: `玩家自由创作游玩社区网站平台验证码：${code}，10 分钟内有效。`,
+    Body: `万达维 wonderweb 验证码：${code}，10 分钟内有效。`,
   });
   const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(sid)}/Messages.json`, {
     method: "POST",
@@ -6189,7 +6189,7 @@ async function handleRequest(req, res) {
   if (p === "/api/meta") {
     return send(res, 200, {
       // 本机/内网打开页面时，分享链接要回落到这个公开地址
-      publicBase: String(engine.config.publicBase || "https://paotuan.onrender.com"),
+      publicBase: String(engine.config.publicBase || "https://wonderweb.com"),
       scenarios: scenarioListFor(entry),
       presets: engine.listPresets(presetDirFor(entry)),
       attrs: engine.ATTRS,
@@ -8368,5 +8368,6 @@ function start(port, retries) {
 }
 
 start(engine.config.port, 12);
+
 
 
