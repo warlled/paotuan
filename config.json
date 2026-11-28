@@ -1,4 +1,4 @@
-﻿{
+{
   "model": "deepseek-v4-flash",
   "port": 8890,
   "guestTurnLimit": 800,
